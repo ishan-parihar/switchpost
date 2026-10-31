@@ -3908,3 +3908,63 @@ Stage Summary:
   from reading a grep result instead of the returned `AuthToken`. That is the
   same lesson as the five earlier retractions this cycle, and it is why every
   verdict in the outline is a file-and-line rather than a pattern.
+
+---
+Task ID: outline-remaining-gaps-v2
+Agent: Jcode
+Task: produce the outline of remaining implementation gaps so the operator
+can approve the remaining execution
+
+Work Log:
+- Read the register first (TODO.md: 17 open rows, 2 blocked) and the phase
+  plan (PHASES_P0-P9: P0 through P9 all done, so no phase work remains). The
+  queue is therefore the register's open rows plus the two outlines' gaps,
+  not a phase plan.
+- Synced with github/master first (b7cf00a) - two commits had landed since
+  my last push, both frontend/probe. Writing an outline against a stale HEAD
+  would have produced a list that disagreed with the tree.
+- Pinned the three token-refresh sites by reading each file rather than
+  grepping. This is the same failure the previous pass hit: the greps that
+  returned "no matches" on instagram_standalone.rs and threads.rs kept
+  returning nothing on re-run, and listing `async fn` per file resolved all
+  three immediately. Final pins: linkedin.rs:728-735,
+  instagram_standalone.rs:210-220, threads.rs:204-214, and the good idiom at
+  linkedin_page.rs:252-262.
+- Read the repo's own precedent for the test-shape question:
+  tests/linkedin_e2e_test.rs:933 reads a provider's source and pins its
+  arrangement (checks `resp.status()`, reads `resp.text()`, never
+  `resp.json()` directly). That is the precedent the token-refresh test
+  should follow, and the reason is a real constraint rather than a
+  preference - the provider constructors take only `&Config`, every URL is a
+  hardcoded `&'static str`, and there is no mock-server dependency in the
+  tree, so a test cannot point LinkedIn at 127.0.0.1.
+- Found the UI dependency order that the register does not carry: UI-C2
+  before UI-C1 (the `+N more` affordance has to live inside whatever height
+  C2 decides), and UI-M1 before UI-M2 (M1 is M2's stated prerequisite).
+- Re-measured the two follow-ups the previous outline left open and both are
+  closed: `.sqlx/` has 60 entries and `SQLX_OFFLINE=true cargo check --lib`
+  exits 0 (committed at 278e742), and the D003 orphan closed with ae35795.
+  Recorded both in §7 with their evidence so neither is re-opened.
+- Wrote docs/planning/OUTLINE_REMAINING_GAPS.md (340 lines) and routed it
+  through PAGE-INDEX.md and AGENTS.md §0.6 in the SAME commit - D003 wants a
+  resolved link, not a routing row, which is the lesson from ae35795.
+
+Stage Summary:
+- `5834db6` on github/master. Nothing applied - it is the list awaiting
+  approval.
+- 15 items: 3 `now` (the token-discard fix, its helper, and the pre-publish
+  half), 7 `next`, 2 `deferred`, 1 `blocked` (the Google grouping, which is
+  a platform constraint), and the credential-gated set.
+- The Google-Suite grouping is recorded as a PLATFORM constraint, not a code
+  mess: Google refuses YouTube+Drive and YouTube+calendar.events before
+  consent (live 2026-10-30), so only `google`+`gmail`+`calendar`+`drive` can
+  group, with YouTube necessarily separate. What is open is the UI, and it
+  needs the operator's decision. All five providers already share
+  YOUTUBE_CLIENT_ID/SECRET, so it is not a credential problem either.
+- Two verification traps named in the doc rather than left implicit: the
+  test cannot be behavioural (no injectable base URL, no mock dependency), and
+  the mutation that must go RED is the reintroduced `?` - if deleting the
+  profile fetch entirely is the only mutation that passes, the test is
+  asserting a sentence, not a property.
+- docs gate: 1 hard failure, the pre-existing eda6828 orphan, which is item
+  14 in this very queue.
