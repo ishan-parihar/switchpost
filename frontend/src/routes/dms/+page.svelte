@@ -28,7 +28,27 @@
         // Phase 5: filter to DM-capable providers instead of defaulting to
         // integrations[0] which might be a non-DM provider (GitHub, YouTube, etc.)
         const DM_CAPABLE = ['x', 'instagram', 'linkedin'];
-        const dmCapable = integrations.filter(i => DM_CAPABLE.includes(i.provider_identifier));
+        // ...AND, MEASURED 2026-10-31, to channels that can actually DO it.
+        //
+        // The default used to be the first DM_CAPABLE provider by list order,
+        // and on this instance that is Ishan Parihar (x) - a COOKIE-auth
+        // channel. X's DM API needs OAuth, so the backend refuses it:
+        //   "X direct messages need an OAuth-connected channel. Cookie-auth
+        //    channels (auth_token + ct0) cannot use X's DM API."
+        // The founder landed on /dms and met an error immediately, while
+        // github and reddit - which have no DM surface at all - sat in the
+        // same selector.
+        //
+        // `auth_method` is already on IntegrationPublic, so the fact that
+        // discriminates them is on the wire and was simply not read. A
+        // cookie/cookies/token-auth X channel cannot DM; an oauth one can.
+        // The capability lives on the server, so this is a preference over
+        // what the server already answered - not a second guess at the
+        // rule (9.18: one implementation per rule, on both sides).
+        const dmCapable = integrations.filter(
+          i => DM_CAPABLE.includes(i.provider_identifier) &&
+            (i.auth_method || 'oauth') === 'oauth'
+        );
         if (dmCapable.length > 0) {
           selectedIntegrationId = dmCapable[0].id;
         } else {

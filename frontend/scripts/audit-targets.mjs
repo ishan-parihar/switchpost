@@ -203,6 +203,32 @@ async function main() {
   });
   await page.waitForTimeout(2500);
 
+  // ── THE ONBOARDING TOUR, and it was on EVERY route this gate measured ──
+  //
+  // MEASURED 2026-10-31: replayed this gate's exact login with no
+  // dismissal and the tour `Welcome to Switchpost` was open on /channels,
+  // /posts/new, /calendar and / alike - one full-screen `role="dialog"`,
+  // and its own Skip button is one of the controls this gate counted.
+  //
+  // So every tap target below was measured through an overlay that
+  // changes the page's DOM, and the tour's own buttons were in the
+  // population. "0 controls under the floor" was a measurement of the
+  // tour and the page it covers, not of the app the founder uses.
+  //
+  // Same step `audit-dialogs.mjs` and `audit-contrast.mjs` take, for the
+  // same reason (9.49): set the flag so the layout does not raise it again
+  // on the next navigation, then click Skip if the tour is on screen. It
+  // has to be AFTER the login - the layout only raises the tour once the
+  // app is authenticated, so dismissing before it does nothing.
+  await page.evaluate(() => {
+    try { localStorage.setItem('switchpost-onboarded', 'true'); } catch {}
+  });
+  const skipTour = page.getByRole('button', { name: /^skip$|skip the|skip tour/i }).first();
+  if (await skipTour.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await skipTour.click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(500);
+  }
+
   const ROUTES = [
     '/', '/calendar', '/posts', '/campaigns', '/channels', '/analytics',
     '/activity', '/research', '/feed', '/media', '/tags', '/kanban',

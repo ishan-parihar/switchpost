@@ -724,6 +724,35 @@ async function login(page) {
   if (!res.ok()) {
     throw new Error(`Login failed: HTTP ${res.status()}`);
   }
+
+  // ── SET THE ONBOARDED FLAG, at login, once ──
+  //
+  // MEASURED 2026-10-31: the per-route `dismissOnboarding()` below could
+  // not dismiss anything. It clicks the tour's Skip control, but the tour
+  // is NOT up in the moment right after the login POST (the layout only
+  // raises it once the app is authenticated AND a route has mounted), so
+  // `skip.isVisible()` was false, nothing was clicked, and the tour then
+  // covered every route measured after it - /calendar, /channels and /
+  // all opened with `Welcome to Switchpost` up and
+  // `localStorage['switchpost-onboarded']` still null.
+  //
+  // The flag is what the layout checks on every mount, so setting it once
+  // here is what actually stops the tour returning on the next
+  // navigation. Clicking Skip alone does not persist.
+  //
+  // IT MUST BE SET ON THE ORIGIN, and that is not where this function
+  // runs. The probe logs in with `page.request.post`, which never
+  // navigates, so the page is still at `about:blank` - and on
+  // `about:blank` reading `localStorage` throws
+  // `SecurityError: Access is denied for this document`. Verified: the
+  // flag stayed null and the tour was still up on the next route. A bare
+  // try/catch around the write hides that completely, so the write is
+  // preceded by a real navigation to the app's origin, where the storage
+  // partition is the one the routes will use.
+  await page.goto(`${BASE_URL}/login`, { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => {
+    try { localStorage.setItem('switchpost-onboarded', 'true'); } catch {}
+  });
 }
 
 /// Dismiss the first-run onboarding overlay if it is up.
