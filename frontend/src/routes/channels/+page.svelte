@@ -40,6 +40,12 @@
   // of "Instagram"). Those overrides live here so the central map stays
   // generic.
   import { providerLabel as centralProviderLabel, HIDDEN_PROVIDERS } from "$lib/providers";
+  // Google Suite grouping: Gmail and Google collapse into ONE tile (they are
+  // one credential pair and their scopes coexist in one consent), while
+  // Calendar, Drive and YouTube keep their own tiles because Google refuses
+  // their scope combinations. See the module for the measured reasoning -
+  // `tests/google_suite_group_test.rs` pins both the list and the reason.
+  import { collapseGoogleSuite, GOOGLE_SUITE_NOTE } from "$lib/channels/google-suite";
   const PROVIDER_LABEL_OVERRIDES: Record<string, string> = {
     x: "X (Twitter)",
     "instagram-standalone": "Instagram (Standalone)",
@@ -58,6 +64,12 @@
     "google-my-business": "Google Business",
   };
   function providerLabel(provider: string): string {
+    // The suite tile's representative is `google`, but it speaks for the
+    // PAIR (google + gmail, one credential, one consent), so it is labelled as
+    // the group rather than as one member. Without this the tile reads
+    // "Google" and the Gmail tile beside it reads as a second, separate
+    // Google account.
+    if (provider === SUITE_REPRESENTATIVE) return "Google Suite";
     if (PROVIDER_LABEL_OVERRIDES[provider]) return PROVIDER_LABEL_OVERRIDES[provider];
     return centralProviderLabel(provider);
   }
@@ -127,7 +139,23 @@
     for (const i of integrations) m.set(i.provider_identifier, (m.get(i.provider_identifier) ?? 0) + 1);
     return m;
   });
-  let connectableProviders = $derived(availableProviders);
+  let connectableProviders = $derived(collapseGoogleSuite(availableProviders).standalone);
+
+  // How many Google-family accounts the founder has, across BOTH the suite
+  // tile and the separate Google tiles. The suite tile's "N connected" badge
+  // has to describe the credential pair, not just `google`, or a founder with
+  // a connected Gmail sees "Connect Google" and thinks their account is gone.
+  let suiteConnected = $derived.by(() => {
+    let n = 0;
+    for (const i of integrations) {
+      if (i.provider_identifier === 'google' || i.provider_identifier === 'gmail') n++;
+    }
+    return n;
+  });
+
+  // A provider id the grid should render as the suite tile's representative is
+  // `google`; the tile needs to know it is a group so it can show the note.
+  const SUITE_REPRESENTATIVE = 'google';
 
   async function load() {
     loading = true;
@@ -367,7 +395,8 @@
     {:else}
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
         {#each connectableProviders as provider (provider)}
-          {@const connCount = connectedCounts.get(provider) ?? 0}
+          {@const isSuite = provider === SUITE_REPRESENTATIVE}
+          {@const connCount = isSuite ? suiteConnected : (connectedCounts.get(provider) ?? 0)}
           <button
             onclick={() => initiateConnect(provider)}
             disabled={connecting === provider}
@@ -383,6 +412,15 @@
             <span class="text-xs text-center">
               {connCount > 0 ? `Add another ${providerLabel(provider)}` : providerLabel(provider)}
             </span>
+            {#if isSuite}
+              <!--
+                The reason the group exists, under the tile. Without it the
+                founder sees one Google tile covering only Google+Gmail while
+                Calendar/Drive/YouTube sit beside it with their own tiles, and
+                reads it as a bug. It is a platform constraint, not an omission.
+              -->
+              <span class="text-[10px] text-muted leading-tight px-1">{GOOGLE_SUITE_NOTE}</span>
+            {/if}
           </button>
         {/each}
       </div>
