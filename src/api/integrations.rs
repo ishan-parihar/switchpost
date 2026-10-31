@@ -336,6 +336,23 @@ pub struct ProviderStatus {
     /// provider drifted. The provider implementation is the owner; this
     /// publishes it.
     pub char_limit: usize,
+    /// Whether this provider has a DIRECT-MESSAGE surface the app can drive.
+    ///
+    /// The `/dms` page used to carry its own hardcoded list
+    /// (`['x','instagram','linkedin']`) and pick the first match as the
+    /// default channel, so on an instance whose only X channel is
+    /// COOKIE-auth the founder landed on a 400: X's DM API is bearer-only,
+    /// and a cookie channel has no bearer. MEASURED 2026-11-01 - /dms
+    /// opened with the X channel selected and the server answering
+    /// 400 "X direct messages need an OAuth-connected channel".
+    ///
+    /// A client-side guess is not the owner of that rule, and guessing it
+    /// differently (auth_method) just moves the drift: the same client
+    /// then offered X in the same selector and produced the 400 from the
+    /// UI. `capabilities` in `src/social/mod.rs` is the one place that
+    /// knows, so this publishes it for the same reason `char_limit` is
+    /// published above.
+    pub dm_supported: bool,
 }
 
 /// GET /api/providers — list all providers with config status
@@ -372,6 +389,7 @@ pub async fn list_providers(
             },
             tier: state.providers.tier(id).as_str(),
             char_limit: provider.max_content_length(),
+            dm_supported: provider.dm_capable(),
         });
     }
     statuses.sort_by(|a, b| a.identifier.cmp(&b.identifier));

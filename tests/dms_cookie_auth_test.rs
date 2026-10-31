@@ -132,3 +132,60 @@ async fn cookie_auth_x_cannot_send_dms() {
         "the send path refuses with the same reason: {body}"
     );
 }
+
+// ─── The DM capability is PUBLISHED, not guessed by each client ───
+//
+// The refusal above is the channel-level rule. The page that offers the
+// channel needs the PROVIDER-level one, and it used to carry its own
+// hardcoded `['x','instagram','linkedin']` - which is how an instance
+// whose only X channel is cookie-auth came to open /dms on a 400.
+//
+// The first client-side fix guessed again from `auth_method`, so the rule
+// had two implementations in two languages, and the page still OFFERED X
+// in the same selector. `dm_supported` is the fix: `/api/providers`
+// publishes it, read from the provider trait, and this test pins it.
+//
+// THE POINT OF THE ASSERTION IS THE SET, not the count. A provider that
+// gains a DM surface MUST report true here or it silently disappears from
+// the /dms page - and a provider that never implements DMs must not report
+// true here or it offers a channel the API then refuses. Both directions
+// are checked, so a provider added either way fails the suite.
+#[tokio::test]
+async fn api_providers_publishes_dm_capability_from_the_trait() {
+    let state = state().await;
+
+    let (status, body) = call(&state, Method::GET, "/api/providers", None).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+
+    let providers: Vec<serde_json::Value> = serde_json::from_str(&body).expect("json array");
+    let dm_ids: Vec<String> = providers
+        .iter()
+        .filter(|p| p["dm_supported"] == json!(true))
+        .filter_map(|p| p["identifier"].as_str().map(str::to_string))
+        .collect();
+
+    assert!(
+        !dm_ids.is_empty(),
+        "no provider reports a DM surface - the /dms page would have nothing to offer"
+    );
+
+    // These three implement `SocialProvider::get_dm_conversations`, which is
+    // the code fact `dm_capable()` reports. A fourth DM provider that forgets
+    // the flag is a page-level hole; the field existing at all is what makes
+    // that a test failure instead of a founder's 400.
+    for expected in ["x", "instagram", "linkedin"] {
+        assert!(
+            dm_ids.iter().any(|id| id == expected),
+            "{expected} implements DMs but does not report dm_supported - it would vanish from /dms. reported: {dm_ids:?}"
+        );
+    }
+
+    // And no provider that has NO dm implementation claims one.
+    for claimed in &dm_ids {
+        let is_real = ["x", "instagram", "linkedin"].contains(&claimed.as_str());
+        assert!(
+            is_real,
+            "{claimed} reports dm_supported but implements no DM methods - the page would offer a channel the API refuses. reported: {dm_ids:?}"
+        );
+    }
+}

@@ -61,6 +61,22 @@ export interface ProviderStatus {
   redirect_uri: string;
   tier: string;
   char_limit: number;
+  /**
+   * Whether the PROVIDER has a direct-message surface at all - read from
+   * the provider implementation, not guessed here.
+   *
+   * The /dms page used to carry its own hardcoded
+   * `['x','instagram','linkedin']` and pick the first match as the default
+   * channel. On an instance whose only X channel is COOKIE-auth that landed
+   * on a 400, because X's DM API is bearer-only. A client-side guess
+   * (`auth_method === 'oauth'`) just moved the drift and still offered X in
+   * the same selector.
+   *
+   * NOTE this is the PROVIDER's capability, not a given CHANNEL's. An X
+   * channel authenticated with cookies still cannot reach X's DMs - that
+   * is the channel-level check the page also has to make.
+   */
+  dm_supported: boolean;
 }
 
 export interface TargetInfo {

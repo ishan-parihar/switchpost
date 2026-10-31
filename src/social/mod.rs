@@ -891,6 +891,33 @@ pub trait SocialProvider: Send + Sync {
 
     // ── DM Methods ───────────────────────────────────────────
 
+    /// Whether this provider has a DIRECT-MESSAGE surface the app can drive.
+    ///
+    /// The default is the honest answer for the trait's other implementations:
+    /// this method is OVERRIDDEN only by a provider that has a DM surface
+    /// (`x`, `instagram`, `linkedin`), so "did they override it" is a code
+    /// fact rather than a list someone has to keep in step.
+    ///
+    /// It exists so the API can PUBLISH the capability instead of leaving
+    /// every client to guess. The `/dms` page carried its own hardcoded
+    /// `['x','instagram','linkedin']` and picked the first match as the
+    /// default channel; on an instance whose only X channel is COOKIE-auth
+    /// that shipped a 400 on a page load, because X's DM API is bearer-only.
+    /// Then the client-side "fix" guessed again (`auth_method === 'oauth'`)
+    /// and the same page offered X in the same selector. Same failure shape
+    /// as the duplicated `char_limit` table (9.20): a rule with more than
+    /// one implementation is a rule that will drift.
+    ///
+    /// NOTE this says the PROVIDER has DMs, not that a given CHANNEL can
+    /// reach them - an X channel authenticated with cookies cannot, however
+    /// capable X is. That second distinction is `auth_method`, and the
+    /// channel-level check belongs where the channel is known. The API's
+    /// guard (`x_cookie_auth_dm_refusal`) remains the authority there; this
+    /// is what lets a UI avoid offering the login in the first place.
+    fn dm_capable(&self) -> bool {
+        false
+    }
+
     /// Send a direct message to a user
     async fn send_dm(
         &self,

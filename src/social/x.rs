@@ -2285,6 +2285,15 @@ impl SocialProvider for XProvider {
         })
     }
 
+    // This provider has a DM surface, so `dm_capable()` reports true — which is
+    // what lets the /dms page learn it from the API instead of guessing a
+    // provider list. NOTE this says the PROVIDER can do DMs, not that any
+    // given CHANNEL can: X's DM API is bearer-only, and the API level
+    // refuses a COOKIE-auth channel for that reason.
+    fn dm_capable(&self) -> bool {
+        true
+    }
+
     async fn get_dm_conversations(
         &self,
         access_token: &str,

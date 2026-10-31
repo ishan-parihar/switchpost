@@ -1412,6 +1412,13 @@ impl SocialProvider for LinkedInProvider {
         Err(ProviderError::Api(msg))
     }
 
+    // This provider has a DM surface, so `dm_capable()` reports true, which is what
+    // lets the /dms page learn it from the API instead of guessing a provider
+    // list. This says the PROVIDER can do DMs, not that any given CHANNEL can.
+    fn dm_capable(&self) -> bool {
+        true
+    }
+
     async fn get_dm_conversations(
         &self,
         access_token: &str,

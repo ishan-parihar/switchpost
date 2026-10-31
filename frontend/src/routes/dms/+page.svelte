@@ -25,28 +25,36 @@
     if (r.data) {
       integrations = r.data.integrations.filter(i => !i.disabled);
       if (integrations.length > 0 && !selectedIntegrationId) {
-        // Phase 5: filter to DM-capable providers instead of defaulting to
-        // integrations[0] which might be a non-DM provider (GitHub, YouTube, etc.)
-        const DM_CAPABLE = ['x', 'instagram', 'linkedin'];
-        // ...AND, MEASURED 2026-10-31, to channels that can actually DO it.
+        // Provider capability comes from the SERVER, not from a list here.
         //
-        // The default used to be the first DM_CAPABLE provider by list order,
-        // and on this instance that is Ishan Parihar (x) - a COOKIE-auth
-        // channel. X's DM API needs OAuth, so the backend refuses it:
+        // This page used to carry `DM_CAPABLE = ['x','instagram','linkedin']`
+        // and pick the first match as the default channel. On an instance
+        // whose only X channel is COOKIE-auth that shipped a 400 on a page
+        // load, because X's DM API is bearer-only and a cookie channel has
+        // no bearer. MEASURED 2026-11-01: /dms opened with the X channel
+        // selected and the server answering
         //   "X direct messages need an OAuth-connected channel. Cookie-auth
         //    channels (auth_token + ct0) cannot use X's DM API."
-        // The founder landed on /dms and met an error immediately, while
-        // github and reddit - which have no DM surface at all - sat in the
-        // same selector.
         //
-        // `auth_method` is already on IntegrationPublic, so the fact that
-        // discriminates them is on the wire and was simply not read. A
-        // cookie/cookies/token-auth X channel cannot DM; an oauth one can.
-        // The capability lives on the server, so this is a preference over
-        // what the server already answered - not a second guess at the
-        // rule (9.18: one implementation per rule, on both sides).
+        // The first attempt at a fix guessed again, from `auth_method`, and
+        // the same page still OFFERED X in the same selector - a second
+        // implementation of a rule the server owns, which is the shape
+        // 9.20 is about (the duplicated char_limit table that drifted).
+        // `/api/providers` now publishes `dm_supported`, read from the
+        // provider implementation, so there is ONE rule.
+        //
+        // TWO levels, and the page needs both:
+        //   dm_supported  - does the PROVIDER have a DM surface (server),
+        //   auth_method   - can THIS channel reach one (a COOKIE X cannot).
+        // The provider default below uses both. The channel is still
+        // offered in the selector if the founder picks it - but no accident
+        // puts it there, and the API remains the authority if they do.
+        const provRes = await integrationsApi.listProviders();
+        const dmProviders = new Set(
+          (provRes.data ?? []).filter(p => p.dm_supported).map(p => p.identifier)
+        );
         const dmCapable = integrations.filter(
-          i => DM_CAPABLE.includes(i.provider_identifier) &&
+          i => dmProviders.has(i.provider_identifier) &&
             (i.auth_method || 'oauth') === 'oauth'
         );
         if (dmCapable.length > 0) {
