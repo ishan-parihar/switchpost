@@ -109,6 +109,35 @@ async function main() {
   await page.evaluate(() => document.querySelector('input[type=password]').closest('form').requestSubmit());
   await page.waitForTimeout(2500);
 
+  // ── THE ONBOARDING TOUR, and this walker has never dismissed it ──
+  //
+  // MEASURED 2026-10-31: with this script's own login and no dismissal,
+  // the first-run tour is OPEN on every route it walks - /media,
+  // /comments, /dms, /automation, /kanban, /search - with
+  // `localStorage['switchpost-onboarded']` null. It is a full-screen
+  // role="dialog", so it is part of the population this script measures.
+  // Counting exactly, across those six routes:
+  //
+  //   tour open   population 541, of which 102 controls live IN the tour
+  //   tour closed  population 439
+  //
+  // So 19% of what this gate measures is an overlay the founder sees once.
+  // A walker whose job is "states no existing gate reaches" was measuring
+  // one state every gate already reaches, and reporting 0 findings from it.
+  //
+  // This script logs in by SUBMITTING the form on /login, so the page is
+  // already on the origin and the storage partition is the right one - the
+  // flag write just has to happen. Same step the probe, audit-targets and
+  // audit-contrast take (9.49), for the same reason.
+  await page.evaluate(() => {
+    try { localStorage.setItem('switchpost-onboarded', 'true'); } catch {}
+  });
+  const skipTour = page.getByRole('button', { name: /^skip$|skip the|skip tour/i }).first();
+  if (await skipTour.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await skipTour.click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(500);
+  }
+
   for (const width of [1440, 375]) {
     await page.setViewportSize({width, height:900});
     // — Composer deep states —
