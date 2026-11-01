@@ -4552,3 +4552,60 @@ wrote the fixture with `sqlx::SqlitePool::connect("sqlite::memory:")` and got
 `connect` gives a bare pool. The error message is misleading - it says "no
 such table: users", which reads like a missing seed, when the real cause is
 that no migration ever ran.
+
+---
+Task ID: surface-docs-audit-d3-retarget
+Agent: Jcode
+Task: Close the three red `surface_docs_audit` tests (the register's open item
+from the 2026-11-01 cycle).
+
+Work Log:
+- Read `tests/surface_docs_audit.rs` D3 and `skills/switchpost-agent/references/`
+  to see what the tests expected and what the tree actually has.
+- Established the provenance: `references/providers.md` was deliberately retired
+  in `7a7fcc9` (v0.5.0 skill rebuild) because it carried a wrong
+  `providers -> internal_id` claim. Its replacements are `platform-matrices.md`
+  and `mcp-catalogue.md`. D1 and D3 still read the retired file.
+- Established why nobody saw it: the `.sqlx/` offline cache was stale from a
+  concurrent commit, so the whole test suite could not BUILD. The panic was
+  invisible behind a build failure for its entire life. Verified the cache is
+  now repaired (the earlier regeneration was byte-identical against a fresh DB).
+- Retargeted D1's tool-count test and D3 at `mcp-catalogue.md`.
+- D3 needed a real parser, not a find-and-replace. Enumerated the catalogue's
+  heading shapes and found five, three of which a first-`(N tools)` read gets
+  wrong: Mastodon is credited Bluesky's 7, Instagram's 21 is read as its total,
+  and every blog prefix is missed - so Hashnode, Medium and Dev.to were
+  unmeasured while WordPress, on the same line, was checked.
+- Iterated the parser twice on the REGISTERED numbers, not on a guess: first
+  scope (per-prefix, to the next `(`) double-counted Instagram at 56 because
+  both its numbers sit after both its labels; then whole-line sum made Threads
+  absorb TikTok's 4. Settled on: the heading's parenthesised region's numbers,
+  in order, one per prefix it names, with an assertion that the two counts agree.
+- Added a coverage guard: a heading that STATES per-platform counts with no
+  section entry is a failure. This closes the shape that left three platforms
+  unmeasured for a whole release.
+- Fixed the `docs/platforms-and-cli.md` CLI count 63 -> 64 against clap.
+
+Stage Summary:
+- Pushed `50f0e1a` to `github/master` (confirmed on the remote ref).
+- `cargo test --lib` 543/543. `cargo test --tests` 1005/1005, 0 failed.
+  `cargo check --lib --tests` offline 0 errors.
+- Verified the gate is live by mutation, not by reading it: 18 mutations across
+  all five heading shapes, both numbers of every two-platform heading, and the
+  unmeasured-heading guard - all 18 caught. One body-drop mutation (a tool
+  removed with no continuation) also caught.
+- Staged only this task's files; a concurrent session's uncommitted work in
+  `scripts/genome`, `src/feed/mod.rs`, `src/db/queries.rs`, `.sqlx/` was left
+  alone.
+
+FOLLOW-UP FOR THE NEXT AGENT, because it cost me two iterations:
+- The catalogue's headings group platforms FIVE different ways. Any future
+  parser over them must be mutation-tested against the multi-platform lines
+  (Bluesky/Mastodon, Threads/TikTok, the four-platform blogs line, the
+  labelled Telegram/LinkedIn forms), because a parser that passes on
+  `## X (x_, 27 tools)` is not a parser.
+- Two of my early mutations reported "ok" when they should have been red. The
+  cause was the harness itself: the restore step raced the test run. Any
+  mutation harness must mutate -> assert -> restore in that order, in ONE
+  shell command, before its verdict is believed. That is the recursive lesson
+  of this whole cycle, applied to my own tooling.
