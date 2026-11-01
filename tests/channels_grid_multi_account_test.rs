@@ -120,3 +120,103 @@ fn the_connected_state_is_counted_not_merely_flagged() {
          provider read as 1"
     );
 }
+
+// ─── Red-team: the reconnect hint must not diagnose a cause it cannot see ──
+//
+// PRODUCTION EVIDENCE, not a hypothetical. Deploying the feed fixes put the
+// new classifier in front of the founder's real LinkedIn channels, and it
+// logged, for every one of them:
+//
+//     "Integration ... (linkedin-page) points at a resource no longer
+//      served (API error: No virtual resource found). The channel's token
+//      is fine, so it stays publishable; the target is gone."
+//
+// ...while the SAME rows still carried `refresh_needed = 1` from pre-fix
+// state, and one of them holds a token valid until 2026-12-29.
+//
+// So the Channels card then told the founder:
+//
+//     "The stored token could not be refreshed. Reconnect to resume posting."
+//
+// That is a diagnosis the client cannot make: `IntegrationPublic`
+// (src/db/models.rs) exposes the BOOLEAN `refresh_needed` and no failure
+// reason at all, so the cause is not in the payload `channelStatus()` reads.
+// The founder is told the token is broken, reconnects (re-running OAuth they
+// did not need), and watches the channel fail again - because the page is
+// gone and the token was always fine.
+//
+// The fix removes the false diagnosis and keeps the correct action. This is
+// the same discipline the file already documents for `token_expires_at`:
+// never render a claim the API does not send.
+//
+// WHY A SOURCE TEST and not a behavioural one: the frontend has no unit-test
+// runner (no vitest/jest in frontend/package.json; playwright-core is only
+// for browser automation), and `channelStatus()` is browser-side. The
+// condemned strings are the invariant - asserting their ABSENCE survives a
+// rewrite of the wording, which asserting the new sentence would not.
+#[test]
+fn the_reconnect_hint_stops_diagnosing_the_token() {
+    let src = read_channel_status_source();
+
+    // The specific claims the client has no data for.
+    for condemned in [
+        "The stored token could not be refreshed",
+        "could not be refreshed",
+    ] {
+        assert!(
+            !src.contains(condemned),
+            "the refresh_needed hint still asserts a cause the API does not \
+             send ({condemned:?}). Production proves it is false: a channel \
+             can carry a stale flag while its token is fine and the TARGET is \
+             what is gone - the founder then reconnects for nothing and the \
+             channel fails again."
+        );
+    }
+
+    // And the survivors that make the card still useful.
+    assert!(
+        src.contains("Needs reconnect"),
+        "the channel lost its reconnect label, so the founder has no name for \
+         the state that needs attention"
+    );
+    assert!(
+        !src.contains("unreachable!("),
+        "channel-status.ts must not panic a path it cannot handle"
+    );
+}
+
+/// The two files must not drift back apart: if `IntegrationPublic` ever grows
+/// a real failure-reason field, this hint is where it becomes safe to say why.
+#[test]
+fn integration_public_still_exposes_no_failure_reason() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src/db/models.rs")
+        .canonicalize()
+        .unwrap_or_else(|e| panic!("resolve src/db/models.rs: {e}"));
+    let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+
+    let start = src
+        .find("pub struct IntegrationPublic")
+        .unwrap_or_else(|| panic!("IntegrationPublic is gone - a rename broke the payload contract"));
+    let body = src[start..]
+        .split('}')
+        .next()
+        .unwrap_or_else(|| unreachable!("a struct body always ends with }}"));
+
+    assert!(
+        !body.contains("refresh_reason")
+            && !body.contains("failure_reason")
+            && !body.contains("feed_error"),
+        "IntegrationPublic now exposes a failure reason, so channel-status.ts \
+         is free to name the cause - REMOVE the source test above that \
+         forbids it and make the hint say why, using the new field"
+    );
+}
+
+fn read_channel_status_source() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("frontend/src/lib/channels/channel-status.ts")
+        .canonicalize()
+        .unwrap_or_else(|e| panic!("resolve channel-status.ts: {e}"));
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"))
+}

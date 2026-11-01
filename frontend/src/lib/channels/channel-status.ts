@@ -65,7 +65,28 @@ export function channelStatus(integration: Integration, now: Date = new Date()):
     return {
       state: "refresh_needed",
       label: "Needs reconnect",
-      hint: "The stored token could not be refreshed. Reconnect to resume posting.",
+      // DO NOT assert a cause here. This hint used to blame the refresh
+      // itself - a claim the client cannot make.
+      // `IntegrationPublic` (src/db/models.rs) carries only the boolean
+      // `refresh_needed`, with no failure reason, so the cause is NOT in the
+      // payload this function is given.
+      //
+      // Production proved the old wording was actively wrong. The backend
+      // (src/feed/mod.rs, `classify_feed_failure`) now distinguishes a token
+      // problem from a gone target, and for these channels it logs "The
+      // channel's token is fine, so it stays publishable; the target is
+      // gone" while the row still carries the stale pre-fix flag. So the
+      // founder was told the token failed, saw it reconnect, and watched the
+      // channel fail again - because the page, not the token, was the problem.
+      //
+      // Reconnecting is still the right action to OFFER, so `actionable` stays
+      // true; only the false diagnosis is removed.
+      //
+      // NOTE the phrasing here deliberately avoids the two literal sentences
+      // this file used to carry, because tests/channels_grid_multi_account_test.rs
+      // asserts their ABSENCE over this source - a comment that repeats a
+      // condemned phrase would fail its own guard.
+      hint: "This channel needs attention. Reconnect it from Channels, then check its posts still load.",
       icon: "refresh",
       chip: "text-content border-error/50 bg-error/10",
       textClass: "text-error",
