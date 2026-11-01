@@ -4163,3 +4163,55 @@ Stage Summary:
   the risk is pinned, not that a defect was closed.
 - IEC 62304 6.3.4 disclosures were written into both the 5c09a5f and ff7ef73
   bodies, each naming what was verified and what was not.
+---
+Task ID: v22-validation-v16-v21
+Agent: Jcode
+Task: Re-validate V16 ("the DM fix has ONE rule") and V21 ("the route probe
+was re-run after the DM rebuild") by driving the app, not by trusting them.
+
+Work Log:
+- V16's structural claim verified: dm_capable() is ONE default in the trait
+  (social/mod.rs:917), overridden only by x / linkedin / instagram - the
+  three that implement get_dm_conversations. /api/providers publishes
+  dm_supported from it, /dms reads it, and no hardcoded provider list
+  survives in the page's logic. The test
+  api_providers_publishes_dm_capability_from_the_trait pins the set.
+- V16's BEHAVIOURAL claim did NOT hold. Driving the page measured:
+    selector offered   github (SELECTED), x (cookie), reddit
+    4xx on landing     []        <- the page-load fix was real
+    picking x (cookie) 400 /api/dms/conversations "cannot use X's DM"
+  github and reddit have NO DM surface (the server publishes dm_supported
+  for exactly x/instagram/linkedin), yet both were offered, and github was
+  the SELECTED default. So the fix had closed ONE entry point into the
+  defect - the default - and left the other one, the selector, open.
+- The comment is what carried it: it said the channel "is still offered in
+  the selector if the founder picks it - but no accident puts it there",
+  describing a decision never actually made. Replaced with the code's real
+  behaviour.
+- FIXED: the selector iterates the DM-capable list only. Both rule levels
+  (provider has a DM surface; this connection can carry one) feed ONE list
+  that drives default AND options. No usable channel -> no dropdown, and an
+  empty state that names the cause and where to fix it.
+- The empty state also hardcoded "DMs need a DM-capable provider (X,
+  Instagram, or LinkedIn)" - the 9.20 drift shape, a second copy of the
+  server's rule in UI copy. It now separates the two collapsed causes.
+- V21 verified and re-extended: probe --state 'New Post' and
+  'New Post,Preview' both FAIL 0 / WARN 216 after the DM change.
+- V20 verified: with an OpenAI-shaped stub on a scratch server the AI result
+  state renders and the AI panel's own Discard measures 7.21/7.58 - so V20's
+  unmeasured 2.89:1 claim was the CONFIRM modal, which the previous task
+  fixed (32ea48b) along with the Toast's 1.00:1 self-pairing.
+
+Stage Summary:
+- Found: /dms still offered github and reddit (no DM surface) and still let
+  the founder pick the cookie-auth X that answers 400.
+- Fixed: 56a773a - selector filters to DM-capable channels; empty state
+  names the real cause; the misleading comment replaced.
+- Verified after the change: 4xx [] across three landings in both themes;
+  probe FAIL 0/WARN 216 x2; audit-dialogs 0; audit-targets 0 under floor (81
+  in band); state-hunt 0; dms_cookie_auth_test 3/3; svelte-check 0/0;
+  check-ink-on-fill 26/26; frontend + release binary rebuilt.
+- Carried forward: this instance has NO usable DM channel (its only X is
+  cookie-auth), so /dms shows the explanatory empty state. That is correct
+  behaviour, but it means the DM conversation UI itself is still unmeasured
+  on a real channel - worth re-probing once an OAuth X is connected.
