@@ -31,6 +31,24 @@ fn page_source() -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {PAGE}: {e}"))
 }
 
+/// The page's CODE, with `//` comment lines removed.
+///
+/// WHY THIS EXISTS: a source-shape assertion is supposed to pin what the
+/// founder SEES. Chasing the phrase through the raw text lets a prose comment
+/// satisfy it, which is exactly how `the_count_of_already_connected_channels_
+/// is_available_to_the_grid` went mutation-blind: the tile label was deleted
+/// from the template entirely and the test stayed green, because this file's
+/// own comment says the tile "reads as 'Add another'". Stripping comment lines
+/// is the difference between asserting behaviour and asserting documentation.
+fn page_template_without_comments() -> String {
+    page_source()
+        .lines()
+        .map(|l| l.trim_start())
+        .filter(|l| !l.starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// A provider already present in `integrations` must still render a tile,
 /// because that tile is now the only way to add a SECOND account.
 #[test]
@@ -84,10 +102,21 @@ fn the_count_of_already_connected_channels_is_available_to_the_grid() {
     // The label must follow the count, which is the user-visible half of
     // keeping the tile. Without it the tile reads 'Connect' for a provider
     // that is already connected, and clicking it looks like a bug.
+    //
+    // STRIPPED OF COMMENTS FIRST, and that is not decoration. A first draft
+    // asserted `src.contains("Add another")` over the RAW source, and it was
+    // mutation-BLIND: this file's own prose comment says the tile
+    // \"reads as 'Add another'\", so deleting the label from the template
+    // entirely left the assertion satisfied by a comment. The mutation
+    // survived. A comment is not the template - strip `//` lines before
+    // looking for the string the founder actually sees.
+    let code = page_template_without_comments();
     assert!(
-        src.contains("Add another"),
+        code.contains("Add another"),
         "the tile no longer says 'Add another' when the provider is already \
-         connected - the kept tile reads as a first connect"
+         connected - the kept tile reads as a first connect. The RAW source \
+         MAY mention the phrase in a comment; this assertion reads the code \
+         only, so a comment cannot satisfy it"
     );
 }
 
