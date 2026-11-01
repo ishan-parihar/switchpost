@@ -5204,3 +5204,66 @@ Stage Summary:
 - Everything reverted by hand. cargo test --lib 544/544,
   linkedin_refresh_needed 15/15, channels_grid_multi_account 5/5, cargo
   check 0 errors. No source change, nothing deployed.
+
+---
+Task ID: v26-third-pass-a-mutation-that-survived
+Agent: Jcode
+Task: Validate the five deep-pass claims a third time, targeting what
+NEITHER earlier pass checked. This pass found a mutation that survives.
+
+Work Log:
+- THE FINDING. `the_count_of_already_connected_channels_is_available_to_the_grid`
+  asserted `src.contains("Add another")` over the RAW page source. Removing
+  the label from the TEMPLATE entirely left the test GREEN, because this
+  file's own prose comment says the tile "reads as 'Add another'". A comment
+  satisfied an assertion about what the founder sees. This is the first
+  mutation to survive in the whole cycle, and it was hiding in a test two
+  prior passes had already read and described as load-bearing.
+  Fixed with `page_template_without_comments()`, and proved in both
+  directions: label removed (comment left in place) -> FAILED; reverted ->
+  5/5 green. Committed fa9b9b1.
+  The general shape worth carrying forward: a source-shape assertion that
+  greps raw text is one careless comment away from being documentation
+  about documentation.
+- PRODUCTION EDGE ONE: the binary is not the process. Both earlier passes
+  hashed the deployed FILE. That survives a failed restart and an unlinked
+  inode. Settled with /proc/3785060/exe (sha256 07042fe4, matching both the
+  file and the local .2.36 build) and /proc/PID/maps (inode 186916 = the
+  CURRENT file's inode, not marked deleted).
+- PRODUCTION EDGE TWO: only the frontend half had been proven deployed. The
+  Rust-side classifier was never checked. The binary carries "missing
+  r_member_social grant" (3 occurrences) - the string the new message is
+  built from - and the live classification is TargetGone. The locals
+  grant_miss/fixes_with_reconnect are absent, correctly: they are locals and
+  do not survive a release build, so the sentinel had to be a string that
+  the code actually emits.
+- PRODUCTION EDGE THREE: only ONE chunk had been checked. All 56 embedded
+  chunks: none carries the condemned phrase, and the positive control names
+  the single chunk that carries the new hint. The one "stored token" hit in
+  the whole binary is an unrelated X-cookie error from cli/run.rs:2425.
+- THE THREE TESTS NO EARLIER MUTATION TOUCHED. Two red as advertised:
+  a_connected_provider_is_not_filtered_out_of_the_grid reds when a
+  .filter() returns to connectableProviders, and
+  the_connected_state_is_counted_not_merely_flagged reds when the Map
+  increment degrades to a bare m.set(k, 1). The third,
+  integration_public_still_exposes_no_failure_reason, does NOT red on an
+  added field - it breaks the BUILD with E0063, which is precisely what its
+  own doc comment predicts. Verified rather than cited.
+- ROUTER TRAVERSAL, PROVEN BY REMOVAL. a_failed_token_refresh_keeps_the_flag_
+  and_answers_an_error does traverse the router: deleting its ORIGIN header
+  makes it FAIL (the CSRF gate answers before the handler), so it is not a
+  direct handler call. Restored, 15/15.
+- THE FAILURE ARM IS AIRTIGHT. Exactly one caller of
+  clear_integration_refresh_needed exists outside its own definition
+  (feed/mod.rs:175, the success path), and it is unreachable from the refresh
+  handler's failure branch, which marks and returns. Nothing can clear the
+  flag while the refresh is refused.
+
+Stage Summary:
+- One real defect found and fixed: a load-bearing guard was satisfied by a
+  comment. fa9b9b1, mutation-proved both directions.
+- Five production/code edges closed that the two earlier passes did not
+  reach: process-vs-file binary identity, the Rust half of the deploy, all
+  56 chunks, the three unmutated tests, and router traversal by removal.
+- Nothing deployed, no source change beyond the test. lib 544/544,
+  channels_grid 5/5, linkedin_refresh 15/15, cargo check 0 errors.
