@@ -474,8 +474,8 @@ pub async fn mark_integration_refresh_needed(
 /// (`get_integrations_needing_refresh`, below) filters `AND refresh_needed =
 /// false`, so the channel was cut out of that too.
 ///
-/// `update_integration_token` already clears it on a token write (queries.rs
-/// :439), and `reconnect` goes through that — so a reconnect DOES recover a
+/// `update_integration_token` already clears it on a token write, and
+/// `reconnect` goes through that — so a reconnect DOES recover a
 /// channel. What was missing was the other direction: proof of health.
 /// A refresh that succeeds and then fetches posts successfully is proof the
 /// channel is fine, and it should clear the flag so the channel returns to

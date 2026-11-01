@@ -193,22 +193,27 @@ async fn try_refresh_and_fetch(
 ///
 /// But the feed read that string, concluded "lacks API scope", and called
 /// `mark_integration_refresh_needed`. That flag is what
-/// `get_integrations_needing_refresh` (db/queries.rs:519) filters on:
+/// `get_integrations_needing_refresh` filters on:
 /// `AND refresh_needed = false`. So the act of asking for posts once, badly,
 /// PERMANENTLY excluded the channel from the scheduler's 24h proactive token
-/// refresh (scheduler/mod.rs:508), and from the analytics cache refresh
-/// (scheduler/mod.rs:2161). Reconnecting gives a new token, which 404s again,
-/// which sets the flag again - the founder's reconnect does not fix it and
-/// cannot, because the flag was never the problem.
+/// refresh, and from the analytics cache refresh. Reconnecting gives a new
+/// token, which 404s again, which sets the flag again - the founder's reconnect
+/// does not fix it and cannot, because the flag was never the problem.
 ///
 /// WHAT THE FLAG DOES NOT DO (measured, so this comment cannot overclaim):
-/// `get_due_posts` does NOT read `refresh_needed` — its only filter is
-/// `i.disabled = false` (db/queries.rs:1744). So the flag does not stop a
-/// SCHEDULED UNSENT POST from publishing. It stops the channel's token from
-/// ever being proactively refreshed, which is what turns a fine token into an
-/// expired one: the token is 59 days out at the time of the 404 and dies
-/// un-refreshed, and only THEN does the post start failing. `handle_feed_failure`
-/// must therefore leave the flag alone so the channel keeps its ticket to that window.
+/// `get_due_posts` does NOT read `refresh_needed` — its only integration
+/// filter is `i.disabled = false`. So the flag does not stop a SCHEDULED
+/// UNSENT POST from publishing. It stops the channel's token from ever being
+/// proactively refreshed, which is what turns a fine token into an expired
+/// one: the token is 59 days out at the time of the 404 and dies un-refreshed,
+/// and only THEN does the post start failing. `handle_feed_failure` must
+/// therefore leave the flag alone so the channel keeps its ticket to that window.
+///
+/// The functions named above are the authority, not a line number: they
+/// move independently as the file grows, and a stale citation is a claim that
+/// reads as evidence. All three were re-measured on 2026-11-01 by reading the
+/// body (`get_due_posts` filters on `disabled` only, `refresh_needed` absent);
+/// re-read before trusting either.
 ///
 /// THE RULE
 ///
