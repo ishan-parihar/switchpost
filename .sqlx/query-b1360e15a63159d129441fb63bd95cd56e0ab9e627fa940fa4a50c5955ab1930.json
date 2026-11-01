@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id FROM users WHERE email = 'dev@social-forge.dev'",
+  "query": "SELECT id FROM users WHERE email = 'dev@switchpost.dev'",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       true
     ]
   },
-  "hash": "0e2cf16fc281bdc400ecf5bade1d2f4282366a86c1c2722220afd42dfa3cc1a2"
+  "hash": "b1360e15a63159d129441fb63bd95cd56e0ab9e627fa940fa4a50c5955ab1930"
 }
