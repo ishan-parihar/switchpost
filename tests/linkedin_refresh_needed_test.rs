@@ -338,15 +338,34 @@ async fn a_channel_outside_the_window_is_not_reachable_so_the_above_bites() {
 
 /// Clearing is idempotent — the caller in `try_refresh_and_fetch` only checks
 /// the flag but the write must be safe on an already-clear row.
+///
+/// The idempotence half alone is weak: a stubbed no-op clear passes it, and so
+/// does a clear-all. This adds a flagged SIBLING row that must survive the
+/// call. Exactly one mutation reaches this test, and it is the one the
+/// original shape missed — M7, the clear UPDATE losing its `WHERE id`, which
+/// clears every channel on the instance. Proven: the single-row shape above
+/// passes under M7; the sibling assertion below does not.
+///
+/// The sibling does NOT catch a stubbed no-op write (M9), because a no-op
+/// leaves every row — flagged or not — exactly as it was. A test that only
+/// asserts a row stays unchanged cannot distinguish "the right write happened"
+/// from "no write happened". The write itself is covered by
+/// `a_flags_channel_can_be_cleared_by_refresh_success`.
 #[tokio::test]
 async fn clearing_an_unflagged_channel_is_a_no_op_not_an_error() {
     let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
-    let id = seed_linkedin(&pool, false).await;
+    let clear = seed_linkedin(&pool, false).await;
+    let sibling = seed_linkedin_with_urn(&pool, "urn:li:person:sibling", true, 59).await;
 
-    switchpost::db::queries::clear_integration_refresh_needed(&pool, id)
+    switchpost::db::queries::clear_integration_refresh_needed(&pool, clear)
         .await
         .expect("clearing an already-clear flag must not error");
-    assert!(!is_flagged(&pool, id).await);
+    assert!(!is_flagged(&pool, clear).await, "the cleared row stays clear");
+    assert!(
+        is_flagged(&pool, sibling).await,
+        "a flagged sibling must survive the clear, or the UPDATE lost its \
+         WHERE predicate and is clearing every channel on the instance"
+    );
 }
 
 /// The channel the fix changed must be a DIFFERENT row: clearing one
