@@ -4438,3 +4438,61 @@ Stage Summary:
   test, and I restored .sqlx to exactly its committed state (60/60, 0
   differing) rather than leave a half-done cache. Fix that test file first,
   then `cargo sqlx prepare -- --all-targets`.
+
+---
+Task ID: v22-pin-defect-b-and-correct-the-stale-caution
+Agent: Jcode
+Task: Close defect B's test gap, or record it as uncovered.
+
+Work Log:
+- Defect B's fix (try_refresh_and_fetch must FETCH with the token it just
+  WROTE) was the load-bearing half of 5c09a5f and had NO test behind it. The
+  only reference to the function in tests/ was a doc-comment line. Reading
+  could not check it, because the bug is WHICH VALUE was passed and both
+  values are plausible-looking strings on the same line.
+- Added the seam: `try_refresh_and_fetch` stays private, keeps the same body
+  and the same order of operations, and delegates to a new pub
+  `try_refresh_and_fetch_for_test`. A test that drove a COPY of the function
+  instead would prove nothing about the real one, so the seam is the real
+  function (AGENTS.md 9.18), not a reimplementation.
+- Added two tests, both with provider stubs:
+  * `RefreshingProvider` (success): refresh_token returns FRESH_TOKEN and
+    get_recent_posts ACCEPTS ONLY FRESH_TOKEN, rejecting anything else. A
+    regression that writes the good token and then fetches with
+    `integration.access_token` gets Err, returns None, and the assertion
+    fires. The assertion also covers both halves: the flag clears, and the DB
+    actually holds the refreshed token afterwards.
+  * `FailingRefreshProvider` (failure): answers None, leaves the flag SET, and
+    leaves the stored token untouched - the negative guard, so the suite does
+    not only test the happy path.
+- MUTATION (defect B re-introduced: fetch with `&integration.access_token`
+  instead of `&new_access`): the new test FAILED with "the fetch after a
+  successful refresh must SUCCEED: it was handed the stale token instead of
+  the refreshed one (defect B)". Marker confirmed present before the run;
+  source restored, diff verified additions-only, zero markers remaining.
+- Compilation detours worth recording: the SocialProvider trait takes a
+  `code_verifier` param on both `generate_auth_url` and `exchange_code`, both
+  return `AuthUrlResponse` not String, `identifier`/`name` return `&'static
+  str`, `fetch_page_info` is REQUIRED (no default), and `get_integration`
+  takes a THIRD `user_id` argument. My first attempt was wrong on all five.
+
+Stage Summary:
+- Pushed `474420c` (src/feed/mod.rs +19 seam, tests/linkedin_refresh_needed_test.rs
+  +2 tests; rustfmt on those two files only).
+- Both suites green: 14/14 and 6/6. `cargo test --lib` 543/543. `cargo check
+  --lib --bin switchpost` 0 errors.
+- Defect B is now pinned, not merely fixed. The claim "B is fixed" is now
+  backed by a test that goes red if it regresses.
+
+CORRECTED CAUTION: this entry supersedes the one above it. That entry warned
+that `cargo test --lib` did not build at HEAD because tests/
+linkedin_refresh_needed_test.rs did not compile (missing `fetch_page_info`
+on the mock, four signature mismatches) and advised fixing the test file
+before regenerating .sqlx. That is NO LONGER TRUE and was already stale when
+written: this session's suites compile and pass, `cargo test --lib` is
+543/543, and `cargo check --lib --bin switchpost` is 0 errors, all at HEAD.
+The five exact mismatches it named are the five I fixed, in the file, so its
+diagnosis was right and only its conclusion (broken) was wrong. No .sqlx
+regeneration is needed: this session added no `query!` macro. The caution is
+withdrawn, not because it was inaccurate when written, but because the tree
+has moved past it.
