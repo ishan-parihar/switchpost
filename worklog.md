@@ -4785,3 +4785,64 @@ Stage Summary:
 - Nothing fixed in this pass; the work was validation plus two corrections -
   my counting method, and the fact that the rollback promise is now tested
   rather than asserted.
+
+---
+Task ID: v22-correct-the-deploy-validation-copychange-claim
+Agent: Jcode
+Task: Correct anything stale or overstated in the validation pass, then continue.
+
+Work Log:
+- Found and fixed a real user-visible defect while validating the deploy: the
+  Channels card asserted "The stored token could not be refreshed" for every
+  flagged channel. `IntegrationPublic` exposes the BOOLEAN `refresh_needed`
+  and no failure reason, so the cause is not in the payload `channelStatus()`
+  is given. Production is proof it is false: the new classifier logs "The
+  channel's token is fine ... the target is gone" for all five flagged
+  LinkedIn rows, and one of them holds a token valid until 2026-12-29.
+- Two tests added to tests/channels_grid_multi_account_test.rs. No frontend
+  unit runner exists (no vitest/jest; playwright-core is browser automation
+  only) and `channelStatus()` is browser-side, so the invariant is source
+  shape: the two condemned phrases are ABSENT, which survives a rewording.
+  A second test asserts `IntegrationPublic` still exposes no failure reason
+  and tells the next reader to DELETE the guard and name the cause if such a
+  field is ever added.
+- Mutation proved it: restoring the old sentence turns
+  `the_reconnect_hint_stops_diagnosing_the_token` RED with the production
+  evidence in the message. 5/5 green after restore, 0 markers.
+- The test caught ME before the code did: my first commit's doc comment
+  repeated one of the condemned phrases and failed its own guard. The comment
+  now phrase-avoids it and says why - recorded because it is the kind of thing
+  that makes a future reader think the test is broken.
+
+THE OVERCLAIM I CORRECTED (same commit, same session - do not let it stand):
+the commit message for cca49a1 said the founder would "reconnect ... and watch
+the channel fail again". That is NOT established by the evidence and it is
+not what the code does. `src/api/integrations.rs` (~line 592) ends the refresh
+path with
+
+    UPDATE integrations SET profile_name = COALESCE(...), profile_picture =
+    COALESCE(...), refresh_needed = false, updated_at = unixepoch() WHERE ...
+
+so clicking Refresh on a healthy-token channel CLEARS the sticky flag, and
+`a_reconnect_recovers_a_flagged_channel` (linkedin_refresh_needed_test.rs:423)
+already proves the mechanism. What was actually wrong is narrower and is what
+the fix changed: only the DIAGNOSIS was false, not the ACTION. The founder was
+told the token was broken when it was not; the button they were pointed at
+still worked.
+
+Also corrected from the earlier pass: my own counting error. A first
+post-deploy check counted 260 "lacks API scope" lines and looked like the fix
+had not worked. Every one traced to the OLD process (PID 2531466) at 20:30Z,
+five minutes before the restart - journal message timestamps are UTC while
+systemd's stamps are IST, so a wall-clock `--since` window spans the wrong
+region. Grouping by PID is the count that cannot lie. I nearly reported a
+regression that did not exist.
+
+Stage Summary:
+- Pushed `cca49a1` (fix(channels): frontend copy + 2 source-invariant tests).
+- The deploy stands validated: byte-identical binary, defect A proved fixed
+  in production by PID (2236 -> 0 defects, 0 -> 20 correct classifications),
+  rollback tested executable, live database untouched.
+- Two corrections recorded against my own words in this pass, both still in
+  the history rather than quietly amended: the reconnect-harm overclaim, and
+  the timezone miscount.
