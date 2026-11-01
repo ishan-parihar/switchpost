@@ -187,6 +187,15 @@ fn the_reconnect_hint_stops_diagnosing_the_token() {
 
 /// The two files must not drift back apart: if `IntegrationPublic` ever grows
 /// a real failure-reason field, this hint is where it becomes safe to say why.
+///
+/// WHY THIS IS A SOURCE SHAPE TEST AND NOT A STRUCTURAL ONE: the guard was
+/// mutated both ways to check it actually bites. Adding a field to
+/// `IntegrationPublic` WITHOUT wiring the `From` impl fails at COMPILE time
+/// (E0063 missing field), and this test never runs - the reader gets an error
+/// about an unrelated struct instead of the instruction below. Wiring the
+/// field too makes it compile, and then this assertion fires on its own. Both
+/// are a red test; only the second carries the message, so the message is
+/// written for that case and for the human reading the compile error.
 #[test]
 fn integration_public_still_exposes_no_failure_reason() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -697,3 +697,100 @@ async fn a_failed_refresh_answers_none_and_leaves_the_row_alone() {
         "the stored token must be untouched by a failed refresh"
     );
 }
+
+// ── What the founder's Refresh click actually does ─────────────
+//
+// The Channels hint stopped asserting "the stored token could not be
+// refreshed" because, for the founder's real LinkedIn channels, that was FALSE -
+// production logged "The channel's token is fine, so it stays publishable; the
+// target is gone" for rows that still carried the flag.
+//
+// Correcting that fix requires this test, because the correction is a claim
+// about the Button, not about the text: I wrote that reconnecting still clears
+// the sticky flag, so the action was worth keeping. Reading src/api/
+// integrations.rs says the truth is CONDITIONAL, and it was nearly stated
+// unconditionally:
+//
+//     refresh_token(s) succeeds  -> ... -> UPDATE ... refresh_needed = false
+//     refresh_token(s) FAILS     -> mark_integration_refresh_needed  (SET it)
+//                                   return Err  (the clear never runs)
+//
+// So a refresh click clears the flag only when the provider accepts the
+// refresh. This drives the REAL router (build_router + session cookie + the
+// CSRF Origin AGENTS.md 6.5 requires) and pins BOTH halves, because a founder
+// needs to know when the button works and when it does not.
+#[tokio::test]
+async fn a_failed_token_refresh_keeps_the_flag_and_answers_an_error() {
+    switchpost::config::load_dotenv_for_tests();
+    let config = switchpost::config::Config::from_env().expect("config");
+    let pool = switchpost::db::create_pool(&config.database_url)
+        .await
+        .expect("pool");
+    switchpost::db::ensure_local_user(&pool)
+        .await
+        .expect("local user");
+
+    let urn = format!("urn:li:organization:fail-{}", Uuid::new_v4());
+    // Start UNFLAGGED. The row was seeded flagged in the first draft, which
+    // made the failure-path re-mark INVISIBLE: removing it still left the flag
+    // set, so the mutation passed and the test proved nothing. Only a row that
+    // did NOT have the flag can detect one being written.
+    let id = seed_linkedin_with_urn(&pool, &urn, false, 59).await;
+    assert!(
+        !is_flagged(&pool, id).await,
+        "the row must start unflagged, or the assertion below cannot observe \
+         the flag being written"
+    );
+
+    let registry = switchpost::social::registry::ProviderRegistry::new(&config, None, None);
+    let state = switchpost::api::AppState {
+        db: pool.clone(),
+        config: config.clone(),
+        broadcast: switchpost::realtime::Broadcaster::new(),
+        providers: registry,
+        token_key: None,
+        telegram_client_manager: None,
+        wa_client: None,
+        media_http_client: reqwest::Client::new(),
+        media_wreq_client: wreq::Client::new(),
+    };
+    let token = switchpost::auth::jwt::create_token(
+        switchpost::auth::middleware::DEFAULT_USER_ID,
+        &state.config.jwt_secret,
+    )
+    .expect("token");
+
+    use tower::util::ServiceExt;
+    let res = switchpost::api::build_router(state.clone())
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(format!("/api/integrations/{id}/refresh"))
+                .header(axum::http::header::COOKIE, format!("sf_session={token}"))
+                // AGENTS.md 6.5: without this Origin the CSRF gate answers 403
+                // before the handler runs, and the test would appear to prove the
+                // button is broken when it never reached the code.
+                .header(axum::http::header::ORIGIN, &state.config.frontend_url)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("router");
+
+    // Without LinkedIn credentials the provider's refresh call fails, which is
+    // the realistic no-credentials-path in CI and on a self-hosted box whose
+    // app is deauthorized. The founder must get an ERROR, not a silent success.
+    assert!(
+        !res.status().is_success(),
+        "a failed token refresh must answer an error, or the founder believes a \
+         dead token was renewed"
+    );
+    // And the flag must STILL be set: the code marks it refresh_needed on the
+    // failure path, before returning. A cleared flag here would mean the
+    // Channels screen shows a healthy channel for one that cannot refresh.
+    assert!(
+        is_flagged(&pool, id).await,
+        "a failed refresh must keep refresh_needed SET - the endpoint marks it \
+         and returns before the clear runs"
+    );
+}
