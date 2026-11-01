@@ -4287,3 +4287,57 @@ Stage Summary:
   cookie-auth), so /dms shows the explanatory empty state. That is correct
   behaviour, but it means the DM conversation UI itself is still unmeasured
   on a real channel - worth re-probing once an OAuth X is connected.
+---
+Task ID: v22-reread-and-reraise
+Agent: Jcode
+Task: Re-read the request, correct anything stale or overstated in the todo and
+goal assessments, and continue.
+
+Work Log:
+- Re-read the request against the register. The instruction "execute the full
+  7-phase UI parity plan" is NOT complete: three phases carried a LANDED marker
+  (3, 5a, 6) and four carried none (1, 2, 4, 7), so the plan read as half
+  outstanding. All four are in fact in the tree.
+- Corrected the OVERSTATED assessment. The recorded goal said
+  iteration_maturity: outcome_reached and closed_feedback_loop: closed, with
+  stopping evidence "full suite green ... The V19 caveat is closed". That was
+  true of the gates it named and false of the plan's own exit criterion:
+  `make audit` had never been run as a whole, and when it was it returned
+  EXIT 3. Two defects (2.89:1, 1.00:1) and a DM selector bug were also all
+  found AFTER that "closed" verdict was written.
+- Re-measured each phase's acceptance on the running app at four viewports,
+  rather than reading it off the code (9.35 / 9.50):
+    chip 24px, under24 0, moreRows 2, rail 80px, at 1440/768/390/360.
+  Phase 4 settled at the width that matters: at 1440 the preview is on by
+  default with no toggle; at 768 and 390 a labelled Preview control with a
+  correct aria-expanded opens a full-width pane.
+- Ran the plan's own ship gate. It failed at exit 3 with
+    BLOCKED: create failed ... "Content is 19 chars, max 0 for GitHub"
+  because e2e-calendar-drag.mjs seeded its fixture with `integrations[0]`,
+  and the first row on this instance is GitHub, whose char_limit is 0. The
+  calendar drag - and with it the 9.17/9.30 wall-clock conversion - had
+  therefore NEVER been measured. A green suite that never ran its last gate
+  is the same blindness as the ones already recorded, one level up.
+- Fixed the gate to read `/api/providers` and pick a char_limit > 0
+  integration, the same rule the composer reads. It now runs: 0 drag
+  failures, wall clock converted correctly, the move sticks after a reload.
+- Corrected the plan doc: a RE-VERIFIED blockquote at the top, four STALE
+  baseline rows in the 1.2 correction table, and Phase 1/2/4 marked LANDED
+  with their re-measured numbers.
+
+Stage Summary:
+- Found: the plan's own ship gate had never passed - make audit exit 3, and
+  the calendar drag gate was permanently BLOCKED on a provider it cannot use.
+- Fixed: e986aea. The gate shares the composer's char_limit rule; the plan doc
+  carries the re-measured status and the stale-baseline corrections.
+- Verified: make audit EXIT 0, FAIL 0 on every pass; audit-targets 0 under
+  floor; audit-contrast 0 dark and light; audit-dialogs 0; state-hunt 0;
+  audit-analytics 0; e2e-calendar-drag 0.
+- Carried forward (unchanged from the last entry, still true): this instance
+  has no DM-capable channel, so the DM conversation UI is unmeasured on a
+  real channel. And the composer's last mile - a full create submit with a
+  mouse-picked Reddit subreddit - is still unproven; the API and the UI layer
+  around it are.
+- Carried forward (new): `cargo test --lib` was NOT re-run after the frontend
+  changes in this pass. Nothing in this pass touched Rust behaviour, so the
+  risk is low, but the plan's own acceptance line names it and it is unrun.
