@@ -273,3 +273,40 @@ into a defect fix. (The same reasoning G-07 applies to
 
 A THIRD copy was checked for and does not exist: `refresh_all_engagement`
 (`mod.rs:576`) never calls `get_recent_posts` and has no `TokenExpired` arm.
+
+---
+
+## G-09 — three more false alarms, recorded so nobody re-raises them
+
+All three came up while chasing defect D, and all three were **disproved by
+reading the call graph**, not by assumption. Each looked real, and each would
+cost a future reader the same hour.
+
+**"A gone resource that also mentions `scope` becomes NeedsReconnect, which is
+defect A again."** Read as: `classify_feed_failure` checks `auth_lost` BEFORE
+`resource_gone`, so a message containing both wins NeedsReconnect. TRUE about
+the ordering, but no live message has both. The message that looked like the
+counter-example is `map_error`'s Forbidden arm (`social/linkedin.rs:774-778`:
+"...missing the scope the endpoint needs (r_member_social,
+r_organization_social) or the resource does not belong to this member") -
+which does say `scope` on a target that may be gone. It is NOT reachable from
+the classifier: `map_error` is called from exactly two sites, both publish /
+analytics (`linkedin.rs:885` and `:987`), and `classify_feed_failure` is called
+only from `handle_feed_failure_inner`, which is called only from the two feed
+read blocks. Different call graph. The ordering is real and untested, so it is
+a latent surface, not a defect - and it is exactly what defect D was for the
+other arm.
+
+**"`friendly_error` appends the raw response body, which leaks the token."**
+False. `friendly_error` (`social/mod.rs:1329`) formats `{friendly} (raw: {raw})`,
+and `raw` is built from `json["message"]` / `json["error_description"]` only
+(`linkedin.rs:874`, `:983`) - the PROVIDER's error fields, never a header and
+never the request. The one place LinkedIn can echo a credential is guarded
+separately and correctly: `get_posts`' 401 branch logs status only, deliberately
+(`linkedin.rs:176-179`, "LinkedIn error responses can echo the requested Bearer
+token or URN"). That guard is on the LOG, and it is the only log of that body.
+
+**"`refresh_all_posts` and `refresh_user_posts` drift, so one fixes and the
+other does not."** Disproved by `diff`ing the two blocks (see G-08): they are
+byte-identical today. What the duplication DOES cost is the next fix - it would
+have to be made twice - which is G-08's point.
