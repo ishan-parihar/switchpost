@@ -135,9 +135,30 @@ async function main() {
   await page.goto(`${BASE_URL}/`, { waitUntil: 'load' });
   await page.waitForTimeout(1500);
   const created = await page.evaluate(async (marker) => {
-    const integrations = await fetch('/api/integrations').then((r) => r.json());
-    const id = integrations.integrations?.[0]?.id;
-    if (!id) return { err: 'no integration' };
+    // Pick a provider that can actually PUBLISH A POST - not the first row.
+    //
+    // AGENTS.md 9.20: `/api/providers` publishes `char_limit` per provider,
+    // and a provider whose limit is 0 (GitHub, Gmail, Drive) has no "publish
+    // a post" surface at all. This gate took `integrations[0]`, which on the
+    // operator's instance is GitHub - so the fixture POST was refused with
+    //   "Content is 19 chars, max 0 for GitHub"
+    // and the whole `make audit` run died with exit 3 (BLOCKED) while every
+    // other gate was green. The calendar drag itself was never measured.
+    //
+    // The same rule the composer reads, so the two cannot drift.
+    const [integs, providers] = await Promise.all([
+      fetch('/api/integrations').then((r) => r.json()),
+      fetch('/api/providers').then((r) => r.json()),
+    ]);
+    const list = Array.isArray(providers) ? providers : (providers.providers ?? []);
+    const publishable = new Set(
+      list.filter((p) => Number(p.char_limit ?? 0) > 0).map((p) => p.identifier),
+    );
+    const pick = (integs.integrations ?? []).find(
+      (i) => !i.disabled && publishable.has(i.provider_identifier),
+    );
+    if (!pick) return { err: 'no publishable integration' };
+    const id = pick.id;
     const when = new Date(Date.now() + 5 * 86400000).toISOString();
     const r = await fetch('/api/posts', {
       method: 'POST',
@@ -151,7 +172,7 @@ async function main() {
     const body = await r.json();
     const post = body.posts?.[0];
     if (!post) return { err: `create failed: ${JSON.stringify(body).slice(0, 120)}` };
-    return { id: post.id, when };
+    return { id: post.id, when, provider: pick.provider_identifier };
   }, PROBE_MARKER);
   if (created.err) {
     console.log(`BLOCKED: ${created.err}`);

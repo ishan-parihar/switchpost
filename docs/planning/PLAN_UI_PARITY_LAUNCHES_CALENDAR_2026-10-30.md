@@ -4,6 +4,19 @@
 > Route: `website-design` -> `redesign` (audit-first, existing site) -> plan only. **No code was changed in this pass.**
 > Evidence: `docs/audit/2026-10-30-launches-parity/` (screenshots, `measurements.json`) + this pass's own probe run over the RUNNING app at `http://localhost:6543` (8 seeded posts today, `frontend/.probe-audit.mjs`).
 
+> **RE-VERIFIED 2026-11-01 (after the phases had landed).** All seven phases are in the
+> tree, and each phase's acceptance was re-measured on the running app rather than read off
+> the code: chip 24px/`under24: 0`, `+N more` rendering, rail 80px, preview reachable at
+> every width - at 1440, 768, 390 and 360. The re-verification also found three defects the
+> original phase verdicts had missed, and they are recorded where they were found rather
+> than buried: the shared danger-confirm button at **2.89:1** and the error/warning toasts
+> at **1.00:1** (`32ea48b`, both now green in the new `check-ink-on-fill.mjs` gate), and
+> `/dms` still offering a cookie-auth X channel that answers **400** (`56a773a`).
+>
+> The lesson this file exists to teach has now fired three times, so it is stated plainly:
+> **a verdict is not a state.** Every "done" in Part 4 below was still checked against the
+> render on the day it was re-read, and each time at least one of them no longer held.
+
 ## Why this file was rewritten
 
 The first version of this audit was written from the earlier probe pass and contained
@@ -27,6 +40,17 @@ One further correction to this document's own first draft: it cited "the AGENTS.
 nowhere in AGENTS.md** - the only occurrence in the repo is the `ModalManager.svelte`
 class itself. The citation is retracted; the backdrop observation stands on the measured
 `rgba(0,0,0,0.7)` alone.
+
+Four baseline numbers in the 1.2 table above are STALE as of 2026-11-01, and all
+four are improvements rather than regressions - recorded here so a later reader does not
+"fix" them back:
+
+| The 1.2 table says | What the render shows now (2026-11-01) |
+|---|---|
+| Calendar `h1` = `Content Calendar` | The `h1` is the **date range** - "Week of November 1". The second "Content Calendar" heading was deliberately removed as a duplicate current-view signal (Phase 3). |
+| Global nav rail = `224px` (`w-56`) | **80px** at 1440, 768, 390 and 360 (Phase 5a). |
+| Week/day chip height = `21px` | **24px** everywhere (Phase 1). |
+| Chip cap per cell = none, 23 chips | 3 + a `+N more` disclosure (Phase 2). |
 
 ---
 
@@ -250,6 +274,10 @@ Sequenced so each phase is independently shippable and independently verified. E
 
 ### Phase 1. Fix the 21px chip (C-0) - the one measured WCAG FAIL
 
+**Status: LANDED 2026-10-31.** Re-verified 2026-11-01 on the rebuilt binary at
+1440/768/390/360: every `.event-chip` measures **24px**, `under24: 0`, in all four
+views. No probe FAIL for tap targets on `/calendar` (§9.37).
+
 **Files**: `frontend/src/lib/calendar/CalendarEvent.svelte`.
 
 **Change.** The month grid already carries the correct rule and the comment that explains why:
@@ -277,6 +305,12 @@ postiz ships.
 - The cell does not grow taller as a result - the grid's `min-h-24` cells absorb it.
 
 ### Phase 2. Cap the cell at 3 with a `+N more` disclosure (C-1)
+
+**Status: LANDED 2026-10-31.** Re-verified 2026-11-01: the `+N more` row renders
+(`moreRows: 2` measured at all four viewports) and the tag-chip cap is in place.
+The disclosure was also re-verified as REACHABLE - an earlier "Show less" control
+had rendered inside the chip's scroll container and was clipped off a non-scrolling
+page (fixed in `eb67f6a`).
 
 **Files**: `frontend/src/lib/calendar/WeekView.svelte`, `DayView.svelte`, `MonthView.svelte`, `frontend/src/lib/calendar/CalendarEvent.svelte`.
 
@@ -360,6 +394,13 @@ ONE number in the CSS, derived, not typed.
 - Probe 0 FAIL at 1440/768/390.
 
 ### Phase 4. The composer: preview always reachable, one primary (M-1)
+
+**Status: LANDED 2026-10-31.** Re-verified 2026-11-01, which is the measurement
+that actually settles this phase: at **1440** the pane is on by default with **no
+toggle needed** (`paneNow: true, toggle: null`); at **768** and **390** a labelled
+`Preview` control with a correct `aria-expanded="false"` opens a **full-width**
+pane (768 and 390 wide respectively). The pane is therefore reachable at every
+width rather than absent below `lg`, which is what this phase was written to fix.
 
 **Files**: `frontend/src/lib/composer/ComposerModal.svelte`, `frontend/src/lib/components/ModalManager.svelte`.
 
