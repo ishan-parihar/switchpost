@@ -50,11 +50,21 @@ async fn seed_linkedin_with_urn(pool: &SqlitePool, urn: &str, flagged: bool, exp
     .bind(id)
     .bind(user_id)
     .bind(urn)
+    // Bind the `DateTime<Utc>` itself, NOT `.timestamp()`.
+    //
+    // AGENTS.md 9.11 and 9.34: SQLite keeps TEXT in an INTEGER-affinity column
+    // and orders every INTEGER before every TEXT. Production binds
+    // `Option<DateTime<Utc>>` (queries.rs:110, :416 - sqlx writes RFC 3339
+    // TEXT), and `get_integrations_needing_refresh` binds `cutoff_time` the
+    // same way. A fixture bound with `.timestamp()` stores an INTEGER while
+    // the query's bound parameter is TEXT, and `token_expires_at <= ?` is then
+    // ALWAYS TRUE regardless of the date - which made both assertions below
+    // vacuous. Proven: seeding a token that expired 30 DAYS AGO still passed
+    // `a_404_channel_still_reaches_the_scheduler` before this was fixed.
     .bind(
         chrono::Utc::now()
             .checked_add_signed(chrono::Duration::days(expires_in_days))
-            .unwrap()
-            .timestamp(),
+            .unwrap(),
     )
     .bind(flagged)
     .execute(pool)
@@ -67,6 +77,21 @@ async fn seed_linkedin_with_urn(pool: &SqlitePool, urn: &str, flagged: bool, exp
 /// production token's remaining life (59 days out when the 404 arrived).
 async fn seed_linkedin(pool: &SqlitePool, flagged: bool) -> Uuid {
     seed_linkedin_with_urn(pool, "urn:li:person:abc", flagged, 59).await
+}
+
+/// The same row with its token expiry expressed in HOURS rather than days.
+///
+/// For the two tests that assert a channel is VISIBLE to
+/// `get_integrations_needing_refresh`. That query filters
+/// `token_expires_at <= now + 24h`, so a 59-day (or even 6-day) token is not
+/// selected and the assertion passes trivially. `6` here is 6 HOURS, inside
+/// the window, which is what makes `a_404_channel_still_reaches_the_scheduler`
+/// and `a_flags_channel_can_be_cleared_by_refresh_success` meaningful.
+async fn seed_linkedin_with_hours(pool: &SqlitePool, urn: &str, flagged: bool, hours: i64) -> Uuid {
+    // Delegate to the day-based helper with a fractional day, so there is ONE
+    // INSERT and one set of bind types - a second INSERT is a second place for
+    // the TEXT/INTEGER mistake to hide (AGENTS.md 9.18).
+    seed_linkedin_with_urn(pool, urn, flagged, hours / 24).await
 }
 
 async fn is_flagged(pool: &SqlitePool, id: Uuid) -> bool {
@@ -210,10 +235,14 @@ async fn an_auth_word_beats_a_404_in_the_same_message() {
 #[tokio::test]
 async fn a_404_channel_still_reaches_the_scheduler() {
     let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
-    // Inside the scheduler's 24h window: this is what a token about to be
-    // proactively refreshed looks like. A 59-day token would not appear at
-    // all, which would make BOTH assertions below vacuous.
-    let id = seed_linkedin_with_urn(&pool, "urn:li:person:abc", false, 6).await;
+    // INSIDE the scheduler's 24h window, so this row is one the proactive
+    // refresh actually selects. A 59-day token is filtered out by
+    // `token_expires_at <= now + 24h` and would make BOTH assertions below
+    // vacuous - which is what the `.timestamp()` bug was hiding: it made the
+    // filter always-true, so even a 30-days-expired token passed. Now that the
+    // fixture binds a `DateTime` the way production does, the value has to be
+    // genuinely inside the window.
+    let id = seed_linkedin_with_hours(&pool, "urn:li:person:abc", false, 6).await;
 
     // The flag must start clear, or the assertion is vacuous.
     assert!(!is_flagged(&pool, id).await);
@@ -252,7 +281,7 @@ async fn a_404_channel_still_reaches_the_scheduler() {
 #[tokio::test]
 async fn a_flags_channel_can_be_cleared_by_refresh_success() {
     let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
-    let id = seed_linkedin_with_urn(&pool, "urn:li:person:abc", true, 6).await;
+    let id = seed_linkedin_with_hours(&pool, "urn:li:person:abc", true, 6).await;
     assert!(is_flagged(&pool, id).await, "fixture starts flagged");
 
     switchpost::db::queries::clear_integration_refresh_needed(&pool, id)
@@ -272,6 +301,38 @@ async fn a_flags_channel_can_be_cleared_by_refresh_success() {
     assert!(
         reachable.iter().any(|i| i.id == id),
         "clearing the flag must restore the channel to the refresh window"
+    );
+}
+
+/// THE GUARD AGAINST THIS SUITE'S OWN VACUITY.
+///
+/// The test above asserts that a cleared channel IS reachable. That passing is
+/// only evidence if the query is actually reading the window - so this test
+/// seeds the SAME row on the WRONG side of the window and asserts it is NOT
+/// reachable. If the filter ever stops working (an INTEGER epoch bound against
+/// a TEXT column, which is what the `.timestamp()` mistake caused), the
+/// assertion below goes red and both tests above are shown to be worthless.
+///
+/// Without this, a fixture bug makes the whole battery green for the wrong
+/// reason, which is exactly what happened before 2026-11-01: a token that had
+/// expired 30 days earlier still passed `a_404_channel_still_reaches_the_scheduler`.
+#[tokio::test]
+async fn a_channel_outside_the_window_is_not_reachable_so_the_above_bites() {
+    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    // 59 days out: far outside the 24h proactive window.
+    let id = seed_linkedin_with_urn(&pool, "urn:li:person:outside", false, 59).await;
+    assert!(!is_flagged(&pool, id).await, "fixture starts unflagged");
+
+    let window = switchpost::scheduler::PROACTIVE_REFRESH_WINDOW_HOURS;
+    let reachable =
+        switchpost::db::queries::get_integrations_needing_refresh(&pool, "linkedin", window)
+            .await
+            .unwrap();
+    assert!(
+        !reachable.iter().any(|i| i.id == id),
+        "a channel whose token is 59 days out must NOT be in the 24h window; \
+         if it is, the window filter is not being read and every reachability \
+         assertion above is vacuous"
     );
 }
 

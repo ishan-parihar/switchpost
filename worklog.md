@@ -4130,6 +4130,33 @@ Work Log:
   C2 specifically is covered twice. Recording the redundancy rather than
   deleting a test, because the cost of a second assertion on a silent
   data-blanking path is one line of test code.
+
+FOUND A REAL DEFECT IN MY OWN SUITE, IN THE PLACE THE WORKLOG CLAIMED WAS COVERED
+- The 5c09a5f entry says the reachability and clear tests use a "6-HOUR token
+  (inside the 24h window, so the assertions bite)". That was FALSE. The
+  fixture's parameter is `expires_in_days` and both call sites passed `6` -
+  six DAYS, 144 hours, far outside a 24-hour window.
+- It did not matter, because the fixture was vacuous in a bigger way: it bound
+  `.timestamp()` (an INTEGER epoch) into a column the QUERY compares as TEXT.
+  SQLite orders every INTEGER before every TEXT, so `token_expires_at <= ?`
+  was true for every row regardless of date - AGENTS.md 9.11 and 9.34, the
+  exact pitfall the doc warns about, in the test written to prove a claim about
+  that same query.
+- PROVEN, not reasoned: seeding a token that expired 30 DAYS AGO still passed
+  `a_404_channel_still_reaches_the_scheduler`, and the same for the clear test.
+  A test that cannot fail on the wrong input is not a test.
+- Fixed by binding the `DateTime<Utc>` the way production does
+  (queries.rs:110, :416), and by adding `seed_linkedin_with_hours` so the two
+  window-dependent tests express their value in HOURS. It delegates to the
+  day-based helper rather than duplicating the INSERT - one INSERT, one set of
+  bind types (9.18).
+- RE-PROVED discrimination after the fix: a 59-day token now correctly fails
+  the reachability assertion (it passed before the fix), and M1 still goes RED
+  on exactly 3 with the corrected fixture. 11/11 green on the real values.
+- The lesson: the mutation battery validated the FIX but never validated the
+  FIXTURE, and the fixture is what the consequence claim rests on. Every suite
+  needs at least one test seeded on the wrong side of its own filter, to prove
+  the filter is being read at all.
 - Re-measured A+B's committed citations against the tree. One had drifted:
   `queries.rs:1744` is now 1776. Fixed in 7399fb3, which also removes the
   remaining line numbers from that comment - they age on their own and a
