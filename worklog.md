@@ -5133,3 +5133,74 @@ Stage Summary:
   anything into the result.
 - Nothing deployed and nothing changed in src/: this pass is measurement
   plus two record corrections.
+
+---
+Task ID: v25-deep-validate-the-six-claims
+Agent: Jcode
+Task: Go past the first pass and check the EDGES of the six claims, including
+the two things a hash check and a test run do not by themselves prove.
+
+Work Log:
+- THE PROCESS, NOT JUST THE BINARY (the edge the hash check misses). A
+  `sha256sum` of the deployed file proves nothing about which binary is
+  RUNNING - a swap that failed to restart, or a deleted-inode reload, would
+  both pass that check. Settled with `/proc/3785060/exe`, whose resolved
+  sha256 is `07042fe4...` - identical to the deployed file AND to the local
+  `.2.36` build - and with `/proc/PID/maps`, which maps inode 186916, the
+  same inode as the CURRENT `/home/nerd/.local/bin/switchpost`. The maps
+  entry is not marked `(deleted)`, so the process is executing the deployed,
+  hash-verified binary and not a stale or unlinked one.
+- A FALSE NEGATIVE I CAUGHT IN MY OWN PROOF. Searching the live bundle I ran
+  `grep -rl ... /home/nerd/switchpost/frontend/build/` and concluded "0
+  matches". That path does not EXIST - `rust-embed` compiles the assets into
+  the binary, so there is no on-disk build to search. Grep on a missing
+  directory returns nothing, which is indistinguishable from "clean", and
+  the same run showed the NEW hint also at 0. A control is what exposed it.
+  The real evidence is the SERVED chunk over TLS: `BvtkDYYo.js` is 32,375
+  bytes, new hint x1, "could not be refreshed" x0 - and the binary carries
+  the chunk name 4 times, confirming it is embedded there.
+- THE CODE ORDER, NOT THE COMMIT MESSAGE. The conditional claim
+  ("refresh succeeds -> clear; refresh fails -> flag and return") is true,
+  but the pass proved it where it is actually load-bearing: `return Err` at
+  src/api/integrations.rs:539 comes BEFORE the COALESCE clear at
+  integrations.rs:592, so the clear is textually unreachable on the failure
+  path. A reader cannot infer that from the commit message.
+- THE TWO ASSERTIONS NO EARLIER MUTATION TOUCHED. The first pass mutated the
+  phrase assert and the label assert. It did NOT prove:
+    * the `!src.contains("unreachable!")` guard - injecting `unreachable!()`
+      into channel-status.ts FAILS with "channel-status.ts must not panic a
+      path it cannot handle". Load-bearing.
+    * `integration_public_still_exposes_no_failure_reason` - adding
+      `refresh_reason` to `IntegrationPublic` does NOT fail the assert; it
+      fails the BUILD with E0063 (missing field in the From impl). This is
+      exactly what that test's own doc comment predicts, and it is now
+      verified rather than cited.
+- THE ROUTER TEST'S OBSERVABILITY, RE-DERIVED TODAY. Removing
+  `mark_integration_refresh_needed` from the failure branch FAILS
+  `a_failed_token_refresh_keeps_the_flag_and_answers_an_error` with "a failed
+  refresh must keep refresh_needed SET" - so the seeded-UNflagged direction
+  still observes the write. The weak-seed trap from 1e237bb has not
+  regressed.
+- THE LIVE DB IS THE FINAL CORROBORATION. The 5 flagged channels the fix was
+  written for are exactly there: `linkedin` (1) + `linkedin-page` (4), all
+  five flagged, every other provider (facebook, gmail, google, instagram,
+  instagram-standalone, reddit) at 0. And the "the token is fine" claim the
+  condemned sentence contradicted is now measured: 2 of the linkedin rows
+  carry a token valid to 2026-12-29, i.e. 59 days from now, still flagged.
+  The current binary classifies their 404 as "points at a resource no longer"
+  - the target-gone path - not a scope error.
+- A NEW COUNT, MEASURED THE SAME WAY THE OLD ONE WENT WRONG. Grouping by
+  PID, "target is gone" is 136 total for the current binary's line range,
+  against 1912 "lacks API scope" lines that are all from the pre-fix
+  process. The ratio is the fix.
+
+Stage Summary:
+- All six claims hold, and three of them now hold on stronger evidence than
+  before (process-level binary identity; the unreachable guard; the live DB
+  channel set with expiry dates).
+- Two verification traps closed, both of which would have read as "clean":
+  a mutation that silently did not apply, and a grep over a path that does
+  not exist. Both needed a positive control to expose.
+- Everything reverted by hand. cargo test --lib 544/544,
+  linkedin_refresh_needed 15/15, channels_grid_multi_account 5/5, cargo
+  check 0 errors. No source change, nothing deployed.
