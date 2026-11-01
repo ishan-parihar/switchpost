@@ -255,13 +255,31 @@ pub fn classify_feed_failure(msg: &str) -> FeedFailureKind {
         || m.contains("resource_not_found")
         || m.contains("not found")
         || m.contains("404");
+    // DEFECT D: LinkedIn's READ path (src/social/linkedin.rs:192) replaces its
+    // raw 403 with a message that names the FIX - "not granted
+    // 'r_member_social' ... reconnect LinkedIn from the Channels screen" - and
+    // contains NONE of the tokens the original list looked for. It classified
+    // as Transient, so the flag was never set and no reconnect was ever
+    // offered, on a channel that can never read a post again. Its own comment
+    // calls it "the reconnection the founder actually has to do", so the
+    // phrases it uses are the authority. Parentheses are EXPLICIT: `&&` binds
+    // tighter than `||`, and an unparenthesised chain is a trap for the next
+    // reader (and for a mutation that looks right but is not).
+    let grant_miss = m.contains("not granted")
+        || m.contains("granted without")
+        || m.contains("missing grant")
+        || (m.contains("grant") && m.contains("missing"));
+    let fixes_with_reconnect = m.contains("enable") && m.contains("reconnect");
     let auth_lost = m.contains("401")
         || m.contains("unauthorized")
         || m.contains("token expired")
         || m.contains("403")
         || m.contains("forbidden")
         || m.contains("permission")
-        || m.contains("scope");
+        || m.contains("scope")
+        || m.contains("grant required")
+        || grant_miss
+        || fixes_with_reconnect;
     if auth_lost {
         FeedFailureKind::NeedsReconnect
     } else if resource_gone {

@@ -328,3 +328,94 @@ fn the_default_reconnect_degrades_on_a_page_management_refusal() {
          believes a dead token was renewed"
     );
 }
+
+// ══════════════════════════════════════════════════════════════
+// Defect D: a scope miss that reads as a TIMEOUT
+// ══════════════════════════════════════════════════════════════
+
+/// THE STRING, copied from the live provider.
+///
+/// `src/social/linkedin.rs:192` replaces the raw 403 on the READ path with
+/// this message, and its own comment says why: the token was granted without
+/// the now-opt-in `r_member_social` scope, and "the reconnection the founder
+/// actually has to do" follows. The message even ends with the words
+/// "reconnect LinkedIn from the Channels screen".
+///
+/// THE DEFECT: `classify_feed_failure` looks for the literal tokens `403`,
+/// `forbidden`, `permission`, `scope`, `401`, `unauthorized`, and
+/// `token expired`. This message contains NONE of them - it says "not
+/// granted", "enable", "reconnect", and "product". So it classifies as
+/// `Transient`, the `Transient` arm only logs a warning and touches no flag,
+/// and the founder is left polling a channel that can never succeed with no
+/// reconnect offered anywhere in the UI.
+///
+/// It is the same shape as defect A, from the other side: A set the flag when
+/// it should NOT have; D fails to set it when it SHOULD. Both leave the
+/// Channels screen lying.
+fn linkedin_read_path_403() -> &'static str {
+    "LinkedIn could not read this member's posts: the connected account was \
+     not granted 'r_member_social'. To read your own LinkedIn posts and \
+     feed, enable the 'Read member's social' product on the LinkedIn app, \
+     set LINKEDIN_ENABLE_MEMBER_SOCIAL_READ=1 on the server, then \
+     reconnect LinkedIn from the Channels screen."
+}
+
+/// The provider's REAL message must classify as a reconnect, not a timeout.
+///
+/// Driven against `classify_feed_failure` directly (not a copy of the rule),
+/// so a mutation to the token list goes red here.
+#[test]
+fn a_linkedin_scope_miss_is_a_reconnect_not_a_timeout() {
+    assert_eq!(
+        switchpost::feed::classify_feed_failure(linkedin_read_path_403()),
+        switchpost::feed::FeedFailureKind::NeedsReconnect,
+        "the provider's own 403 message describes a scope miss and names the \
+         reconnect that fixes it, but it classified as a timeout - so the flag \
+         is never set and the Channels screen shows a healthy channel that can \
+         never read a post again (defect D)"
+    );
+}
+
+/// The BEHAVIOURAL half: this message must actually SET the flag on a real
+/// row, not merely classify correctly. A classifier that names the right kind
+/// while the handler drops it is the same defect wearing another hat.
+#[tokio::test]
+async fn a_linkedin_scope_miss_sets_the_flag_on_a_real_row() {
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
+    switchpost::db::ensure_local_user(&pool).await.unwrap();
+
+    let id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO integrations
+            (id, user_id, provider_identifier, provider_name, internal_id,
+             access_token, refresh_token, token_expires_at,
+             disabled, refresh_needed, posting_times, auth_method)
+         VALUES (?, ?, 'linkedin', 'LinkedIn', 'urn:li:person:abc',
+                 'A validT0ken', 'refresh-tok', ?, 0, 0, '[]', 'oauth')",
+    )
+    .bind(id)
+    .bind(switchpost::auth::middleware::DEFAULT_USER_ID)
+    .bind(chrono::Utc::now() + chrono::Duration::days(59))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    switchpost::feed::handle_feed_failure_for_test(&pool, id, "linkedin", linkedin_read_path_403())
+        .await
+        .unwrap();
+
+    let flagged =
+        sqlx::query_scalar::<_, bool>("SELECT refresh_needed FROM integrations WHERE id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert!(
+        flagged,
+        "a LinkedIn read-path 403 must set refresh_needed, so the founder is \
+         shown the reconnect that fixes it (defect D)"
+    );
+}
