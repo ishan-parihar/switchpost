@@ -4157,6 +4157,51 @@ FOUND A REAL DEFECT IN MY OWN SUITE, IN THE PLACE THE WORKLOG CLAIMED WAS COVERE
   FIXTURE, and the fixture is what the consequence claim rests on. Every suite
   needs at least one test seeded on the wrong side of its own filter, to prove
   the filter is being read at all.
+CLOSED THE VALIDATION GAP: NINE OF THE TEN TESTS NOW HAVE A MUTATION BEHIND THEM
+- The first re-validation pass covered M1/M2/M3, which between them turn 6 tests
+  red. This pass covers the rest, so only one test in
+  tests/linkedin_refresh_needed_test.rs is still green without a mutation having
+  targeted it (clearing_an_unflagged_channel_is_a_no_op_not_an_error - see the
+  caveat at the end of this section):
+    M4, "not found" dropped from the classifier's resource set: PASSED all
+      12. NOT a defect - it is a genuinely redundant pattern, because
+      `LIVE_404` ("HTTP 404 - No virtual resource found") is already caught by
+      both `"404"` and `"no virtual resource"`. Recorded because it is the one
+      mutation in the battery that does not discriminate, and knowing WHY is
+      the difference between redundancy and a hole.
+    M5, auth/resource precedence reversed: RED on exactly 1 -
+      `an_auth_word_beats_a_404_in_the_same_message`. That test is about
+      ORDERING, not category membership, and no other test in the suite would
+      have caught a precedence swap.
+    M6, the `Transient` arm wrongly flags the channel: RED on exactly 1 -
+      `a_rate_limit_does_not_touch_the_flag`.
+    M7, the clear UPDATE loses its `WHERE id` predicate: RED on exactly 1 -
+      `clearing_is_scoped_to_one_channel`, the same pair M2 already turned red.
+      This is the cross-channel data-corruption mutation: one channel's healthy
+      token silently clears a sibling's flag, putting a row nobody asked about
+      back in the refresh window.
+    M8, `update_integration_token` stops clearing the flag
+      (`refresh_needed = refresh_needed`): RED on exactly 1 -
+      `a_reconnect_recovers_a_flagged_channel`. So the reconnect path a founder
+      is offered is pinned, not assumed.
+- M8 needed the `.sqlx/` offline cache entry hand-edited alongside the source,
+  because the query uses the `query!` macro and its filename IS the query hash
+  (sqlx sha256's the SQL text). The entry was backed up first, both the query
+  string and the hash were recomputed, and both were restored afterwards -
+  `.sqlx/` verified clean with `git status`. AGENTS.md 5.2 says to use runtime
+  `sqlx::query()` for NEW queries for exactly this reason; mutating an EXISTING
+  macro'd query means paying that cost once, deliberately.
+- THE REMAINING GAP, PROVEN RATHER THAN ASSERTED: M9 stubbed
+  `clear_integration_refresh_needed` to a complete no-op - the worst case, no
+  write at all. It turns RED on 2 tests (the clear test and the scoping test)
+  and leaves `clearing_an_unflagged_channel_is_a_no_op_not_an_error` GREEN. So
+  that test cannot distinguish a working clear from a stubbed one; it asserts
+  only that the call does not error. Two honest options remain: mutate it into
+  something it can fail at, or delete it. A test that cannot fail is worse than
+  no test, because it reads as coverage.
+- Result: 12/12 green on the restored tree, all three sources hash-verified
+  against their pre-mutation backups, cargo check clean.
+
 - Re-measured A+B's committed citations against the tree. One had drifted:
   `queries.rs:1744` is now 1776. Fixed in 7399fb3, which also removes the
   remaining line numbers from that comment - they age on their own and a
