@@ -3968,3 +3968,70 @@ Stage Summary:
   asserting a sentence, not a property.
 - docs gate: 1 hard failure, the pre-existing eda6828 orphan, which is item
   14 in this very queue.
+---
+Task ID: v22-ink-on-fill
+Agent: Jcode
+Task: Validate the previously unmeasured "Discard @ 2.89:1" contrast claim and
+fix it if real.
+
+Work Log:
+- The AI result state was unreachable because NO LLM is configured on the
+  instance (the AI endpoint answers 400 "not set up"). Standing up a local
+  OpenAI-shaped stub on port 8099 did not work at first: TWO `switchpost
+  serve` processes were competing, and the one holding 6543 was the
+  concurrent session's, so mine died claiming the SQLite single-writer lock.
+  Resolved by running a scratch instance on port 6555 with its own
+  DATABASE_URL and MEDIA_DIR, leaving the shared data/ dir and the other
+  session's debug server alone.
+- Reaching the AI result state needed the panel's "improve" task (the default
+  "generate" task asks for a topic) and text in the composer body (a
+  non-generate task reads the CURRENT post content, not its own textarea).
+- Measured the AI panel's own Discard: 7.21 dark / 7.58 light, PASS. So the
+  2.89 claim was NOT about the AI panel.
+- Located the real 2.89: the shared areYouSure() DANGER confirm button,
+  reached by typing in the composer and closing it. Dark theme: white
+  (text-accent-fg) on red-500 (255 100 100) = 2.89:1 against a 4.5 floor.
+  Light theme was already 6.47:1, which is why a light-theme look never saw it.
+  All 35 destructive confirms in the app go through this one button.
+- Swept every solid semantic fill in the source and found the same rule
+  applied in badges (correctly, via text-error-fg) and MISSED in three sites:
+  the ModalManager confirm, calendar's bulk Delete (no ink class at all), and
+  MediaGrid's delete badge.
+- Writing the gate caught a FOURTH defect: Toast.svelte bound text-error on
+  bg-error and text-warning on bg-warning - the SAME --rgb var on both sides,
+  red text on a red fill, 1.00:1 in every theme. An error toast's message was
+  invisible. Its info toast had the same self-pairing on a 90% wash.
+- frontend/scripts/check-ink-on-fill.mjs, wired into `make check`.
+- The gate's first version was blind THREE ways, all found by mutation
+  testing and all fixed:
+    1. it skipped any class list containing `?`/`&&`/`|`/`+` as "dynamic",
+       which exempted exactly the ModalManager site it was written for.
+       It now splits on ternaries and judges each BRANCH.
+    2. its first delimiter list included `:`, which split `hover:bg-error`
+       into `hover` + `bg-error` and produced 21 false positives - the real
+       finding was one of 22 and the noise buried it.
+    3. `src.indexOf('>')` ended the tag past the attribute, and the
+       element-text fallback then read INTERPOLATED ATTRIBUTES as text,
+       flagging an empty progress bar.
+  Restored from scratch copies after each mutation, not `git checkout --`:
+  the file was uncommitted and git would have reverted the fix being tested.
+
+Stage Summary:
+- Fixed: ModalManager danger confirm (2.89 -> 6.68 dark), calendar bulk
+  Delete, MediaGrid delete badge, all four Toast types (error/warning were
+  1.00:1; now 6.68/6.47, 10.07/6.28, 8.48/6.28, info wash 5.49/5.75).
+- New: frontend/scripts/check-ink-on-fill.mjs (26 real pairs across 2858
+  class attributes), wired into `make check`, mutation-tested in both
+  directions.
+- Pushed 32ea48b; frontend + release binary rebuilt.
+- Verified on the running app: probe FAIL 0/WARN 216 (baseline unchanged),
+  audit-contrast 0 failures dark and 0 light, cargo check clean,
+  svelte-check 0/0, check-ink-on-fill 26/26, check_status_contrast 88/88,
+  test-contrast-core pinned.
+- Environment restored: stub killed, scratch server killed, 6543 back to the
+  new binary (verified the served CSS contains both .bg-error and
+  .text-error-fg).
+- Note for the next agent: a 1.00:1 reading on an ALPHA background is
+  usually the measurement walking past the wash, not the app. Composite the
+  wash over its opaque backdrop before believing it - that check is what
+  separated my false alarm on the info toast (1.00) from its real value (5.49).
