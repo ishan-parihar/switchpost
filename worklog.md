@@ -4717,3 +4717,71 @@ Stage Summary:
 - The `.2.36` cross-build recipe (with the flag-stripping zig shim) is now
   recorded above, because `make deploy` does not work on this machine as
   written.
+
+---
+Task ID: v22-validate-the-production-deploy
+Agent: Jcode
+Task: Validate the deployment further, correcting anything stale or overstated.
+
+Work Log:
+- INTEGRITY: the VPS binary sha256 `0d22695b…b43a` is BYTE-IDENTICAL to the
+  local `.2.36` build, 71,833,256 bytes. It is NOT the host-target build
+  (97,744,344 bytes) - confirmed by both size and digest - so the
+  GLIBC_2.39 binary never reached the VPS. Deployed binary requires at most
+  GLIBC_2.34; the VPS glibc is 2.36; `ldd` exits 0 with all symbols resolved.
+- THE BINARY IS CURRENT: the only commit since the build (53d99af) is my own
+  worklog note. `git diff --name-only 53d99af..HEAD` is worklog.md only, with
+  no src/, migrations/ or frontend/src/ changes. No rebuild was needed.
+- ROLLBACK CLAIM TESTED, NOT ASSERTED: both
+  `switchpost.prev-20261102` and `switchpost.v070-backup` execute on the VPS
+  (`--version` returns 0.7.0), so the one-command rollback I promised actually
+  works. Disk stayed at 91% (pre-existing; I replaced one file, nothing added).
+- STRAY PROCESS FOUND AND CLEANED: an earlier smoke probe run with
+  `setsid … & disown` escaped my SSH session and survived as PID 3681673
+  (`switchpost.new serve --port 19999`). It was SIGTERM'd and the port freed.
+  PROOF IT WAS NEVER A RISK: it ran with
+  `DATABASE_URL=sqlite:///tmp/sp-smoke/…` and the LIVE writer lock contains
+  3697741 (the real service), so it never held the live database. The live DB
+  mtime predates my probes and its row counts are normal.
+- THE FIX IS PROVEN IN PRODUCTION, BY PROCESS PID AND NOT BY TIME WINDOW:
+    old binary PID 2531466 : "lacks API scope — marking refresh_needed" = 2236
+    new binary PID 3697741 : "lacks API scope — marking refresh_needed" = 0
+    old binary PID 2531466 : "…target is gone" = 0
+    new binary PID 3697741 : "…target is gone" = 20
+  The new binary is executing the 5c09a5f TargetGone arm on the live LinkedIn
+  404s and is writing zero bogus flags.
+
+A COUNTING ERROR I MADE AND CORRECTED (worth the paragraph): my first
+post-deploy check counted 260 "lacks API scope" lines since the restart and
+appeared to contradict the fix. Every one traced to the OLD PID 2531466 at
+20:30Z, five minutes BEFORE the 20:35Z restart. The cause is a timezone trap:
+the journal's message timestamps are UTC while systemd's own stamps are IST
+(02:00 next day), so a `--since` window in wall-clock terms spans the wrong
+region. Counting by PROCESS ID is the count that cannot lie; a time window
+can. I had nearly reported a regression that did not exist.
+
+G-03 IS NOW VISIBLE IN PRODUCTION AND THE FOUNDER SHOULD KNOW: all four
+`linkedin-page` rows plus `linkedin` carry `refresh_needed=1`, set pre-fix on
+Oct 30 22:00Z. Their tokens are FINE - production now explicitly logs "The
+channel's token is fine, so it stays publishable; the target is gone." - and
+one has a token valid until 2026-12-29. The flags are STALE, not accurate:
+the channels are stuck flagged. The auto-clear path is unreachable for them
+because clearing requires a fetch that SUCCEEDS, and the feed fetch keeps
+404-ing (that part is correct - the page really is gone). Recovery is the
+manual `POST /api/integrations/{id}/refresh` or a reconnect.
+
+This is the G-03 policy question already recorded in OUTLINE_TOKEN_REFRESH.md
+("a flag whose only writer marks it 'give up'"), now with production evidence
+that it costs the founder something. It is a policy call, not a code defect,
+and it is NOT fixed here - it is reported so the founder can decide.
+
+Stage Summary:
+- Deployment validated: byte-exact integrity, glibc-compatible, current with
+  HEAD, rollback executable, no data touched, one stray process cleaned.
+- Defect A proved fixed in production by PID-based counting (2236 -> 0; the
+  correct TargetGone message 0 -> 20).
+- Cloudflared untouched (up 5 days, user unit inactive but running as PID
+  1866819 outside user systemd); public /health 200 and / 200 with 5554 bytes.
+- Nothing fixed in this pass; the work was validation plus two corrections -
+  my counting method, and the fact that the rollback promise is now tested
+  rather than asserted.
