@@ -4656,3 +4656,64 @@ not performed. It happens to be true, which made it worse - a lucky guess looks
 exactly like evidence. The correction is not "re-verify and keep the wording";
 it is that a claim about verification must name the command that produced it.
 Everything in the two commit messages now does.
+
+---
+Task ID: v22-deploy-latest-release-to-production-racknerd
+Agent: Jcode
+Task: Deploy the latest release to the production deployment at
+switchpost.ishanparihar.com so the founder can test it.
+
+Work Log:
+- The host is `racknerd` (107.173.144.77), NOT `ssh-racknerd` - that name does
+  not resolve. Deployment shape: user systemd (`systemctl --user switchpost`,
+  enabled), binary at `/home/nerd/.local/bin/switchpost`, data + `.env` in
+  `/home/nerd/switchpost/`, bound to `127.0.0.1:6543` behind a cloudflared
+  tunnel. There is NO root systemd and `/usr/local/bin` is not the install path.
+- The VPS CANNOT build this: rustup has no default toolchain, no pnpm, no zig,
+  2 GB RAM, 2 CPUs, 4.1 GB free at 91% disk. Build locally, ship the binary.
+- What was deployed is a real fix, not a docs-only no-op: since the Oct 30 build
+  the feed chain landed (5c09a5f, 474420c, c42cbf5 defect D - a LinkedIn scope
+  miss that read as a timeout, so a permanently-failing channel was never
+  flagged and no reconnect was ever offered).
+- THE BUILD BUG AND ITS FIX (recorded because the next deploy will hit it):
+  `make deploy` / `cargo zigbuild` fails at HEAD with
+  `error: unsupported linker arg: --no-keep-memory`. Root cause is a toolchain
+  combination, not a project bug: rustc 1.98 emits that GNU-ld flag for every
+  cdylib, and zig's bundled LLD rejects it BY NAME. Verified the flag is
+  rejected by zig 0.11.0, 0.13.0, 0.14.1 and 0.16.0 - it is not a version
+  regression to be waited out.
+  The `zig` on PATH is a uv-tools pip shim reporting 0.16.0.
+  Fix: a drop-in `zig` replacement (`~/.jcode/scratch/zb/shimdir/zig`) that
+  strips the rejected flags and forwards to a real zig 0.14.1; cargo-zigbuild
+  resolves zig through PATH when its wrapper cache is cleared, so
+  `PATH=.../shimdir:$PATH cargo zigbuild --release --target
+  x86_64-unknown-linux-gnu.2.36` builds clean (EXIT=0, 4m25s, 0 errors).
+  NOTE zig 0.11.0 downloaded from ziglang.org HANGS on this host (verified:
+  `zig version` times out); 0.14.1 works. Use 0.14.1.
+- A locally built DYNAMIC binary is NOT deployable here: it requires
+  GLIBC_2.39 (`pidfd_spawnp`, `__isoc23_sscanf`) and the VPS runs 2.36, so it
+  would fail at load. The `.2.36` cross-target constrains this correctly - the
+  binary it produced requires only up to GLIBC_2.34. Verified on the VPS:
+  runs, `ldd` resolves all libs.
+- Smoke test BEFORE the swap, against an ISOLATED db copy in /tmp (never the
+  live database): the new binary started, bound 127.0.0.1:19999, registered all
+  29 providers, applied migrations, started every background task, and shut
+  down gracefully. It also correctly REFUSED to start against the live DB -
+  "Another switchpost process already owns the writer lock" - which is the
+  single-writer guard (G-08) doing its job and proof the new build honours it.
+- Swap: backed up `/home/nerd/.local/bin/switchpost` to
+  `switchpost.prev-20261102` (the existing `switchpost.v070-backup` was left in
+  place), moved the new binary in as `switchpost`, installed the 4 skill files,
+  then `systemctl --user restart switchpost`.
+- Post-deploy checks: service active (Main PID 3697741), port 6543 bound,
+  journal shows the new binary importing YouTube feed posts, and through the
+  public URL `/health` returns HTTP 200 and `/` returns HTTP 200 with 5554
+  bytes of frontend.
+
+Stage Summary:
+- LIVE: https://switchpost.ishanparihar.com serves the latest commit
+  (53d99af, which contains defect D). The founder can test it.
+- Rollback is one command: restore `switchpost.prev-20261102` and restart.
+- The `.2.36` cross-build recipe (with the flag-stripping zig shim) is now
+  recorded above, because `make deploy` does not work on this machine as
+  written.
