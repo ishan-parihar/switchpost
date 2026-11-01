@@ -84,7 +84,26 @@ pub fn start_feed_refresher(
 
 /// Attempt to auto-refresh an expired token and re-fetch posts.
 /// Returns Some(posts) on success, None if refresh fails.
+///
+/// THE DEFECT-B SEAM. `try_refresh_and_fetch` was the load-bearing half of the
+/// 5c09a5f fix and had NO test behind it: the only reference to it in tests/
+/// was a doc comment. Its regression is invisible to read, because the failure
+/// is behavioural - a written-then-discarded token - so the only way to pin it
+/// is to drive the function with a provider that can tell the two tokens apart
+/// and see which one the fetch was actually given.
 async fn try_refresh_and_fetch(
+    db: &SqlitePool,
+    provider: &Arc<dyn SocialProvider>,
+    integration: &crate::db::models::Integration,
+    token_key: Option<[u8; 32]>,
+) -> Option<Vec<crate::social::ExternalPostData>> {
+    try_refresh_and_fetch_for_test(db, provider, integration, token_key).await
+}
+
+/// The test-visible wrapper. Same body, same order of operations - the wrapper
+/// exists so a test can drive the real path rather than a copy of it
+/// (AGENTS.md 9.18), and it is the integration seam for defect B.
+pub async fn try_refresh_and_fetch_for_test(
     db: &SqlitePool,
     provider: &Arc<dyn SocialProvider>,
     integration: &crate::db::models::Integration,

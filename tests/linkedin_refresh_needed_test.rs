@@ -35,7 +35,12 @@ use uuid::Uuid;
 /// is on `(user_id, provider_identifier, internal_id)`, so a test that wants
 /// two channels has to give them two URNs, exactly as the real connect flow
 /// does.
-async fn seed_linkedin_with_urn(pool: &SqlitePool, urn: &str, flagged: bool, expires_in_days: i64) -> Uuid {
+async fn seed_linkedin_with_urn(
+    pool: &SqlitePool,
+    urn: &str,
+    flagged: bool,
+    expires_in_days: i64,
+) -> Uuid {
     let user_id = switchpost::auth::middleware::DEFAULT_USER_ID;
     switchpost::db::ensure_local_user(pool).await.unwrap();
     let id = Uuid::new_v4();
@@ -121,7 +126,9 @@ const LIVE_403: &str = "API error: HTTP 403 Forbidden — missing scope r_organi
 
 #[tokio::test]
 async fn a_linkedin_404_is_not_a_scope_error() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     let id = seed_linkedin(&pool, false).await;
 
     let kind = switchpost::feed::classify_feed_failure(LIVE_404);
@@ -147,7 +154,9 @@ async fn a_linkedin_404_is_not_a_scope_error() {
 
 #[tokio::test]
 async fn the_resource_not_found_envelope_is_also_not_a_scope_error() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     let id = seed_linkedin(&pool, false).await;
 
     switchpost::feed::handle_feed_failure_for_test(&pool, id, "linkedin", LIVE_404_ENVELOPE)
@@ -164,7 +173,9 @@ async fn the_resource_not_found_envelope_is_also_not_a_scope_error() {
 /// a "fix" that never sets it would break the reconnect prompt entirely.
 #[tokio::test]
 async fn a_real_auth_failure_still_marks_refresh_needed() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     let id = seed_linkedin(&pool, false).await;
 
     switchpost::feed::handle_feed_failure_for_test(&pool, id, "linkedin", LIVE_401)
@@ -178,7 +189,9 @@ async fn a_real_auth_failure_still_marks_refresh_needed() {
 
 #[tokio::test]
 async fn a_missing_scope_forbidden_still_marks_refresh_needed() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     let id = seed_linkedin(&pool, false).await;
 
     switchpost::feed::handle_feed_failure_for_test(&pool, id, "linkedin", LIVE_403)
@@ -193,7 +206,9 @@ async fn a_missing_scope_forbidden_still_marks_refresh_needed() {
 /// A transient failure (rate limit, outage) must not touch the flag at all.
 #[tokio::test]
 async fn a_rate_limit_does_not_touch_the_flag() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     let id = seed_linkedin(&pool, false).await;
 
     switchpost::feed::handle_feed_failure_for_test(
@@ -234,7 +249,9 @@ async fn an_auth_word_beats_a_404_in_the_same_message() {
 /// re-pointed at a different filter.
 #[tokio::test]
 async fn a_404_channel_still_reaches_the_scheduler() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     // INSIDE the scheduler's 24h window, so this row is one the proactive
     // refresh actually selects. A 59-day token is filtered out by
     // `token_expires_at <= now + 24h` and would make BOTH assertions below
@@ -280,7 +297,9 @@ async fn a_404_channel_still_reaches_the_scheduler() {
 /// but NOT by a proven-healthy token, because nothing mirrored the write.
 #[tokio::test]
 async fn a_flags_channel_can_be_cleared_by_refresh_success() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     let id = seed_linkedin_with_hours(&pool, "urn:li:person:abc", true, 6).await;
     assert!(is_flagged(&pool, id).await, "fixture starts flagged");
 
@@ -318,7 +337,9 @@ async fn a_flags_channel_can_be_cleared_by_refresh_success() {
 /// expired 30 days earlier still passed `a_404_channel_still_reaches_the_scheduler`.
 #[tokio::test]
 async fn a_channel_outside_the_window_is_not_reachable_so_the_above_bites() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     // 59 days out: far outside the 24h proactive window.
     let id = seed_linkedin_with_urn(&pool, "urn:li:person:outside", false, 59).await;
     assert!(!is_flagged(&pool, id).await, "fixture starts unflagged");
@@ -353,14 +374,19 @@ async fn a_channel_outside_the_window_is_not_reachable_so_the_above_bites() {
 /// `a_flags_channel_can_be_cleared_by_refresh_success`.
 #[tokio::test]
 async fn clearing_an_unflagged_channel_is_a_no_op_not_an_error() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     let clear = seed_linkedin(&pool, false).await;
     let sibling = seed_linkedin_with_urn(&pool, "urn:li:person:sibling", true, 59).await;
 
     switchpost::db::queries::clear_integration_refresh_needed(&pool, clear)
         .await
         .expect("clearing an already-clear flag must not error");
-    assert!(!is_flagged(&pool, clear).await, "the cleared row stays clear");
+    assert!(
+        !is_flagged(&pool, clear).await,
+        "the cleared row stays clear"
+    );
     assert!(
         is_flagged(&pool, sibling).await,
         "a flagged sibling must survive the clear, or the UPDATE lost its \
@@ -372,7 +398,9 @@ async fn clearing_an_unflagged_channel_is_a_no_op_not_an_error() {
 /// channel's flag must not clear another's.
 #[tokio::test]
 async fn clearing_is_scoped_to_one_channel() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     let a = seed_linkedin_with_urn(&pool, "urn:li:person:aaa", true, 59).await;
     let b = seed_linkedin_with_urn(&pool, "urn:li:organization:bbb", true, 59).await;
 
@@ -393,7 +421,9 @@ async fn clearing_is_scoped_to_one_channel() {
 /// is offered is the one that works.
 #[tokio::test]
 async fn a_reconnect_recovers_a_flagged_channel() {
-    let pool = switchpost::db::create_pool("sqlite::memory:").await.unwrap();
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
     let id = seed_linkedin(&pool, true).await;
 
     // reconnect routes through update_integration_token (AGENTS.md §6.3.1).
@@ -411,5 +441,259 @@ async fn a_reconnect_recovers_a_flagged_channel() {
     assert!(
         !is_flagged(&pool, id).await,
         "a reconnect must recover a flagged channel"
+    );
+}
+
+// ── Defect B: the refreshed token must reach the fetch ───────────
+
+/// A provider stub whose two calls hand out DIFFERENT tokens, so the test can
+/// tell which one `try_refresh_and_fetch` actually used.
+///
+/// `refresh_token` returns `FRESH_TOKEN`; `get_recent_posts` ACCEPTS only
+/// `FRESH_TOKEN` and rejects the seeded `"A validT0ken"`. A regression that
+/// writes the new token and then fetches with `integration.access_token`
+/// therefore gets an `Err` and `None`, and the assertion below fires. This is
+/// the whole defect: the write succeeded, the token was good, and nobody used
+/// it.
+struct RefreshingProvider;
+
+const FRESH_TOKEN: &str = "fresh-just-issued-token";
+
+#[async_trait::async_trait]
+impl switchpost::social::SocialProvider for RefreshingProvider {
+    fn identifier(&self) -> &'static str {
+        "linkedin"
+    }
+    fn name(&self) -> &'static str {
+        "LinkedIn"
+    }
+    fn scopes(&self) -> Vec<String> {
+        vec![]
+    }
+    fn max_content_length(&self) -> usize {
+        3000
+    }
+    async fn generate_auth_url(
+        &self,
+        _state: &str,
+        _code_verifier: &str,
+        _redirect_uri: &str,
+    ) -> Result<switchpost::social::AuthUrlResponse, switchpost::social::ProviderError> {
+        unreachable!("the refresh path never builds an auth url")
+    }
+    async fn exchange_code(
+        &self,
+        _code: &str,
+        _code_verifier: &str,
+        _redirect_uri: &str,
+    ) -> Result<switchpost::social::AuthToken, switchpost::social::ProviderError> {
+        unreachable!("the refresh path never exchanges a code")
+    }
+    async fn refresh_token(
+        &self,
+        _refresh_token: &str,
+    ) -> Result<switchpost::social::AuthToken, switchpost::social::ProviderError> {
+        Ok(switchpost::social::AuthToken {
+            access_token: FRESH_TOKEN.to_string(),
+            refresh_token: Some("fresh-refresh".to_string()),
+            expires_in: Some(3600),
+            provider_user_id: String::new(),
+            name: String::new(),
+            username: String::new(),
+            picture: None,
+        })
+    }
+    async fn publish(
+        &self,
+        _access_token: &str,
+        _post: &switchpost::social::PostContent,
+    ) -> Result<switchpost::social::PublishResult, switchpost::social::ProviderError> {
+        unreachable!("the refresh path does not publish")
+    }
+    async fn get_recent_posts(
+        &self,
+        access_token: &str,
+        _internal_id: &str,
+        _limit: u32,
+    ) -> Result<Vec<switchpost::social::ExternalPostData>, switchpost::social::ProviderError> {
+        // THE DISCRIMINATOR: only the fresh token is accepted.
+        if access_token == FRESH_TOKEN {
+            Ok(vec![])
+        } else {
+            Err(switchpost::social::ProviderError::Api(format!(
+                "Auth error: token {access_token} is not the refreshed one"
+            )))
+        }
+    }
+
+    async fn fetch_page_info(
+        &self,
+        _access_token: &str,
+        _page_id: &str,
+    ) -> Result<switchpost::social::PageInfo, switchpost::social::ProviderError> {
+        unreachable!("the refresh path never selects a page")
+    }
+}
+
+/// Defect B, pinned behaviourally.
+///
+/// Pre-fix, `try_refresh_and_fetch` called `update_integration_token` (so the
+/// DB had the good token) and then fetched with `integration.access_token` -
+/// the STALE one. The provider answered "Auth error: Missing access_token",
+/// the function returned `None`, and the caller read that as "refresh failed"
+/// and skipped the channel for another cycle. Infinite loop: a good token
+/// written, never used.
+///
+/// This was the load-bearing half of 5c09a5f and had NO test behind it - the
+/// only reference to `try_refresh_and_fetch` in tests/ was a doc comment. It
+/// could not be checked by reading, because the bug is WHICH VALUE was passed,
+/// and both values are plausible-looking strings on the same line.
+#[tokio::test]
+async fn a_refreshed_token_is_the_one_the_fetch_uses() {
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
+    // Flagged, so the success path also has a flag to clear.
+    let id = seed_linkedin(&pool, true).await;
+    let integration = switchpost::db::queries::get_integration(
+        &pool,
+        id,
+        switchpost::auth::middleware::DEFAULT_USER_ID,
+    )
+    .await
+    .unwrap()
+    .expect("the seeded row");
+
+    let provider: std::sync::Arc<dyn switchpost::social::SocialProvider> =
+        std::sync::Arc::new(RefreshingProvider);
+
+    let posts =
+        switchpost::feed::try_refresh_and_fetch_for_test(&pool, &provider, &integration, None)
+            .await;
+
+    assert!(
+        posts.is_some(),
+        "the fetch after a successful refresh must SUCCEED: it was handed the \
+         stale token instead of the refreshed one (defect B)"
+    );
+
+    // The other half: a proven-healthy channel must come out of the flags.
+    assert!(
+        !is_flagged(&pool, id).await,
+        "a successful fetch after a refresh must clear refresh_needed"
+    );
+
+    // And the DB actually holds the refreshed token, so the next cycle uses it.
+    let stored = switchpost::db::queries::get_integration(
+        &pool,
+        id,
+        switchpost::auth::middleware::DEFAULT_USER_ID,
+    )
+    .await
+    .unwrap()
+    .expect("the seeded row");
+    assert_eq!(
+        stored.access_token, FRESH_TOKEN,
+        "the refreshed token must be the one persisted"
+    );
+}
+
+/// The negative guard for defect B: a refresh that FAILS must still answer
+/// `None`, so the suite does not only test the happy path.
+struct FailingRefreshProvider;
+
+#[async_trait::async_trait]
+impl switchpost::social::SocialProvider for FailingRefreshProvider {
+    fn identifier(&self) -> &'static str {
+        "linkedin"
+    }
+    fn name(&self) -> &'static str {
+        "LinkedIn"
+    }
+    fn scopes(&self) -> Vec<String> {
+        vec![]
+    }
+    fn max_content_length(&self) -> usize {
+        3000
+    }
+    async fn generate_auth_url(
+        &self,
+        _state: &str,
+        _code_verifier: &str,
+        _redirect_uri: &str,
+    ) -> Result<switchpost::social::AuthUrlResponse, switchpost::social::ProviderError> {
+        unreachable!("the refresh path never builds an auth url")
+    }
+    async fn exchange_code(
+        &self,
+        _code: &str,
+        _code_verifier: &str,
+        _redirect_uri: &str,
+    ) -> Result<switchpost::social::AuthToken, switchpost::social::ProviderError> {
+        unreachable!("the refresh path never exchanges a code")
+    }
+    async fn refresh_token(
+        &self,
+        _refresh_token: &str,
+    ) -> Result<switchpost::social::AuthToken, switchpost::social::ProviderError> {
+        Err(switchpost::social::ProviderError::Api(
+            "refresh rejected".to_string(),
+        ))
+    }
+    async fn publish(
+        &self,
+        _access_token: &str,
+        _post: &switchpost::social::PostContent,
+    ) -> Result<switchpost::social::PublishResult, switchpost::social::ProviderError> {
+        unreachable!("the refresh path does not publish")
+    }
+    async fn get_recent_posts(
+        &self,
+        _access_token: &str,
+        _internal_id: &str,
+        _limit: u32,
+    ) -> Result<Vec<switchpost::social::ExternalPostData>, switchpost::social::ProviderError> {
+        unreachable!("a failed refresh must not reach the fetch")
+    }
+
+    async fn fetch_page_info(
+        &self,
+        _access_token: &str,
+        _page_id: &str,
+    ) -> Result<switchpost::social::PageInfo, switchpost::social::ProviderError> {
+        unreachable!("the refresh path never selects a page")
+    }
+}
+
+#[tokio::test]
+async fn a_failed_refresh_answers_none_and_leaves_the_row_alone() {
+    let pool = switchpost::db::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
+    let id = seed_linkedin(&pool, true).await;
+    let integration = switchpost::db::queries::get_integration(
+        &pool,
+        id,
+        switchpost::auth::middleware::DEFAULT_USER_ID,
+    )
+    .await
+    .unwrap()
+    .expect("the seeded row");
+
+    let provider: std::sync::Arc<dyn switchpost::social::SocialProvider> =
+        std::sync::Arc::new(FailingRefreshProvider);
+
+    let posts =
+        switchpost::feed::try_refresh_and_fetch_for_test(&pool, &provider, &integration, None)
+            .await;
+
+    assert!(posts.is_none(), "a failed refresh must answer None");
+    assert!(
+        is_flagged(&pool, id).await,
+        "a failed refresh must NOT clear the flag - only proof of health does"
+    );
+    assert_eq!(
+        integration.access_token, "A validT0ken",
+        "the stored token must be untouched by a failed refresh"
     );
 }
