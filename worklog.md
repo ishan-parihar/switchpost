@@ -4975,3 +4975,62 @@ Stage Summary:
 - No regression. Production defect-A count from the new binaries is zero.
 - Nothing changed and nothing deployed: this pass is measurement plus two
   mutation-proved tests (1e237bb) and their correction (51fcaca).
+
+---
+Task ID: v23-refresh-success-arm-pinned
+Agent: Jcode
+Task: Pin the refresh endpoint's SUCCESS arm - the recovery path for the
+founder's stale `refresh_needed` flags - which had no test at all.
+
+Work Log:
+- The prior pass pinned only the FAILURE arm ("refresh refused -> flag stays
+  flagged"), and I had recorded that as covering the endpoint. It does not: the
+  SUCCESS arm ("refresh succeeds -> flag cleared") is a different write, on a
+  different path, and NOTHING executed it. No test anywhere, not even a
+  source-shape one, reached it.
+- It could not be pinned from an integration test. `ProviderRegistry::new`
+  builds its own provider map from the real providers, so there is no injection
+  point; the only injection point, `ProviderRegistry::with_providers`, is under
+  `#[cfg(test)]` and invisible to a separate test binary. A unit test cannot
+  build the router either. So the test lives in-crate, in
+  `src/api/integrations.rs`, and calls the handler directly with a registry
+  carrying a provider whose `refresh_token` succeeds.
+- The thing worth recording is what the MUTATION revealed, because it
+  contradicts the obvious reading of the code. `refresh_needed = false` is
+  written by TWO statements on this path:
+    1. `queries::update_integration_token` - runs first, the moment the
+       provider returns a new token.
+    2. the handler's own COALESCE write - runs after `reconnect`.
+  I removed EACH alone and the test stayed GREEN both times. Only removing BOTH
+  turned it RED. So each write is redundant with the other, and a test that
+  passes after the clear is deleted from one of them is confirming the belt,
+  not the braces.
+- That also explains a wrong intermediate conclusion I wrote and then deleted:
+  I first concluded the handler's clear was dead code. It is not - it is the
+  second of two redundant clears, and it is the one that holds when the provider
+  returns no new refresh token and no new token write happens at all.
+- One honest trap recorded: reverting the mutation with `git checkout
+  src/db/queries.rs src/api/integrations.rs` DESTROYED the new test, because the
+  test was in `integrations.rs`. The test was rewritten from scratch afterwards.
+  Reverting a mutation must never use `git checkout` on a file that holds the
+  test - edit it back by hand, or keep the mutation confined to files that have
+  no tests.
+- rustfmt: the file has 3 PRE-EXISTING formatting drifts at HEAD (lines 2, 69,
+  1299), verified by stashing my change and re-measuring. Left untouched. The 4
+  drifts inside my new block were fixed by hand - slicing the file through
+  `rustfmt` corrupts the `#[cfg(test)]`/`mod` boundary, because --emit stdout
+  injects a filename header into the output.
+
+Stage Summary:
+- `a_successful_refresh_clears_the_flag_and_stores_the_new_token` added in
+  `src/api/integrations.rs` (in-crate, 6th suite: `cargo test --lib`).
+- Mutation-proved RED: both `refresh_needed = false` writes removed together.
+  Removing either alone leaves it GREEN, which is the redundancy, not a hole.
+- `cargo test --lib` 544/544 (was 543). Neighbouring integration suites green:
+  linkedin_refresh_needed 15, feed_failure_reconnect 8,
+  integration_upsert_picture 4, channels_grid_multi_account 5.
+- clippy: my file clean. The 2 remaining `-D clippy::all` errors are the two
+  known pre-existing untouchables (`cli/autopost.rs` too_many_arguments,
+  `cli/oauth_browser.rs` redundant_closure).
+- Founder-facing consequence: the click that recovers a stale flag is now
+  pinned, so the G-03 manual recovery is proven to work rather than assumed.

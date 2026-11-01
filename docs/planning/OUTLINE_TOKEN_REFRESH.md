@@ -115,6 +115,26 @@ excludes the row forever (`AND refresh_needed = false`). The only ways back
 are the manual `POST /api/integrations/{id}/refresh` endpoint (which clears
 the flag on success, `integrations.rs:500`) or a full reconnect.
 
+> **Measured 2026-11-02 (v23).** `integrations.rs:500` was a citation, not a
+> claim that had been checked. The flag is cleared by **two** statements on
+> that endpoint's success path, and each is redundant with the other:
+> `queries::update_integration_token` (`src/db/queries.rs:439`) runs first —
+> the moment the provider returns a new token — and the handler's own COALESCE
+> write (`src/api/integrations.rs:592`) runs after `reconnect`. A mutation that
+> deletes the clear from **either one alone** leaves the test GREEN; only
+> deleting both turns it RED (`cargo test --lib refresh_success_arm_tests`).
+> The handler's write is the one that still holds when the provider returns no
+> new token, so neither is dead code.
+>
+> The success arm itself had **zero** test coverage before v23 — the failure
+> arm was pinned by `tests/linkedin_refresh_needed_test.rs` and the success
+> arm by nothing at all. It is now pinned by an in-crate test (no injection
+> point is visible to an integration test binary), so the manual recovery
+> this G-03 depends on is proven to work rather than assumed.
+> The **cause** remains open: the 404 keeps the feed fetch from succeeding, so
+> the flag stays set until the founder clicks, and there is no code path that
+> clears it on its own.
+
 **Consequence.** A single transient failure during a 24h window permanently
 stops auto-refresh for that channel. The founder sees "needs reconnect" and
 must act, even though the token may still have days left on it.
