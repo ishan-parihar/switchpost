@@ -112,12 +112,13 @@ fn d1_documented_tool_counts_match_registry() {
         "AGENTS.md must state the true MCP tool count ({count} MCP tools)"
     );
     let providers = std::fs::read_to_string(repo_path(
-        "skills/switchpost-agent/references/providers.md",
+        "skills/switchpost-agent/references/mcp-catalogue.md",
     ))
-    .unwrap();
+    .expect("read mcp-catalogue.md");
+    // The catalogue's title states the total: "# MCP catalogue — 389 tools by category".
     assert!(
         providers.contains(&format!("{count} tools")),
-        "providers.md must state the true tool count ({count} tools)"
+        "mcp-catalogue.md must state the true tool count ({count} tools)"
     );
     let readme = std::fs::read_to_string(repo_path("README.md")).unwrap();
     assert!(
@@ -173,7 +174,15 @@ fn d2_tool_schema_shape() {
     assert_eq!(before, sorted.len(), "duplicate tool names registered");
 }
 
-/// D3: `providers.md`'s per-platform tool counts vs the registered counts.
+/// D3: the mcp-catalogue's per-platform tool counts vs the registered counts.
+///
+/// v0.5.0 of the agent skill RETIRED `references/providers.md` (it carried the
+/// wrong providers -> internal_id claim) and split it into
+/// `platform-matrices.md` + `mcp-catalogue.md`. This check kept pointing at the
+/// retired file, so it panicked "no such file" on every run - which nobody saw,
+/// because the whole suite could not BUILD until the .sqlx cache was repaired on
+/// 2026-11-01. A test that cannot run is the same blindness as a gate that
+/// measures nothing, one layer down.
 ///
 /// D1 asserts the TOTAL count, which passed for weeks while eight of the
 /// fourteen per-platform counts underneath it were stale. A stale
@@ -183,12 +192,17 @@ fn d2_tool_schema_shape() {
 /// compares N against the tools actually registered under that prefix,
 /// including the tools the section's body lists, so a body that quietly
 /// shrinks is caught too.
+///
+/// The catalogue's heading shape is `## X (x_, 27 tools)` rather than
+/// `### Platform (N tools)`, and it groups platforms in five different ways
+/// (see the table inside the test body), so the parser below is written for
+/// those shapes rather than for one.
 #[test]
 fn d3_documented_per_platform_counts_match_registry() {
     let providers = std::fs::read_to_string(repo_path(
-        "skills/switchpost-agent/references/providers.md",
+        "skills/switchpost-agent/references/mcp-catalogue.md",
     ))
-    .expect("read providers.md");
+    .expect("read mcp-catalogue.md");
 
     // Real count per tool-name prefix, from the registry itself.
     let mut real: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -197,39 +211,159 @@ fn d3_documented_per_platform_counts_match_registry() {
         *real.entry(prefix).or_insert(0) += 1;
     }
 
-    // Heading -> the prefixes its section covers. WhatsApp spans two.
+    // The catalogue states each platform's tool count beside its prefix, and
+    // groups platforms in five shapes:
+    //
+    //   (x_, 27 tools)                          one prefix
+    //   (ig_ + ias_, 21+7 tools)                 two prefixes, numbers after both
+    //   (li_ personal 15 + lip_ page 11 tools)   two prefixes, each labelled
+    //   (bs_, 7 tools) / Mastodon (ms_, 6 tools) two platforms, two paren groups
+    //   (wp_, 4) / Medium (md_, 3) / ...         four tag-only blog prefixes
+    //
+    // Reading the first `(N tools)` on the line is wrong in three of the five:
+    // it credits Mastodon with Bluesky's 7, reads Instagram's 21 as its total,
+    // and misses every blog prefix entirely. Summing the whole line is wrong
+    // too, because `th_` and `tt_` share a line and Threads would absorb
+    // TikTok's 4. So the declared figure is parsed as the group's numbers, in
+    // order, one per prefix named in it.
+    //
+    // Each heading is listed once per platform it covers - the Bluesky line
+    // appears as both `bs_ -> {bs_, ms_}` and `ms_ -> {bs_, ms_}` - so every
+    // platform's count is checked on its own, and a heading that adds a second
+    // platform without a matching entry fails the coverage check below.
     let sections: &[(&str, &[&str])] = &[
-        ("X / Twitter", &["x"]),
-        ("Facebook", &["fb"]),
-        ("Instagram", &["ig"]),
-        ("LinkedIn Page", &["lip"]),
-        ("LinkedIn Personal", &["li"]),
-        ("Reddit", &["reddit"]),
-        ("Bluesky", &["bs"]),
-        ("Discord", &["di"]),
-        ("Telegram Bot", &["tb"]),
-        ("Telegram User", &["tu"]),
-        ("WhatsApp", &["wa", "wc"]),
-        ("GitHub", &["gh"]),
-        ("Google", &["goog"]),
-        ("WordPress", &["wp"]),
+        ("x_", &["x"]),
+        ("reddit_", &["reddit"]),
+        ("goog_", &["goog"]),
+        ("gh_", &["gh"]),
+        ("fb_", &["fb"]),
+        ("ig_", &["ig", "ias"]),
+        ("li_", &["li", "lip"]),
+        ("tb_", &["tb", "tu"]),
+        ("di_", &["di"]),
+        ("wa_", &["wa", "wc"]),
+        ("bs_", &["bs", "ms"]),
+        ("ms_", &["bs", "ms"]),
+        ("yt_", &["yt"]),
+        ("th_", &["th", "tt"]),
+        ("tt_", &["th", "tt"]),
+        ("pi_", &["pi"]),
+        ("wp_", &["wp", "md", "dv", "hn"]),
+        ("md_", &["wp", "md", "dv", "hn"]),
+        ("dv_", &["wp", "md", "dv", "hn"]),
+        ("hn_", &["wp", "md", "dv", "hn"]),
+        ("sk_", &["sk", "sl"]),
+        ("sl_", &["sk", "sl"]),
     ];
 
     let lines: Vec<&str> = providers.lines().collect();
-    let mut checked = 0;
-    for (title, prefixes) in sections {
-        let heading = format!("### {title} (");
+
+    // Every per-platform heading in the catalogue must be COVERED by a section
+    // above, and covered EXACTLY: the set of prefixes named on the heading must
+    // equal the set the section checks. A heading that states counts nobody
+    // checks is the whole failure mode this test exists to close - it is how
+    // Hashnode, Medium and Dev.to sat unmeasured while WordPress (same heading,
+    // four numbers) was checked, and how a second platform added later to a
+    // checked heading would sit unmeasured while the heading still looked
+    // checked. So a heading naming `(pi_, ... / fc_, ...)` with a section that
+    // only knows `pi_` is a failure, not a pass.
+    let mut covered_lines: Vec<usize> = Vec::new();
+    for (primary, prefixes) in sections {
         let idx = lines
             .iter()
-            .position(|l| l.starts_with(&heading))
-            .unwrap_or_else(|| panic!("providers.md: no section `### {title} (`"));
-        let declared: usize = lines[idx]
-            .split(" (")
-            .nth(1)
-            .and_then(|s| s.split(" tools").next())
-            .expect("heading must read `(N tools`")
-            .parse()
-            .unwrap_or_else(|_| panic!("providers.md: unparseable count in `{}`", lines[idx]));
+            .position(|l| l.starts_with("## ") && l.contains(&format!("({primary}")))
+            .unwrap_or_else(|| panic!("mcp-catalogue.md: no section for prefix `{primary}` ("));
+        let named: Vec<String> = lines[idx]
+            .split(|c: char| c == '(' || c == ')' || c == ' ' || c == ':' || c == '/' || c == ',')
+            .filter(|seg| {
+                seg.ends_with('_') && seg.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+            })
+            .map(|s| s.to_string())
+            .collect();
+        let expected: Vec<String> = prefixes.iter().map(|p| format!("{p}_")).collect();
+        let mut named_sorted = named.clone();
+        let mut expected_sorted = expected.clone();
+        named_sorted.sort();
+        expected_sorted.sort();
+        assert_eq!(
+            named_sorted, expected_sorted,
+            "mcp-catalogue.md: heading `{}` names prefixes {named:?} but the section checks {expected:?}",
+            lines[idx]
+        );
+        covered_lines.push(idx);
+    }
+    // ... and every heading that STATES per-platform counts must be among those
+    // covered headings, so a new platform heading cannot appear unmeasured.
+    for (i, line) in lines.iter().enumerate() {
+        if !line.starts_with("## ") {
+            continue;
+        }
+        let named: Vec<String> = line
+            .split(|c: char| c == '(' || c == ')' || c == ' ' || c == ':' || c == '/' || c == ',')
+            .filter(|seg| {
+                seg.ends_with('_') && seg.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+            })
+            .map(|s| s.to_string())
+            .collect();
+        if named.is_empty() {
+            continue;
+        }
+        assert!(
+            covered_lines.contains(&i),
+            "mcp-catalogue.md: heading `{line}` states per-platform counts but no section checks it"
+        );
+    }
+
+    let mut checked = 0;
+    for (primary, prefixes) in sections {
+        let idx = lines
+            .iter()
+            .position(|l| l.starts_with("## ") && l.contains(&format!("({primary}")))
+            .unwrap_or_else(|| panic!("mcp-catalogue.md: no section for prefix `{primary}` ("));
+        // The group is the whole parenthesised region of the heading, held
+        // together by BOTH paren pairs when a line carries two platforms
+        // (`## Bluesky (bs_, 7 tools) / Mastodon (ms_, 6 tools)`). Taking only
+        // the primary's own pair would check Bluesky and silently skip
+        // Mastodon, so the group runs from the FIRST open paren to the LAST
+        // close paren on the line. It must name every prefix the section
+        // covers, and state exactly one number per prefix - the pairing rule is
+        // ordered, so it does not need to know which number belonged to which
+        // label:
+        //   (ig_ + ias_, 21+7 tools)   [21, 7]   both numbers after both labels
+        //   (wa_ 9 + wc_ 4 tools)      [9, 4]    each number after its label
+        //   (bs_, 7 tools) / (ms_, 6)  [7, 6]    two pairs, order preserved
+        // A heading that names a prefix but forgets its number, or states two
+        // numbers for one prefix, is REJECTED here rather than silently summing
+        // to a figure that happens to reconcile.
+        let group_start = lines[idx].find('(').unwrap_or_else(|| {
+            panic!("mcp-catalogue.md: heading `{}` has no count parens", lines[idx])
+        });
+        let group_end = lines[idx]
+            .rfind(')')
+            .map(|p| p + 1)
+            .unwrap_or(lines[idx].len());
+        let group = &lines[idx][group_start..group_end];
+        for prefix in *prefixes {
+            assert!(
+                group.contains(&format!("{prefix}_")),
+                "mcp-catalogue.md: heading `{}` never names `{prefix}_`, so its count is unchecked",
+                lines[idx]
+            );
+        }
+        let numbers: Vec<usize> = group
+            .split(|c: char| !c.is_ascii_digit())
+            .filter(|w| !w.is_empty())
+            .map(|w| w.parse::<usize>().unwrap_or(0))
+            .collect();
+        assert_eq!(
+            numbers.len(),
+            prefixes.len(),
+            "mcp-catalogue.md: heading `{}` names {} prefixes but states {} numbers",
+            lines[idx],
+            prefixes.len(),
+            numbers.len()
+        );
+        let declared: usize = numbers.iter().sum();
 
         // The section body, up to the next heading or `---`. The appended
         // "Not listed above" continuation line is INSIDE the body on purpose:
@@ -263,7 +397,7 @@ fn d3_documented_per_platform_counts_match_registry() {
 
         assert_eq!(
             declared, expected,
-            "providers.md: `{title}` claims {declared} tools but the registry has {expected}"
+            "mcp-catalogue.md: `{primary}` claims {declared} tools but the registry has {expected}"
         );
         // A section may be a curated subset, but the omission must be DECLARED by a
         // continuation line that names the omitted tools. Requiring merely that
@@ -285,13 +419,13 @@ fn d3_documented_per_platform_counts_match_registry() {
                 .unwrap_or(0);
             assert!(
                 continuation,
-                "providers.md: `{title}` names {listed} of {expected} registered tools and has no \
+                "mcp-catalogue.md: `{primary}` names {listed} of {expected} registered tools and has no \
                  `**Not listed above` continuation — add the missing tools or say which are omitted"
             );
             assert_eq!(
                 listed + tail,
                 expected,
-                "providers.md: `{title}` lists {listed} tools and its continuation claims {tail} more, \
+                "mcp-catalogue.md: `{primary}` lists {listed} tools and its continuation claims {tail} more, \
                  totalling {} — the registry has {expected}. The continuation must name every tool \
                  the prose omits, and its count must be true",
                 listed + tail

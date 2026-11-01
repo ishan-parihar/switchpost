@@ -312,7 +312,7 @@ Providers are tiered: **Tier-1** gets full depth (analytics, engagement, comment
 switchpost/
 ├── src/
 │   ├── main.rs              # Entry point, CLI dispatch
-│   ├── cli/                 # CLI subcommands (clap, 63 commands)
+│   ├── cli/                 # CLI subcommands (clap, 64 commands)
 │   │   ├── mod.rs           # Command definitions
 │   │   ├── run.rs           # Cross-platform handler implementations
 │   │   └── platforms/       # 31 thin shims (call shared MCP handlers)
