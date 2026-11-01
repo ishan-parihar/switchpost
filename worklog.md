@@ -4846,3 +4846,46 @@ Stage Summary:
 - Two corrections recorded against my own words in this pass, both still in
   the history rather than quietly amended: the reconnect-harm overclaim, and
   the timezone miscount.
+
+---
+Task ID: v22-deploy-the-channel-hint-fix
+Agent: Jcode
+Task: Ship cca49a1 so the founder sees the corrected copy.
+
+Work Log:
+- The hint fix was committed but NOT live, and it is on the screen the founder
+  is about to look at: the Channels card for the five flagged LinkedIn
+  channels. Leaving a known-false line deployed while telling the founder "go
+  test it" is the wrong trade, so it was shipped.
+- One shippable file changed since the previous build: `git diff --name-only
+  53d99af..HEAD -- src/ migrations/ frontend/src/` is
+  frontend/src/lib/channels/channel-status.ts only.
+- Rebuilt with the working recipe (PATH-shimmed zig 0.14.1 + cleared
+  cargo-zigbuild wrapper cache). EXIT=0, 2m45s, 0 errors.
+- The new binary came out at EXACTLY the same byte size as the previous one
+  (71,833,256) - the new hint string happens to be the same length. Verified
+  it is genuinely a different binary by sha256 (07042fe4... vs 0d22695b...) and
+  by content, because same-size would otherwise have meant cargo hardlinked a
+  stale artifact.
+- Staged, then smoke tested against an ISOLATED db copy, then swapped. This
+  time the probe was killed BY PID (no `setsid`/`disown`, which is what leaked
+  the last one): it bound the port, applied migrations, registered all 29
+  providers, and shut down gracefully. Port freed, /tmp scratch removed.
+- Previous live binary backed up as `switchpost.prev-20261102-0704` (the
+  20:35 build). Three backups now exist, all executable.
+
+THE §9.53 TRAP, AND WHY IT MATTERS HERE: proving the fix landed means proving
+the SERVED asset, not the source. My first attempt fetched the chunks the root
+HTML references and found NEITHER phrase - `channelStatus` is in a lazily
+loaded chunk, not the root set. The real check is to find the built chunk that
+holds it locally (`BvtkDYYo.js`) and fetch that exact path from the live
+server: HTTP 200, 32375 bytes, "This channel needs attention" x1 and "could
+not be refreshed" x0. That is the evidence that the browser will get.
+
+Stage Summary:
+- LIVE: https://switchpost.ishanparihar.com now serves the corrected
+  reconnect hint (verified on the served chunk, not the source).
+- /health 200, / 200 with 5556 bytes.
+- Rollback remains one command; the 20:35 binary is preserved.
+- Nothing left behind: no stray processes, no /tmp scratch, local scratch
+  cleaned.
