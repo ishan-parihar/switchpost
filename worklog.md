@@ -4943,3 +4943,35 @@ Stage Summary:
   weak variant of the meta-test.
 - No source change: this pass is tests + documentation only. Nothing to ship,
   and nothing was restarted on the VPS.
+
+---
+Task ID: v22-the-timezone-trap-third-time
+Agent: Jcode
+Task: Settle the production claim with no time filter at all.
+
+Work Log:
+- A late check reported "216 defect-A replays since restart", which contradicted
+  the settled finding. It was my measurement error a THIRD time, and the cause
+  is now named precisely: `journalctl --since "2026-11-01 21:33"` is interpreted
+  in the LOCAL zone (IST), so it means 21:33 IST = 16:03 UTC and sweeps in five
+  hours of pre-restart journal. The restart itself was 21:33 UTC.
+- Settled it with the count that cannot lie - no time filter, grouped by PID:
+      "lacks API scope"  -> 1912 lines, ALL from the old binary 2531466
+                            ZERO from either new binary
+      "target is gone"   -> 48 from the 2nd deploy (3697741)
+                         + 20 from the 3rd deploy (3785060)
+                            ZERO from the old binary
+- So the settled finding stands: defect A is fixed in production, and both
+  re-deploys are emitting the corrected classification.
+
+THE PATTERN, WRITTEN DOWN SO IT STOPS HAPPENING: every journal comparison in
+this box must be grouped by PROCESS ID, never by a `--since`/`--until` window.
+The logs carry UTC timestamps while systemd's own stamps are IST, which makes
+any wall-clock window here silently span the wrong region. Three separate
+counts went wrong this way before it was recognised; each one nearly produced a
+false regression report.
+
+Stage Summary:
+- No regression. Production defect-A count from the new binaries is zero.
+- Nothing changed and nothing deployed: this pass is measurement plus two
+  mutation-proved tests (1e237bb) and their correction (51fcaca).
