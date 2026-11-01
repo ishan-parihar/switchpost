@@ -4035,3 +4035,101 @@ Stage Summary:
   usually the measurement walking past the wash, not the app. Composite the
   wash over its opaque backdrop before believing it - that check is what
   separated my false alarm on the info toast (1.00) from its real value (5.49).
+
+---
+Task ID: linkedin-refresh-needed-abc
+Agent: Jcode
+Task: Red-team the LinkedIn defect chain A/B/C against the live VPS finding
+  (all 4 channels showing "needs reconnect" while their tokens were valid).
+  A = feed flattening a 404 into a scope error and setting refresh_needed.
+  B = the good token written then discarded, the flag never clearable.
+  C = linkedin/instagram_standalone/threads forwarding a page-management
+  refusal through `?` into the refresh endpoint's answer.
+
+Work Log:
+- Recovered lost work first: a `git checkout --` in the prior session had
+  reverted src/db/queries.rs to HEAD, which destroyed
+  `clear_integration_refresh_needed` while feed/mod.rs still called it. The
+  crash was a missing-symbol at compile time, not a test failure - worth
+  re-reading the diff before assuming a file is committed just because the
+  suite was green.
+- Re-added the function after `mark_integration_refresh_needed` using a
+  runtime `sqlx::query` rather than the `query!` macro (AGENTS.md 5.2), with
+  a doc comment recording that the flag had been a one-way door.
+- Corrected a false claim INHERITED from the previous session's analysis: the
+  code said get_due_posts filtered on refresh_needed, which would mean the
+  flag excludes a channel from publishing. Measured the WHERE clause: it
+  filters on p.state, p.deleted_at, the epoch bound and i.disabled = false.
+  refresh_needed appears nowhere in it. The real consequence is exclusion
+  from get_integrations_needing_refresh (`AND refresh_needed = false`), i.e.
+  the 24h proactive token refresh and the analytics cache refresh - so a fine
+  59-day token dies un-refreshed and only then starts failing. Both the
+  doc comment and the test header were wrong and are now right.
+- Reconciled the fixture with the consequence: `seed_linkedin_with_urn` gained
+  an `expires_in_days` parameter. The reachability and clear tests use a
+  6-HOUR token (inside the 24h window, so the assertions bite); the other
+  fixtures use 59 days. With a 59-day token in those two tests both assertions
+  would have been vacuous - green for the wrong reason, which is the failure
+  mode mutation testing is supposed to catch.
+- Proved the fix with three mutations, each compiled, each run, each restored
+  with sha256 checked against a pre-mutation copy:
+    M1, the 404 mapped back to NeedsReconnect: RED on 3/11 - the two
+      classifier tests and the scheduler-reachability test. The 401/403/429
+      negative guards stayed GREEN, which is what makes them guards rather
+      than duplicates.
+    M2, the clear function stubbed to a no-op: RED on 2/11.
+    M3, the over-generalised "fix" (never set the flag): RED on 2/11 - the
+      real-401 and the real-403 negative guards. This mutation is the one
+      that matters: it is the fix an agent writes when it only tests the
+      reported symptom, and it turns a live auth failure into a silent one.
+- Failed to reproduce defect C. All three providers' `fetch_page_info` return
+  Err(ProviderError::NoPageManagement), the trait default `reconnect` matches
+  exactly that variant and DEGRADES to Ok with the caller's page_id and
+  token, and the endpoint's `.map_err(...)` converts the remaining variant to
+  an AppError. There was no bug to fix; what was missing was a test that would
+  go red if it regressed.
+- Wrote that suite anyway (tests/feed_failure_reconnect_test.rs, 6 tests): the
+  three providers' refusal, a negative guard that a REAL failure is not
+  degraded into success, a source-shape pin on the default reconnect, and a
+  BEHAVIOURAL test that calls the default through a minimal
+  `ChannelShapedProvider` and asserts on the returned identity - id, token,
+  empty name. The source-shape check cannot see a degrade arm that exists but
+  answers the wrong thing; the behavioural one can.
+- Proved it with C1 (degrade arm removed, RED 2/6), C2 (degraded identity
+  drops the caller's token, RED 2/6 - the silent-blanking failure), C3
+  (threads returns Api instead of NoPageManagement, RED 1/6, and only the
+  threads test - so the assertion is about the VARIANT, not refusal
+  generally).
+- Re-measured A+B's committed citations against the tree. One had drifted:
+  `queries.rs:1744` is now 1776. Fixed in 7399fb3, which also removes the
+  remaining line numbers from that comment - they age on their own and a
+  stale one reads exactly like evidence.
+
+Process failure, recorded deliberately:
+- `cargo fmt` with no argument formats the whole crate. It reformatted 126
+  files, including the surface_docs_audit untouchables and the known
+  rustfmt drift in bluesky.rs. Undone via `git stash push -- src/ tests/`,
+  then `git checkout stash@{0}` of my own files, then drop. Per-file
+  formatting goes through the rustfmt binary on the one file, never through
+  a bare cargo fmt.
+- Two consequences of that mistake are worth keeping: HEAD contains the A+B
+  work correctly (queries.rs re-verified against HEAD's blob), and the
+  untracked defect-C test survived with zero mutations. But the diff that
+  recovery produced was large enough to need hash verification, and a stake
+  that high did not need to be taken.
+
+Stage Summary:
+- Committed `5c09a5f` (fix(feed): a provider 404 is not a scope error, and the
+  flag it set can now be cleared) - defects A+B. `ff7ef73`
+  (test(social): the defect-C regression suite). `7399fb3`
+  (docs(feed): the citation that drifted). All three pushed to github/master.
+- Gates: cargo test --lib 543/543, cargo check --lib clean (only the
+  pre-existing vendor/core2 patch notice), frontend pnpm build succeeds,
+  linkedin_refresh_needed_test 11/11, feed_failure_reconnect_test 6/6.
+  Clippy's 3 findings are pre-existing in cli/autopost.rs and
+  cli/oauth_browser.rs, confirmed by stashing - nothing in my files.
+- Deliberate framing: ff7ef73 is coverage, not a fix. Defect C as reported
+  does not reproduce on the current tree, and the commit says so; it claims
+  the risk is pinned, not that a defect was closed.
+- IEC 62304 6.3.4 disclosures were written into both the 5c09a5f and ff7ef73
+  bodies, each naming what was verified and what was not.
