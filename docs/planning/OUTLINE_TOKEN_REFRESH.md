@@ -236,3 +236,40 @@ helper (ponytail), not worth treating as a security bug.
 
 **Do not** land 3 or 4 before 1: a retry policy on top of a defect that
 discards good tokens retries the wrong thing.
+
+---
+
+## G-08 — the feed's refresh+fallback block is written twice (recorded, not fixed)
+
+`src/feed/mod.rs` contains TWO byte-identical copies of the same 29-line
+block: resolve token -> `get_recent_posts` -> on `TokenExpired` call
+`try_refresh_and_fetch` -> on any other error call
+`handle_feed_failure_inner` -> `continue`.
+
+- `refresh_user_posts` — `mod.rs:382-410`
+- `refresh_all_posts` — `mod.rs:488-514`
+
+Both are live, not dead code: `refresh_all_posts` runs on the background
+timer (`start_feed_refresher`, `mod.rs:64`) and `refresh_user_posts` is
+called by **both** the REST endpoint (`api/feed.rs:191`) and the MCP tool
+(`mcp/tools_feed.rs:128`), so a change on one path and not the other is a
+two-interface divergence.
+
+**Measured, not assumed:** the two blocks were `diff`ed and are identical
+(only my extraction line offsets differed). No behavioural difference exists
+today, so this is NOT a defect and it is not mutation-provable — a mutation
+on one copy does not change behaviour, because the other copy is not running.
+It violates AGENTS.md 9.18 (one implementation per rule) and is a *latent*
+surface, which is exactly the shape that produced defect B: the fix in 5c09a5f
+lives in the shared `try_refresh_and_fetch`, so both copies inherit it, but a
+*next* fix aimed at the block would have to be made twice.
+
+Recorded, deliberately NOT acted on in this pass: the pass is a red-team cycle
+where every change must be proven by a mutation that turns a test RED, and an
+identical-duplication fold produces no such mutation. If it is folded later,
+that is a separate refactor pass with its own evidence, not something to slip
+into a defect fix. (The same reasoning G-07 applies to
+`maybe_decrypt_token`: "worth folding... not worth treating as a security bug".)
+
+A THIRD copy was checked for and does not exist: `refresh_all_engagement`
+(`mod.rs:576`) never calls `get_recent_posts` and has no `TokenExpired` arm.
