@@ -215,13 +215,20 @@ impl switchpost::social::SocialProvider for ChannelShapedProvider {
     }
 }
 
-/// The BEHAVIOURAL proof, and the stronger half of defect C's coverage.
+/// The BEHAVIOURAL proof: this one CALLS the default `reconnect` against a
+/// real stub and asserts what the endpoint would actually receive.
 ///
-/// The source-shape assertion below can only see that an arm exists. This one
-/// CALLS the default `reconnect` and asserts what the endpoint would actually
-/// receive, so it catches a degrade arm that exists but answers the wrong thing
-/// (an empty token, a fabricated id) - which is the failure mode that silently
-/// blanks a live channel's row.
+/// On the token specifically it is REDUNDANT with the source-shape test below,
+/// which asserts `arm.contains("access_token.to_string()")` - mutation C2
+/// (a degraded identity built with `String::new()`) turns BOTH red. That
+/// redundancy is kept, not fixed: it is one extra assertion on a path whose
+/// failure mode is silently blanking a live channel's token.
+///
+/// What this test adds that a string match cannot: it runs the REAL default
+/// rather than reading the source text, so it keeps working across a rename,
+/// a reformat, or an arm relocated into a provider. It is the more durable
+/// half. (For the record, no mutation has been found that ONLY this test
+/// catches - that would be a claim, not a finding, so it is not claimed here.)
 #[tokio::test]
 async fn the_default_reconnect_degrades_behaviourally_not_just_textually() {
     let provider = ChannelShapedProvider;

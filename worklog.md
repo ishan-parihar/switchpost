@@ -4093,13 +4093,43 @@ Work Log:
   degraded into success, a source-shape pin on the default reconnect, and a
   BEHAVIOURAL test that calls the default through a minimal
   `ChannelShapedProvider` and asserts on the returned identity - id, token,
-  empty name. The source-shape check cannot see a degrade arm that exists but
-  answers the wrong thing; the behavioural one can.
+  empty name.
 - Proved it with C1 (degrade arm removed, RED 2/6), C2 (degraded identity
   drops the caller's token, RED 2/6 - the silent-blanking failure), C3
   (threads returns Api instead of NoPageManagement, RED 1/6, and only the
   threads test - so the assertion is about the VARIANT, not refusal
   generally).
+- Re-validated the whole mutation battery independently on 2026-11-01 after
+  the citations were corrected: M1 3/11, M2 2/11, M3 2/11, C1 2/6, C2 2/6,
+  C3 1/6. All six reproduced exactly the recorded counts, with every
+  negative guard staying green. All five source files were restored from
+  pre-mutation copies and hash-verified against baseline; `git diff` clean.
+- CORRECTED AN OVERCLAIM I HAD ALREADY COMMITTED. ff7ef73 and this entry both
+  said the source-shape test "cannot see a degrade arm that exists but
+  answers the wrong thing - the behavioural one can". C2 falsifies that: the
+  source-shape test asserts `arm.contains("access_token.to_string()")` and
+  `arm.contains("page_id.to_string()")`, so it went RED on C2 as well. The two
+  tests are REDUNDANT on the token, not complementary.
+- TRIED TO REPLACE THE OVERCLAIM WITH A CORRECTED ONE, AND THAT ONE WAS FALSE
+  TOO. The replacement claim was "the behavioural test catches a
+  reimplementation, a rename, or an arm moved into a provider - shapes a
+  literal string match cannot see". I built C4 to prove it: an extra degrade
+  arm on `ProviderError::Api(_)` placed BEFORE the real guard, with the real
+  guard kept afterwards, so the literals survive in `body` while the shape
+  changes. It PASSED all 6. The reason is instructive: C4 is behaviourally
+  EQUIVALENT to the original - the stub returns `NoPageManagement`, which
+  still matches its own arm, so nothing at runtime changes. It was never a
+  discriminating mutation in the first place, and the test suite was right
+  not to flag it. I did not find a mutation that only the behavioural test
+  catches, so the honest statement is: it is unproven, not "proven in the
+  other direction".
+- The accurate position, which is what the six mutations support: the
+  behavioural test IS the more valuable of the two (it runs the real default
+  against a real stub, so it does not depend on source text surviving a
+  refactor), but the SOURCE-SHAPE test is not the weak one I described, and
+  C2 specifically is covered twice. Recording the redundancy rather than
+  deleting a test, because the cost of a second assertion on a silent
+  data-blanking path is one line of test code.
 - Re-measured A+B's committed citations against the tree. One had drifted:
   `queries.rs:1744` is now 1776. Fixed in 7399fb3, which also removes the
   remaining line numbers from that comment - they age on their own and a
