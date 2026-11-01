@@ -4387,3 +4387,54 @@ Stage Summary:
   around it are.
 - `cargo test --lib` re-run after the frontend changes: 543 passed, 0 failed,
   matching the baseline count. The plan's named acceptance line is green.
+---
+Task ID: v22-reread-and-close-the-doc-gates
+Agent: Jcode
+Task: Re-read the request, correct anything stale or overstated, continue.
+
+Work Log:
+- Phase 7 was the last phase with no status marker and it is the plan's SHIP
+  GATE. Marked LANDED, with the two claims it carried that had never been
+  measured: "one primary colour in the footer" (measured: 1 solid
+  bg-accent-fill button of 26 visible in the composer dialog) and the
+  before/after numbers (calendar chrome is 132px, NOT the ~60px the phase
+  predicted - recorded so it cannot be read as met).
+- The two pre-commit doc-gate failures had been printing on EVERY commit in
+  this repo for weeks. Both were real. Both are now closed.
+- Closing the README band was not a line-count exercise. Chasing the number
+  surfaced three unmeasured performance claims in the founder-facing doc, one
+  of which was wrong by 6x: "~15MB binary" against a measured 93.1 MB release
+  binary. The same false figure was in THREE places (opening paragraph,
+  Performance, comparison table). "<500ms cold start" was understated (32 ms
+  measured) and "<5ms p99" was 7x wrong (36 ms median / 66 ms p99 over 40 runs
+  with a real session cookie).
+- The lines came out of genuine duplication, not content: CLI Reference
+  repeated docs/platforms-and-cli.md, Requirements repeated AGENTS.md 3.1, and
+  the Architecture box was 15 lines of ASCII art for one paragraph of fact.
+  Result 338 lines, 8/8, Issues (0).
+- D003 outward boundary: the 7-phase parity plan was an ORPHAN - referenced by
+  TODO.md and an outline, absent from every doc index, which is exactly why it
+  was hard to find. Now a row in docs/planning/README.md. Two sentences in
+  OUTLINE_REMAINING_GAPS.md called it "the one remaining hard docs-gate
+  failure"; both corrected the day it closed.
+
+Stage Summary:
+- Closed: both pre-commit doc gates (README rubric 8/8, docs_lint 0 hard
+  failures). The commit hook now reports four oks and no FAILs, where every
+  commit this session opened with two FAIL lines.
+- Fixed: a 6x-wrong binary-size claim in three places, and two understated
+  performance claims, all replaced with one measurement each plus the command
+  to re-take it.
+- Corrected: Phase 7's status, two unmeasured claims in it, and two stale
+  "last hard failure" sentences in the outline.
+- Pushed 513191c (README, docs/planning/README, OUTLINE_REMAINING_GAPS,
+  PLAN_UI_PARITY).
+- A CAUTION FOR WHOEVER PICKS THIS UP: `cargo test --lib` does not currently
+  build at HEAD. The feed commit that landed concurrently (5c09a5f) added a
+  `query!` macro with no .sqlx cache entry, and its own test file
+  tests/linkedin_refresh_needed_test.rs does not compile (missing
+  `fetch_page_info` on the SocialProvider mock; four signature mismatches).
+  I began regenerating per AGENTS.md 5.1, the prepare failed on that broken
+  test, and I restored .sqlx to exactly its committed state (60/60, 0
+  differing) rather than leave a half-done cache. Fix that test file first,
+  then `cargo sqlx prepare -- --all-targets`.
