@@ -4196,11 +4196,31 @@ CLOSED THE VALIDATION GAP: NINE OF THE TEN TESTS NOW HAVE A MUTATION BEHIND THEM
   write at all. It turns RED on 2 tests (the clear test and the scoping test)
   and leaves `clearing_an_unflagged_channel_is_a_no_op_not_an_error` GREEN. So
   that test cannot distinguish a working clear from a stubbed one; it asserts
-  only that the call does not error. Two honest options remain: mutate it into
-  something it can fail at, or delete it. A test that cannot fail is worse than
-  no test, because it reads as coverage.
-- Result: 12/12 green on the restored tree, all three sources hash-verified
-  against their pre-mutation backups, cargo check clean.
+  only that the call does not error.
+- CLOSED THAT GAP, AND THE FIRST ATTEMPT AT CLOSING IT MIS-DIAGNOSED THE HAZARD.
+  Strengthening the test with a flagged SIBLING row makes it catch M7 (the
+  clear UPDATE losing its `WHERE id` - one channel's healthy token silently
+  clearing every other channel on the instance). Proven both directions: the
+  single-row shape passes under M7, the sibling assertion does not. M7 now turns
+  this test red as well as the scoping test.
+  What the sibling does NOT do, and the test's own comment says so plainly: it
+  cannot catch M9. A stubbed no-op leaves every row exactly as it was, flagged
+  or not, so "the sibling stayed flagged" is true under both the correct write
+  and no write at all. No assertion of the form "the row did not change" can
+  distinguish those two. What catches M9 is
+  `a_flags_channel_can_be_cleared_by_refresh_success`, which asserts a row DID
+  change. The suite covers both halves; this test just does not carry both.
+- THE PROCESS FAILURE WORTH RECORDING: I first "verified" the strengthened test
+  against M7 and it passed all 12, which would have meant the strengthening was
+  worthless. The test was not the problem - the `TEMP M7` marker was gone,
+  because a `cp` of the clean backup had run between applying the test edit and
+  the verification. That run had tested the STRENGTHENED TEST AGAINST CLEAN
+  SOURCE, and I read it as a result about the mutation. A mutation that is not
+  confirmed present in the binary is not a mutation, and the check for it is one
+  grep before the run. Re-done properly, M7 turned the test red as designed.
+- Result: 12/12 green on the restored tree, `src/db/queries.rs` hash-verified
+  against its pre-pass backup, the whole diff is the one test file, cargo check
+  clean.
 
 - Re-measured A+B's committed citations against the tree. One had drifted:
   `queries.rs:1744` is now 1776. Fixed in 7399fb3, which also removes the
@@ -4338,6 +4358,5 @@ Stage Summary:
   real channel. And the composer's last mile - a full create submit with a
   mouse-picked Reddit subreddit - is still unproven; the API and the UI layer
   around it are.
-- Carried forward (new): `cargo test --lib` was NOT re-run after the frontend
-  changes in this pass. Nothing in this pass touched Rust behaviour, so the
-  risk is low, but the plan's own acceptance line names it and it is unrun.
+- `cargo test --lib` re-run after the frontend changes: 543 passed, 0 failed,
+  matching the baseline count. The plan's named acceptance line is green.
