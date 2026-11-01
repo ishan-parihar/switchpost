@@ -1744,3 +1744,221 @@ pub async fn search_mentions(
 
     Ok(Json(MentionResponse { results }))
 }
+
+// ══════════════════════════════════════════════════════════════
+// The refresh endpoint's SUCCESS arm, pinned.
+//
+// The FAILURE arm is pinned behaviourally by
+// tests/linkedin_refresh_needed_test.rs
+// (`a_failed_token_refresh_keeps_the_flag_and_answers_an_error`), which
+// drives the real router and proves a refused refresh leaves the flag
+// SET and answers an error.
+//
+// THIS arm was left unpinned, and it is the one the founder's recovery
+// actually runs through: it is what clears a stale `refresh_needed` on a
+// channel whose TOKEN is fine and whose TARGET is gone - the exact
+// production shape (four linkedin-page rows, one with a token valid to
+// 2026-12-29, all carrying pre-fix flags).
+//
+// It cannot be pinned from an integration test: `ProviderRegistry` has
+// an injection point only under `#[cfg(test)]` (registry.rs
+// `with_providers`), which a separate test binary cannot see. So the
+// test lives in-crate and calls the handler directly, with a registry
+// carrying a provider whose `refresh_token` SUCCEEDS.
+//
+// HOW THE FLAG IS ACTUALLY CLEARED - measured, not assumed:
+//   `refresh_needed = false` is written by TWO independent statements
+//   on this path, and they are REDUNDANT with each other:
+//     1. `queries::update_integration_token` (src/db/queries.rs), which
+//        runs first - as soon as the provider hands back a new token.
+//     2. this handler's COALESCE write, which runs after `reconnect`.
+//   Removing EITHER one alone leaves the test GREEN (verified by
+//   mutation): the other still clears the flag. Only removing BOTH
+//   turns it RED, and that is the assertion below.
+//   That redundancy is deliberate defence-in-depth, not a bug - the
+//   point of pinning the success arm is that the flag DOES come off, so
+//   a test that passed with the clear deleted from one site is a test
+//   confirming the belt, not the braces.
+// ══════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod refresh_success_arm_tests {
+    use super::*;
+    use crate::social::{
+        AuthToken, AuthUrlResponse, PageInfo, PostContent, ProviderError, PublishResult,
+    };
+
+    /// A provider whose `refresh_token` succeeds and which has no page
+    /// concept: the trait's default `reconnect` routes through
+    /// `fetch_page_info`, and that is exactly the degenerate case the
+    /// channel-shaped providers exercise in production.
+    struct SucceedingRefresh;
+
+    #[async_trait::async_trait]
+    impl crate::social::SocialProvider for SucceedingRefresh {
+        fn identifier(&self) -> &'static str {
+            "linkedin"
+        }
+        fn name(&self) -> &'static str {
+            "LinkedIn"
+        }
+        fn scopes(&self) -> Vec<String> {
+            vec![]
+        }
+        fn max_content_length(&self) -> usize {
+            3000
+        }
+        async fn generate_auth_url(
+            &self,
+            _state: &str,
+            _code_verifier: &str,
+            _redirect_uri: &str,
+        ) -> Result<AuthUrlResponse, ProviderError> {
+            unreachable!("the refresh path never builds an auth url")
+        }
+        async fn exchange_code(
+            &self,
+            _code: &str,
+            _code_verifier: &str,
+            _redirect_uri: &str,
+        ) -> Result<AuthToken, ProviderError> {
+            unreachable!("the refresh path never exchanges a code")
+        }
+        async fn refresh_token(&self, _refresh_token: &str) -> Result<AuthToken, ProviderError> {
+            Ok(AuthToken {
+                access_token: "fresh-access-token".into(),
+                refresh_token: Some("fresh-refresh-token".into()),
+                expires_in: Some(86400),
+                provider_user_id: "me".into(),
+                name: String::new(),
+                username: "founder".into(),
+                picture: None,
+            })
+        }
+        async fn publish(
+            &self,
+            _access_token: &str,
+            _post: &PostContent,
+        ) -> Result<PublishResult, ProviderError> {
+            unreachable!("the refresh path does not publish")
+        }
+        async fn fetch_page_info(
+            &self,
+            _access_token: &str,
+            _page_id: &str,
+        ) -> Result<PageInfo, ProviderError> {
+            Ok(PageInfo {
+                id: "urn:li:organization:success".to_string(),
+                name: String::new(),
+                access_token: None,
+                picture: None,
+                username: None,
+            })
+        }
+    }
+
+    async fn state_with_refreshable_provider() -> AppState {
+        crate::config::load_dotenv_for_tests();
+        let config = crate::config::Config::from_env().expect("config");
+        let db = crate::db::create_pool(&config.database_url)
+            .await
+            .expect("pool");
+        crate::db::ensure_local_user(&db).await.expect("local user");
+        let registry = crate::social::registry::ProviderRegistry::with_providers(vec![(
+            "linkedin",
+            std::sync::Arc::new(SucceedingRefresh)
+                as std::sync::Arc<dyn crate::social::SocialProvider>,
+        )]);
+        AppState {
+            db,
+            config,
+            broadcast: crate::realtime::Broadcaster::new(),
+            providers: registry,
+            token_key: None,
+            telegram_client_manager: None,
+            wa_client: None,
+            media_http_client: reqwest::Client::new(),
+            media_wreq_client: wreq::Client::new(),
+        }
+    }
+
+    async fn is_flagged(pool: &sqlx::SqlitePool, id: uuid::Uuid) -> bool {
+        sqlx::query_scalar::<_, i64>("SELECT refresh_needed FROM integrations WHERE id = ?")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .expect("flag read")
+            > 0
+    }
+
+    async fn seed_flagged_channel(pool: &sqlx::SqlitePool) -> (uuid::Uuid, String) {
+        let id = uuid::Uuid::new_v4();
+        let urn = format!("urn:li:organization:success-{}", id);
+        sqlx::query(
+            "INSERT INTO integrations
+                (id, user_id, provider_identifier, provider_name, internal_id,
+                 access_token, refresh_token, token_expires_at,
+                 disabled, refresh_needed, posting_times, auth_method)
+             VALUES (?, ?, 'linkedin', 'LinkedIn', ?, 'A validT0ken',
+                     'refresh-tok', ?, 0, 1, '[]', 'oauth')",
+        )
+        .bind(id)
+        .bind(crate::auth::middleware::DEFAULT_USER_ID)
+        .bind(&urn)
+        .bind(chrono::Utc::now() + chrono::Duration::days(59))
+        .execute(pool)
+        .await
+        .expect("seed");
+        assert!(
+            is_flagged(pool, id).await,
+            "the row must start flagged, or this proves nothing about recovery"
+        );
+        (id, urn)
+    }
+
+    /// A successful refresh CLEARS the flag and persists the new token.
+    ///
+    /// This is the recovery path the founder needs: their LinkedIn pages
+    /// 404 (correctly - the pages really are gone), the connection is
+    /// healthy, and this click is how a stale flag from the pre-fix era
+    /// finally comes off.
+    ///
+    /// The flag is written clear by two redundant statements (see the
+    /// block header), so the mutation that proves this test is the one
+    /// that removes BOTH. A mutation removing either alone passes, which
+    /// is the belt-and-braces property, not a coverage hole.
+    #[tokio::test]
+    async fn a_successful_refresh_clears_the_flag_and_stores_the_new_token() {
+        let state = state_with_refreshable_provider().await;
+        let (id, urn) = seed_flagged_channel(&state.db).await;
+
+        let auth = AuthenticatedUser {
+            user_id: crate::auth::middleware::DEFAULT_USER_ID,
+        };
+        let res = refresh(State(state.clone()), auth, Path(id)).await;
+        assert!(
+            res.is_ok(),
+            "a successful refresh must answer Ok, got {:?}",
+            res.err()
+        );
+
+        assert!(
+            !is_flagged(&state.db, id).await,
+            "a SUCCESSFUL refresh must clear refresh_needed - this is the arm \
+             the founder's recovery runs through, and the failure arm cannot be \
+             used to infer it (the failure arm sets the flag and returns first)"
+        );
+
+        let stored =
+            queries::get_integration(&state.db, id, crate::auth::middleware::DEFAULT_USER_ID)
+                .await
+                .expect("read")
+                .expect("row");
+        assert_eq!(
+            stored.access_token, "fresh-access-token",
+            "the refreshed token must be the one persisted (defect B's shape: a \
+             written-then-discarded token)"
+        );
+        let _ = urn;
+    }
+}
