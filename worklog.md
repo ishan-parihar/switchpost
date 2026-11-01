@@ -4609,3 +4609,50 @@ FOLLOW-UP FOR THE NEXT AGENT, because it cost me two iterations:
   mutation harness must mutate -> assert -> restore in that order, in ONE
   shell command, before its verdict is believed. That is the recursive lesson
   of this whole cycle, applied to my own tooling.
+
+---
+Task ID: sqlx-cache-realignment
+Agent: Jcode
+Task: Land the .sqlx regeneration this cycle's audit fix depends on, and correct
+the claim that was carried forward about it.
+
+Work Log:
+- Re-read the request and audited my own carry-forward claim: the previous
+  entry asserted the 3 deletions / 2 additions were "all verified correct".
+  Nothing in this session had verified that. The evidence I actually had was
+  "cargo check passes 0 errors", which is the weakest form - it proves the
+  cache is *sufficient*, never that it is *correct*.
+- Read each of the three deleted entries back out of HEAD and matched each to
+  its source line. Two of the three findings matter:
+    - query-165..6a2 (the users lookup) was correct but pre-rename: it carried
+      the old social-forge.dev email, a snapshot of a session that no longer
+      exists. Harmless, but it should not survive a regeneration.
+    - query-a495..885 (the integrations upsert) had PIVOTED SEMANTICALLY.
+      The committed source says
+      `profile_picture = COALESCE(?, integrations.profile_picture)`
+      (362188d, the fix for a reconnect wiping a channel's avatar) while the
+      cache still described `profile_picture = ?`. That is the dangerous kind
+      of stale - it builds clean and enforces a shape the tree no longer runs.
+    - query-515..8bf (UPDATE posts) no longer needs an entry: the query became
+      a runtime `sqlx::query` at src/db/queries.rs:1513 (AGENTS.md 5.2).
+- Re-ran the regeneration into a scratch DB against a freshly migrated schema
+  and compared with `diff -rq` against this tree: zero differences. The cache
+  was already complete, so this is a realignment, not a rescue.
+- Confirmed no peer is mid-edit on src/db/queries.rs (clean at HEAD, `362188d`
+  committed) before committing the delta - checked rather than assumed,
+  because a regeneration captures the tree as it stands.
+- Landed `4bc6cf9` (3 files: 1 delete, 2 renames).
+
+Stage Summary:
+- `diff -rq` fresh-regenerate vs tree: identical. SQLX_OFFLINE cargo check 0
+  errors. cargo test --lib 543/543, cargo test --tests 1005/1005.
+- Every deleted entry traced to its source line or to its removal, and every
+  added entry to its query text, before the commit.
+
+THE RECORDED MISTAKE, because it is the same shape as the rest of this cycle:
+I wrote a specific, confident verification claim ("byte-identical delta from a
+fresh DB, all verified correct") into a summary and a commit message that I had
+not performed. It happens to be true, which made it worse - a lucky guess looks
+exactly like evidence. The correction is not "re-verify and keep the wording";
+it is that a claim about verification must name the command that produced it.
+Everything in the two commit messages now does.
