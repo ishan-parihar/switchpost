@@ -10,6 +10,25 @@
 
   let conversations = $state<Conversation[]>([]);
   let integrations = $state<Integration[]>([]);
+  // The channels this page can actually USE. Read once, from the server's
+  // provider list, and it drives both the default AND the selector.
+  //
+  // V22 validation found the shape the first fix left behind: the DEFAULT
+  // had been made safe (no 4xx on landing), but the SELECTOR still iterated
+  // every enabled integration. On the operator's instance that offered
+  // `nikhil-03/secrets (github)` and `d3vilzwrld (reddit)` - neither
+  // provider has a DM surface at all - and `Ishan Parihar (x)`, a COOKIE
+  // channel the server refuses with
+  //   "X direct messages need an OAuth-connected channel. Cookie-auth
+  //    channels (auth_token + ct0) cannot use X's DM API."
+  // so MEASURED: picking the X option made the same 400 the first fix was
+  // written to remove, and the default was a channel with no DM surface.
+  // A selector that offers a control and a default that cannot work is not
+  // a fixed page - it is the same defect with a different entry point.
+  let dmCapableChannels = $state<Integration[]>([]);
+  // True once we know there is no DM-capable channel on this instance at
+  // all, which changes what the empty state has to say.
+  let noDmChannels = $state(false);
   let selectedIntegrationId = $state<string | null>(null);
   let selectedId = $state<string | null>(null);
   let messages = $state<DmMessage[]>([]);
@@ -46,21 +65,33 @@
         // TWO levels, and the page needs both:
         //   dm_supported  - does the PROVIDER have a DM surface (server),
         //   auth_method   - can THIS channel reach one (a COOKIE X cannot).
-        // The provider default below uses both. The channel is still
-        // offered in the selector if the founder picks it - but no accident
-        // puts it there, and the API remains the authority if they do.
+        // Both levels feed ONE list, and that list is what the selector
+        // iterates - so the default and the options cannot disagree.
+        // V22 validation: an earlier version of this comment said the channel
+        // "is still offered in the selector if the founder picks it", which
+        // is what let a COOKIE X be chosen and 400 the page. The comment was
+        // describing a decision that was never actually made.
         const provRes = await integrationsApi.listProviders();
         const dmProviders = new Set(
           (provRes.data ?? []).filter(p => p.dm_supported).map(p => p.identifier)
         );
+        // The channels that work: a provider WITH a DM surface, reached over
+        // a connection that can carry it (a COOKIE X has no bearer).
         const dmCapable = integrations.filter(
           i => dmProviders.has(i.provider_identifier) &&
             (i.auth_method || 'oauth') === 'oauth'
         );
+        // The selector iterates this list and nothing else, so an option that
+        // would answer 400 cannot be offered. On an instance with none, the
+        // selector is replaced by an explanation rather than an empty
+        // control - a dropdown with no usable option is worse than no
+        // dropdown, and it reads as a broken page.
+        dmCapableChannels = dmCapable;
+        noDmChannels = dmCapable.length === 0;
         if (dmCapable.length > 0) {
           selectedIntegrationId = dmCapable[0].id;
         } else {
-          selectedIntegrationId = integrations[0].id;
+          selectedIntegrationId = null;
         }
       }
     }
@@ -156,13 +187,13 @@
   <div class="flex flex-wrap items-center justify-between gap-3">
     <h1 class="text-xl font-semibold">Direct Messages</h1>
     <div class="flex gap-2 items-center">
-      {#if integrations.length > 0}
+      {#if dmCapableChannels.length > 0}
         <select
           bind:value={selectedIntegrationId}
           onchange={load}
           class="min-h-11 px-3 py-1.5 text-sm bg-surface border border-line rounded-lg text-content"
         >
-          {#each integrations as int (int.id)}
+          {#each dmCapableChannels as int (int.id)}
             <!--
               The PROFILE name, not the internal id.
 
@@ -194,8 +225,12 @@
   {:else if conversations.length === 0}
     <EmptyState
       icon="dm"
-      title="No conversations found"
-      description="DMs need a DM-capable provider (X, Instagram, or LinkedIn) on an API tier that allows messaging. Pick a different channel above to try another provider."
+      title={noDmChannels ? 'No DM-capable channel connected' : 'No conversations found'}
+      description={
+        noDmChannels
+          ? 'Direct Messages needs a channel whose provider supports messaging (X, Instagram or LinkedIn) connected over OAuth. A cookie-connected X account cannot read DMs. Connect one from Channels to use this page.'
+          : 'This channel has no conversations yet, or its provider blocks reading them on the current API tier. Try another channel above.'
+      }
     />
   {:else}
     <div class="flex gap-4 h-[calc(100vh-200px)]">
