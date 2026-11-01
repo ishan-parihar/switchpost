@@ -4889,3 +4889,57 @@ Stage Summary:
 - Rollback remains one command; the 20:35 binary is preserved.
 - Nothing left behind: no stray processes, no /tmp scratch, local scratch
   cleaned.
+
+---
+Task ID: v22-validate-the-copychange-claims-by-mutation
+Agent: Jcode
+Task: Validate the three items from the previous pass.
+
+Work Log:
+- MUTATION-TESTED MY OWN NEW TEST, AND IT WAS WEAK. The first draft of
+  `a_failed_token_refresh_keeps_the_flag_and_answers_an_error` seeded the row
+  ALREADY FLAGGED, which made the endpoint's failure-path re-mark invisible:
+  deleting `mark_integration_refresh_needed` from the failure branch left the
+  flag set either way, so the MUTATION PASSED and the test proved nothing
+  (the test result was `ok. 1 passed` with the mutation live - the exact trap
+  the AGENTS.md 9-series tests documented for `clearing_an_unflagged_channel`).
+  Fixed by seeding the row UNflagged, so a re-mark is detectable. With that,
+  the same mutation fails the test with "a failed refresh must keep
+  refresh_needed SET".
+- If the founder's LinkedIn app is deauthorized or credentials are absent, the
+  refresh click answers an error and the flag STAYS SET - that is the pin
+  that came out of this test.
+
+THE OVERCLAIM IN MY OWN CORRECTION, NOW CORRECTED AGAIN. Pass 2 recorded that
+clicking Refresh clears the stale flag, so the action was worth keeping. That
+is UNCONDITIONAL as written and the endpoint is NOT unconditional:
+
+    refresh_token() succeeds  -> ... -> UPDATE ... refresh_needed = false
+    refresh_token() FAILS      -> mark_integration_refresh_needed (SET it)
+                                  return Err  (the clear never runs)
+
+(src/api/integrations.rs, the `Err(e)` arm around :535-545, and the UPDATE at
+~:594.) So the honest statement is: a refresh click clears the flag IF the
+provider accepts the refresh; when the provider refuses, it sets the flag and
+returns an error, and the founder must use a full reconnect instead. The
+Channel hint's recommended action ("Reconnect") remains right either way -
+which is the half that did not change - but the reason it is right is now
+stated correctly, and it is pinned by a test that has been mutated.
+
+ALSO MUTATED THE SECOND NEW TEST AND ITS FAILURE MODE IS WORSE THAN IT LOOKED.
+Adding a `refresh_reason` field to `IntegrationPublic` WITHOUT wiring the
+`From` impl fails at COMPILE (E0063 missing field) and
+`integration_public_still_exposes_no_failure_reason` never runs: the reader
+gets an error about an unrelated struct instead of the instruction the test
+carries. Wiring the field makes it compile and the assertion fires properly.
+Both are red; only the second teaches. The doc comment now says so, so the
+guard is not mistaken for something it cannot be.
+
+Stage Summary:
+- `a_failed_token_refresh_...` now pins the real conditional contract, and has
+  been mutated (red) to prove it.
+- Two of my own claims corrected twice in one day, both left in the history:
+  "reconnect always clears the flag" (false when the provider refuses) and the
+  weak variant of the meta-test.
+- No source change: this pass is tests + documentation only. Nothing to ship,
+  and nothing was restarted on the VPS.
