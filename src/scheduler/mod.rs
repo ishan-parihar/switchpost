@@ -144,6 +144,15 @@ const POSTING_GAP_GRACE_SECS: i64 = 3 * 60 * 60;
 /// when a whole backlog is late.
 const POSTING_GAP_LIMIT: i64 = 20;
 
+/// How far ahead the proactive token refresh looks. 24h: a token that will
+/// expire within the next day is refreshed before a publish can ever hit it
+/// and turn into a `TokenExpired` retry.
+///
+/// Module-level (not function-local) because the integration tests assert
+/// against the real query the scheduler uses — a copy of the number in the
+/// test would drift from the one the scheduler uses and prove nothing.
+pub const PROACTIVE_REFRESH_WINDOW_HOURS: i64 = 24;
+
 /// Start the scheduler background task.
 /// Pass a watch::Receiver that resolves to `true` to trigger graceful shutdown.
 /// The returned receiver flips to `true` once the engine has drained its
@@ -445,8 +454,6 @@ async fn proactive_token_refresh(
     providers: &ProviderRegistry,
     token_key: Option<[u8; 32]>,
 ) -> Result<(), PublishError> {
-    const PROACTIVE_REFRESH_WINDOW_HOURS: i64 = 24;
-
     // Get all providers that need cron refresh
     let providers_needing_refresh: Vec<_> = providers
         .list()

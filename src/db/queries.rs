@@ -462,6 +462,38 @@ pub async fn mark_integration_refresh_needed(
     Ok(())
 }
 
+/// Clear the `refresh_needed` flag.
+///
+/// WHY THIS EXISTS
+///
+/// `mark_integration_refresh_needed` had no counterpart, so the flag was a
+/// ONE-WAY door. Once a channel was marked, nothing in the codebase could
+/// ever unmark it — not the successful refresh that proved the token works,
+/// not a reconnect that installed a brand-new token, not the operator who
+/// fixed the actual problem by hand. The 24h proactive refresh
+/// (`get_integrations_needing_refresh`, below) filters `AND refresh_needed =
+/// false`, so the channel was cut out of that too.
+///
+/// `update_integration_token` already clears it on a token write (queries.rs
+/// :439), and `reconnect` goes through that — so a reconnect DOES recover a
+/// channel. What was missing was the other direction: proof of health.
+/// A refresh that succeeds and then fetches posts successfully is proof the
+/// channel is fine, and it should clear the flag so the channel returns to
+/// the normal lifecycle.
+///
+/// Idempotent and safe to call on a row whose flag is already false.
+///
+/// Runtime `sqlx::query` rather than the `query!` macro: this is a NEW
+/// query and regenerating `.sqlx/` needs a live SQLite file plus
+/// `cargo sqlx prepare` (AGENTS.md §5.1-5.3).
+pub async fn clear_integration_refresh_needed(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE integrations SET refresh_needed = false, updated_at = unixepoch() WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Get integrations that need proactive token refresh (tokens expiring within `window_hours`)
 pub async fn get_integrations_needing_refresh(
     pool: &SqlitePool,

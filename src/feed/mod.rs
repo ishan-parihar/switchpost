@@ -135,11 +135,35 @@ async fn try_refresh_and_fetch(
         integration.id,
         integration.provider_identifier
     );
+    // Defect B: the refreshed token was written, then DROPPED on the floor -
+    // the fetch below used `integration.access_token` (the STALE, expired
+    // token) instead of `new_access`. So every proactive refresh logged
+    //     Auth error: Missing access_token
+    // ...and `None`, which the caller read as "refresh failed" and used as a
+    // reason to skip the channel for another cycle. The token WAS good; the
+    // bug was that nobody used it.
+    //
+    // It also means the channel that WAS flagged `refresh_needed` never got
+    // cleared, because clearing happens only on a fetch that actually
+    // succeeds. Both halves are fixed here: use the new token, then clear the
+    // flag when the fetch works.
     match provider
         .get_recent_posts(&new_access, &integration.internal_id, RECENT_POSTS_LIMIT)
         .await
     {
-        Ok(p) => Some(p),
+        Ok(p) => {
+            if integration.refresh_needed {
+                crate::db::queries::clear_integration_refresh_needed(db, integration.id)
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::warn!(
+                            "Failed to clear refresh_needed for {}: {e}",
+                            integration.id
+                        );
+                    });
+            }
+            Some(p)
+        }
         Err(e) => {
             tracing::warn!(
                 "Failed to fetch posts after refresh for {} ({}): {e}",
@@ -149,6 +173,155 @@ async fn try_refresh_and_fetch(
             None
         }
     }
+}
+
+/// One rule, one place: what a failed post fetch MEANS for the channel.
+///
+/// WHY THIS EXISTS (measured, not assumed)
+///
+/// Every LinkedIn channel on the live deployment showed "needs reconnect"
+/// while its token was VALID - the personal `linkedin` row had a
+/// `token_expires_at` months out and the `linkedin-page` rows were being
+/// rewritten nightly, so the refresh was succeeding and writing a good token
+/// every time. The trigger was a log line, not a schedule:
+///
+///     WARN feed: LinkedIn get_posts failed ... 404: No virtual resource found.
+///
+/// "No virtual resource found" is LinkedIn's phrasing for "the page/resource
+/// you named is not there". It is NOT a scope error, and it is definitely NOT
+/// a token error - the same token had just been used successfully.
+///
+/// But the feed read that string, concluded "lacks API scope", and called
+/// `mark_integration_refresh_needed`. That flag is what
+/// `get_integrations_needing_refresh` (db/queries.rs:519) filters on:
+/// `AND refresh_needed = false`. So the act of asking for posts once, badly,
+/// PERMANENTLY excluded the channel from the scheduler's 24h proactive token
+/// refresh (scheduler/mod.rs:508), and from the analytics cache refresh
+/// (scheduler/mod.rs:2161). Reconnecting gives a new token, which 404s again,
+/// which sets the flag again - the founder's reconnect does not fix it and
+/// cannot, because the flag was never the problem.
+///
+/// WHAT THE FLAG DOES NOT DO (measured, so this comment cannot overclaim):
+/// `get_due_posts` does NOT read `refresh_needed` — its only filter is
+/// `i.disabled = false` (db/queries.rs:1744). So the flag does not stop a
+/// SCHEDULED UNSENT POST from publishing. It stops the channel's token from
+/// ever being proactively refreshed, which is what turns a fine token into an
+/// expired one: the token is 59 days out at the time of the 404 and dies
+/// un-refreshed, and only THEN does the post start failing. `handle_feed_failure`
+/// must therefore leave the flag alone so the channel keeps its ticket to that window.
+///
+/// THE RULE
+///
+/// A 404 (or LinkedIn's `RESOURCE_NOT_FOUND` envelope) means the TARGET is
+/// gone: the page was deleted, the ad account was removed, the URN is wrong.
+/// None of those are fixed by a token refresh, so the flag must not be set.
+///
+/// An auth/permission failure is the case the flag exists for: 401 expired,
+/// 403 missing scope. Those ARE fixed by a reconnect.
+///
+/// This lives as one function so the two call sites in this file (and any
+/// future third) cannot drift back apart - AGENTS.md 9.18, "one
+/// implementation per rule, on both sides of the wire".
+pub fn classify_feed_failure(msg: &str) -> FeedFailureKind {
+    let m = msg.to_lowercase();
+    // LinkedIn's 404 phrasing, kept verbatim because that is the string the
+    // live logs contain. Read as a LOWERCASE comparison so a provider that
+    // writes "Resource Not Found" or "No virtual resource" matches too.
+    let resource_gone = m.contains("no virtual resource")
+        || m.contains("resource_not_found")
+        || m.contains("not found")
+        || m.contains("404");
+    let auth_lost = m.contains("401")
+        || m.contains("unauthorized")
+        || m.contains("token expired")
+        || m.contains("403")
+        || m.contains("forbidden")
+        || m.contains("permission")
+        || m.contains("scope");
+    if auth_lost {
+        FeedFailureKind::NeedsReconnect
+    } else if resource_gone {
+        // The founder's channel is reachable, the posts just are not.
+        FeedFailureKind::TargetGone
+    } else {
+        FeedFailureKind::Transient
+    }
+}
+
+/// What a failed post fetch means, from the channel's point of view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedFailureKind {
+    /// Token or scope: a reconnect fixes this, so the UI should offer one.
+    NeedsReconnect,
+    /// The page/account/resource the integration points at is gone. A
+    /// reconnect does NOT fix it and must not be presented as the fix.
+    TargetGone,
+    /// Anything else - a provider outage, a timeout, a rate limit. Retry on
+    /// the next cycle and do not touch the channel's flag.
+    Transient,
+}
+
+/// Log a failed post fetch the honest way, and touch the channel's flag
+/// ONLY when a reconnect would actually fix it.
+///
+/// The one thing it must never do is set `refresh_needed` for a
+/// [`FeedFailureKind::TargetGone`] - see [`classify_feed_failure`] for the
+/// measured production consequence of that mistake.
+///
+/// The `TargetGone` arm is deliberately LOUD (warn) but non-destructive:
+/// the founder needs to know their page is gone, and the message has to say
+/// "reconnect will not fix this one" instead of the old claim that a scope
+/// was missing.
+///
+/// This is the integration-test seam for the whole classifier: the tests
+/// drive THIS function (not a copy of the rule) against a real DB, so a
+/// mutation to the flag logic goes red.
+pub async fn handle_feed_failure_for_test(
+    db: &SqlitePool,
+    integration_id: uuid::Uuid,
+    provider_identifier: &str,
+    msg: &str,
+) -> anyhow::Result<()> {
+    handle_feed_failure_inner(db, integration_id, provider_identifier, msg).await
+}
+
+async fn handle_feed_failure_inner(
+    db: &SqlitePool,
+    integration_id: uuid::Uuid,
+    provider_identifier: &str,
+    msg: &str,
+) -> anyhow::Result<()> {
+    match classify_feed_failure(msg) {
+        FeedFailureKind::NeedsReconnect => {
+            tracing::warn!(
+                "Integration {} ({}) lost its token or scope — marking refresh_needed: {msg}",
+                integration_id,
+                provider_identifier
+            );
+            crate::db::queries::mark_integration_refresh_needed(db, integration_id)
+                .await
+                .map_err(|e| anyhow::anyhow!("mark refresh_needed failed: {e}"))?;
+        }
+        FeedFailureKind::TargetGone => {
+            // NOT a scope problem and NOT a token problem. Log it so the
+            // operator can see it, and leave the flag alone: a channel that
+            // can still publish must keep publishing.
+            tracing::warn!(
+                "Integration {} ({}) points at a resource no longer served ({msg}). \
+                 The channel's token is fine, so it stays publishable; the target is gone.",
+                integration_id,
+                provider_identifier
+            );
+        }
+        FeedFailureKind::Transient => {
+            tracing::warn!(
+                "Failed to fetch posts for integration {} ({}): {msg}",
+                integration_id,
+                provider_identifier
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Poll all non-disabled integrations for a specific user and import their recent posts.
@@ -195,23 +368,17 @@ pub async fn refresh_user_posts(
             }
             Err(ref e) => {
                 let msg = e.to_string();
-                if msg.contains("No virtual resource") || msg.contains("RESOURCE_NOT_FOUND") {
+                if let Err(e) = handle_feed_failure_inner(
+                    db,
+                    integration.id,
+                    &integration.provider_identifier,
+                    &msg,
+                )
+                .await
+                {
                     tracing::warn!(
-                        "Integration {} ({}) lacks API scope — marking refresh_needed",
-                        integration.id,
-                        integration.provider_identifier
-                    );
-                    if let Err(e2) =
-                        crate::db::queries::mark_integration_refresh_needed(db, integration.id)
-                            .await
-                    {
-                        tracing::warn!("Failed to mark refresh_needed: {e2}");
-                    }
-                } else {
-                    tracing::warn!(
-                        "Failed to fetch posts for integration {} ({}): {e}",
-                        integration.id,
-                        integration.provider_identifier
+                        "Failed to record the feed failure for integration {}: {e}",
+                        integration.id
                     );
                 }
                 continue;
@@ -307,24 +474,17 @@ async fn refresh_all_posts(
             }
             Err(ref e) => {
                 let msg = e.to_string();
-                // Detect scope/permission errors and mark integration for reconnection
-                if msg.contains("No virtual resource") || msg.contains("RESOURCE_NOT_FOUND") {
+                if let Err(e) = handle_feed_failure_inner(
+                    db,
+                    integration.id,
+                    &integration.provider_identifier,
+                    &msg,
+                )
+                .await
+                {
                     tracing::warn!(
-                        "Integration {} ({}) lacks API scope — marking refresh_needed",
-                        integration.id,
-                        integration.provider_identifier
-                    );
-                    if let Err(e2) =
-                        crate::db::queries::mark_integration_refresh_needed(db, integration.id)
-                            .await
-                    {
-                        tracing::warn!("Failed to mark refresh_needed: {e2}");
-                    }
-                } else {
-                    tracing::warn!(
-                        "Failed to fetch posts for integration {} ({}): {e}",
-                        integration.id,
-                        integration.provider_identifier
+                        "Failed to record the feed failure for integration {}: {e}",
+                        integration.id
                     );
                 }
                 continue;
