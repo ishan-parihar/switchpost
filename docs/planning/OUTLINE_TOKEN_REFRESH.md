@@ -126,11 +126,19 @@ the flag on success, `integrations.rs:500`) or a full reconnect.
 > The handler's write is the one that still holds when the provider returns no
 > new token, so neither is dead code.
 >
-> The success arm itself had **zero** test coverage before v23 — the failure
-> arm was pinned by `tests/linkedin_refresh_needed_test.rs` and the success
-> arm by nothing at all. It is now pinned by an in-crate test (no injection
-> point is visible to an integration test binary), so the manual recovery
-> this G-03 depends on is proven to work rather than assumed.
+> The success ENDPOINT itself had no test that executed it before v23 —
+> no test called the handler at all, so it could have refused at the registry
+> lookup, 500'd on the token write, or answered Ok without storing the token,
+> and nothing would have known. It is now pinned by an in-crate test (no
+> injection point is visible to an integration test binary).
+> Precise scope, because a citation here was wrong once already: the WRITER
+> was already pinned at the writer level by
+> `a_reconnect_recovers_a_flagged_channel`
+> (tests/linkedin_refresh_needed_test.rs:423), which calls
+> `queries::update_integration_token` DIRECTLY and asserts only the flag. The
+> new test adds what that one cannot: the handler answers Ok, and the NEW
+> token is the one stored. So the founder-facing manual recovery is now proven
+> at the level the founder clicks, not assumed.
 > The **cause** remains open: the 404 keeps the feed fetch from succeeding, so
 > the flag stays set until the founder clicks, and there is no code path that
 > clears it on its own.

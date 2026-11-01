@@ -4956,11 +4956,19 @@ Work Log:
   in the LOCAL zone (IST), so it means 21:33 IST = 16:03 UTC and sweeps in five
   hours of pre-restart journal. The restart itself was 21:33 UTC.
 - Settled it with the count that cannot lie - no time filter, grouped by PID:
-      "lacks API scope"  -> 1912 lines, ALL from the old binary 2531466
+      "lacks API scope"  -> 1912 lines, ALL from the old binary 2531466,
+                            whose last line is Nov 02 02:05:19
                             ZERO from either new binary
       "target is gone"   -> 48 from the 2nd deploy (3697741)
-                         + 20 from the 3rd deploy (3785060)
+                         + 68 from the 3rd deploy (3785060, the current
+                           MainPID, first line Nov 02 03:03:41)
                             ZERO from the old binary
+  TOTAL correct = 116. CORRECTED 2026-11-02 during the validation pass: an
+  earlier draft of this entry wrote "20 from the 3rd deploy". The live
+  grouping returns 68 for 3785060 and 48 for 3697741. The earlier number was
+  measured while the 3rd deploy had been running only minutes; the settled
+  figure is 116. "Two re-deploys" is also loose - there are TWO NEW binaries
+  plus the old one, so three generations total.
 - So the settled finding stands: defect A is fixed in production, and both
   re-deploys are emitting the corrected classification.
 
@@ -4979,15 +4987,30 @@ Stage Summary:
 ---
 Task ID: v23-refresh-success-arm-pinned
 Agent: Jcode
-Task: Pin the refresh endpoint's SUCCESS arm - the recovery path for the
-founder's stale `refresh_needed` flags - which had no test at all.
+Task: Pin the refresh ENDPOINT's success arm, which nothing executed - the
+WRITER-level equivalent existed, and I initially overstated this as "no test
+at all". Correction recorded below.
 
 Work Log:
 - The prior pass pinned only the FAILURE arm ("refresh refused -> flag stays
-  flagged"), and I had recorded that as covering the endpoint. It does not: the
-  SUCCESS arm ("refresh succeeds -> flag cleared") is a different write, on a
-  different path, and NOTHING executed it. No test anywhere, not even a
-  source-shape one, reached it.
+  flagged"), and I had recorded that as covering the endpoint. The ENDPOINT's
+  success arm was indeed untested: the HTTP handler was never invoked by any
+  test, so it could have refused at the registry lookup, 500'd on the token
+  write, or answered Ok without persisting the token, and nothing would know.
+- CORRECTION against my own words, made 2026-11-02 by re-measuring: the first
+  draft of this entry said "the success arm had no test at all" and "NOTHING
+  executed it". "Nothing executed the endpoint" is true (verified by grep over
+  the whole tree - no test calls the handler). "No test at all" is FALSE:
+  `a_reconnect_recovers_a_flagged_channel`
+  (tests/linkedin_refresh_needed_test.rs:423) asserts the same thing about the
+  FLAG, by calling `queries::update_integration_token` DIRECTLY. The writer
+  was pinned; the endpoint was not. The precise claim is:
+    writer  = pinned (old test)
+    endpoint = not pinned, and it adds three assertions the old test has none
+               of: the handler answers Ok, and the NEW token is the one stored.
+  This matters because the earlier worklog entry (the cca49a1 reconnect-harm
+  correction) cited that test as already proving the mechanism, which is why
+  the overstatement happened - a citation was reused without re-measuring it.
 - It could not be pinned from an integration test. `ProviderRegistry::new`
   builds its own provider map from the real providers, so there is no injection
   point; the only injection point, `ProviderRegistry::with_providers`, is under
@@ -5034,3 +5057,79 @@ Stage Summary:
   `cli/oauth_browser.rs` redundant_closure).
 - Founder-facing consequence: the click that recovers a stale flag is now
   pinned, so the G-03 manual recovery is proven to work rather than assumed.
+
+---
+Task ID: v24-validate-the-channel-hint-cycle
+Agent: Jcode
+Task: Independently validate five claims from the cca49a1 / deploy cycle,
+each against a mutation or a live measurement, not against the notes.
+
+Work Log:
+- CLAIM 1 (cca49a1 exists as described): VERIFIED. `git cat-file -t` is a
+  commit, the diff replaces the condemned sentence in
+  frontend/src/lib/channels/channel-status.ts, and the two mutations below
+  prove its tests bite.
+- CLAIM 4 (source-invariant tests are load-bearing): VERIFIED BY MUTATION,
+  and the first mutation was WRONG before it was right, which is the lesson.
+  Reintroducing the condemned phrase via `sed` silently did not apply (the
+  hint text had changed since the pass that wrote the test, so my `old`
+  string did not exist), and the suite stayed green - a green suite proves
+  nothing until the mutation is confirmed APPLIED. Re-done by reading the
+  current line first and editing exactly: `the_reconnect_hint_stops_diagnosing_
+  the_token` FAILED with the production evidence in the message. A second
+  mutation (the "Needs reconnect" label renamed) also FAILED. Both reverted
+  by hand, 5/5 green.
+- CLAIM 2 (the fix is live): VERIFIED THREE WAYS, and the third is the one
+  that matters. (a) VPS binary sha256 `07042fe4ff8ed147adb5d6ba`, 71,833,256
+  bytes, byte-identical to the local `x86_64-unknown-linux-gnu` release
+  build, and NOT the host build `6aa93bd4...` (97,744,344). (b) health=200,
+  root=200, 0 ERROR lines. (c) THE §9.53 CHECK: the served lazy chunk
+  `_app/immutable/chunks/BvtkDYYo.js` over TLS is 32,375 bytes with the new
+  hint x1, "could not be refreshed" x0, "Needs reconnect" x1. The source is
+  fixed and the asset is fixed; only (c) proves the browser gets it.
+- CLAIM 6 (the PID-settled counts): VERIFIED, AND THE RECORD WAS WRONG.
+  Live grouping by `switchpost[NNNN]`, no time filter:
+      "lacks API scope" -> 1912, ALL from old PID 2531466, ZERO from new
+      "target is gone"  -> 48 from 3697741 + 68 from 3785060 (current MainPID)
+                           ZERO from the old PID
+  So 1912 defect-A lines with zero from either new binary confirms the fix;
+  but the worklog's "48 + 20 = the settled figures" was wrong - the third
+  deploy's number is 68, not 20, total 116. The 20 was measured while that
+  binary had been live for minutes. It is now corrected in place above
+  rather than amended quietly.
+- CLAIM 3 (the reconnect-harm overclaim is corrected): VERIFIED as recorded,
+  and it exposed an OVERSTATEMENT I MADE IN THE LAST PASS, so this is a
+  correction not a confirmation. My v23 entry said the success arm had "no
+  test at all" and "NOTHING executed it". "Nothing executed the ENDPOINT" is
+  true (no test calls the handler anywhere). "No test at all" is FALSE:
+  `a_flags_channel_can_be_cleared_by_refresh_success`
+  (tests/linkedin_refresh_needed_test.rs:299) and
+  `a_reconnect_recovers_a_flagged_channel` (:423) both assert the flag
+  clears, at the WRITER level, by calling the queries directly. The precise
+  claim is: writer pinned, endpoint not pinned, and the new test adds what
+  the others cannot - the handler answers Ok and the NEW token is stored.
+  The cause of the overstatement is named: a citation
+  (`:423`) was reused from the earlier reconnect-harm correction without
+  being re-measured against the tree.
+- CLAIM 5 (the weak test was replaced, not kept alongside): the RECORD IS
+  IMPRECISE and I corrected it here rather than leave it. `1e237bb`'s message
+  says `a_refresh_click_clears_the_flag_on_a_row_whose_pages_are_gone` "was
+  replaced by" the router test. That name NEVER EXISTED in any commit
+  (`git log --all -S` is empty; numstat is 97 added, 0 deleted). It was a
+  weak DRAFT in the working tree, rewritten before it was committed, so the
+  commit's net effect is +1 test, not a swap. The tree is still correct: the
+  writer-level `a_flags_channel...` and the router-level
+  `a_failed_token_refresh...` are both present and test different layers.
+  `linkedin_refresh_needed_test` is 15/15.
+
+Stage Summary:
+- All five claims hold. Two records were wrong and are now corrected in
+  place: the "20 from the 3rd deploy" count (it is 68, total 116), and my own
+  "the success arm had no test at all" (the WRITER was pinned; the ENDPOINT
+  was not).
+- One reused discipline, restated because it nearly produced a false pass:
+  a mutation that does not APPLY leaves the suite green, and green is not
+  evidence. Confirm the mutation is present in the source before reading
+  anything into the result.
+- Nothing deployed and nothing changed in src/: this pass is measurement
+  plus two record corrections.
