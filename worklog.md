@@ -4222,6 +4222,33 @@ CLOSED THE VALIDATION GAP: NINE OF THE TEN TESTS NOW HAVE A MUTATION BEHIND THEM
   against its pre-pass backup, the whole diff is the one test file, cargo check
   clean.
 
+AND THE SAME GAP CLOSED ON THE DEFECT-C SIDE, WHERE IT WAS WIDER
+- C3 had mutated only ONE of the three per-provider refusal tests (threads), so
+  `linkedin_refuses_page_selection_with_no_page_management` and
+  `instagram_standalone_refuses_page_selection_with_no_page_management` were
+  green with nothing having targeted them. Closed, each RED on exactly one test
+  and no other - which is what proves the assertions are per-provider and not
+  one copy of the same check:
+    C5, linkedin's `fetch_page_info` returns the generic `Api` variant: RED on
+      `linkedin_refuses_page_selection_with_no_page_management` only. Threads
+      and Instagram stay green.
+    C6, instagram_standalone the same: RED on
+      `instagram_standalone_refuses_page_selection_with_no_page_management`
+      only.
+- The defect-C NEGATIVE GUARD had no mutation either. C7 mutates linkedin's own
+  `reconnect` override (the production path the guard drives) to answer
+  `Err(ProviderError::NoPageManagement)` - the exact dead end the guard exists
+  to keep closed. RED on `a_real_failure_is_not_degraded_into_success` only.
+  That guard's real job is now pinned: a provider-level reconnect must not
+  forward a page-management refusal as its answer.
+- Every test in BOTH suites now has at least one mutation that turns it red and
+  none other. Both suites green on the restored tree (12/12 and 6/6), cargo
+  test --lib 543/543, cargo check clean, all five social/ sources hash-verified
+  against their pre-pass backups.
+- The one mutation that still passes everything, M4, does so for a traced
+  reason: the "not found" pattern it removes is genuinely redundant against
+  `LIVE_404`'s other two matches. Redundancy, not a hole.
+
 - Re-measured A+B's committed citations against the tree. One had drifted:
   `queries.rs:1744` is now 1776. Fixed in 7399fb3, which also removes the
   remaining line numbers from that comment - they age on their own and a
