@@ -4496,3 +4496,59 @@ diagnosis was right and only its conclusion (broken) was wrong. No .sqlx
 regeneration is needed: this session added no `query!` macro. The caution is
 withdrawn, not because it was inaccurate when written, but because the tree
 has moved past it.
+
+---
+Task ID: v22-defect-d-a-scope-miss-that-read-as-a-timeout
+Agent: Jcode
+Task: Continue the red-team pass after pinning defect B and recording G-08.
+
+Work Log:
+- Defect D was found by READING `classify_feed_failure` (src/feed/mod.rs:249)
+  after the pinning work, not by a report. The provider's READ path
+  (src/social/linkedin.rs:192) does not surface its raw 403 - it replaces it
+  with a message that names the fix ("not granted 'r_member_social' ... enable
+  the 'Read member's social' product ... then reconnect LinkedIn from the
+  Channels screen") and its own comment calls that "the reconnection the
+  founder actually has to do".
+- That message contains NONE of the tokens the classifier looked for: no 401,
+  403, forbidden, permission, scope, unauthorized or "token expired". It says
+  "not granted", "enable", "product", "reconnect". Verified mechanically in
+  python before claiming it: auth_lost False, resource_gone False, so
+  Transient.
+- THE CONSEQUENCE is defect A's shape from the other side. A set
+  `refresh_needed` when it should NOT have (on a 404). D fails to set it when
+  it SHOULD have (on a real scope miss). Both leave the Channels screen
+  lying: the channel keeps failing every cycle forever, with no flag, no
+  reconnect offered anywhere, against a healthy token.
+- Fixed in one rule place: `grant_miss` ("not granted", "granted without",
+  "missing grant") plus `fixes_with_reconnect` ("enable" AND "reconnect").
+- I first wrote the added branches WITHOUT parentheses around the `&&` pairs.
+  Caught it myself: `a || b && c` means `a || (b && c)`, which is accidentally
+  what I wanted, but the chain `missing || b && c || d && e` is a trap for the
+  next reader and for a mutation that looks right and is not. Rewrote with
+  named booleans and explicit parens, and said so in the comment.
+- Two tests, each driving the REAL classifier against a real DB row (not a copy
+  of the rule): the provider's real message must classify NeedsReconnect, and
+  the same message must actually SET flag on a seeded row.
+- MUTATION (both new branches forced false, i.e. pre-fix): BOTH new tests FAIL
+  with the message about the Channels screen showing a healthy channel that can
+  never read a post. The 6 defect-C tests still PASS, so the mutation is not
+  producing false positives. Markers confirmed present before the run, restored
+  after with zero markers remaining.
+
+Stage Summary:
+- Pushed `c42cbf5` (fix(feed): src/feed/mod.rs classifier + 2 tests in
+  tests/feed_failure_reconnect_test.rs). Defect D is now fixed and pinned.
+- Both suites green: 8/8 and 14/14. `cargo test --lib` 543/543. `cargo check
+  --lib --bin switchpost` 0 errors.
+- The A+B+D chain is now closed and each letter has a mutation that goes red
+  without its fix. Defect C was proved not to reproduce and is pinned as
+  coverage.
+
+A CAUTION I CHECKED SO NOBODY REPEATS IT: while hunting defect D I first
+wrote the fixture with `sqlx::SqlitePool::connect("sqlite::memory:")` and got
+"no such table: users". The working pattern in EVERY test in this repo is
+`switchpost::db::create_pool("sqlite::memory:")`, which runs the migrations;
+`connect` gives a bare pool. The error message is misleading - it says "no
+such table: users", which reads like a missing seed, when the real cause is
+that no migration ever ran.
