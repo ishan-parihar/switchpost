@@ -672,7 +672,7 @@
     <div class="flex items-center gap-3 bg-accent-fill/10 border border-accent/30 rounded-lg px-4 py-2 flex-wrap">
       <span class="text-sm text-accent-strong">{selected.size} selected</span>
       <button onclick={() => showBulkSchedule = !showBulkSchedule} disabled={bulkProcessing} class="px-3 py-1 text-xs bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded disabled:opacity-50 min-h-11">Reschedule</button>
-      <button onclick={bulkDelete} disabled={bulkProcessing} class="px-3 py-1 text-xs bg-error hover:bg-error/90 rounded disabled:opacity-50 min-h-11">Delete</button>
+      <button onclick={bulkDelete} disabled={bulkProcessing} class="px-3 py-1 text-xs bg-error hover:bg-error/90 text-error-fg rounded disabled:opacity-50 min-h-11">Delete</button>
       <button onclick={() => selected = new Set()} class="sm:ml-auto text-xs text-muted hover:text-content min-h-11">Clear</button>
     </div>
     {#if showBulkSchedule}

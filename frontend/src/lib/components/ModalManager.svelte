@@ -203,7 +203,7 @@
         </button>
         <button
           onclick={() => resolveConfirm(true)}
-          class="px-4 py-2 text-sm text-accent-fg rounded-lg transition-colors {pc.opts.danger ? 'bg-error hover:bg-error' : 'bg-accent-fill hover:bg-accent-fill-hover'}"
+          class="px-4 py-2 text-sm rounded-lg transition-colors {pc.opts.danger ? 'text-error-fg bg-error hover:bg-error' : 'text-accent-fg bg-accent-fill hover:bg-accent-fill-hover'}"
         >
           {pc.opts.confirmLabel || 'Confirm'}
         </button>

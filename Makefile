@@ -54,6 +54,13 @@ check: vendor-pins
 	SQLX_OFFLINE=true cargo check --lib --bin switchpost
 	cd frontend && node scripts/check-hex-tokens.mjs
 	cd frontend && node scripts/check-tailwind-classes.mjs
+	# The ink-on-fill gate: a solid semantic fill takes its MATCHING ink.
+	# bg-error needs text-error-fg, never text-error (the same --error-rgb on
+	# both sides, ratio 1.00:1) and never text-accent-fg (white on dark-theme
+	# red-500, 3.61:1). The 2026-11-01 audit measured both defects: the shared
+	# areYouSure() danger confirm at 2.89:1 across 35 call sites, and every
+	# error and warning toast at 1.00:1 in both themes.
+	cd frontend && node scripts/check-ink-on-fill.mjs
 	python3 scripts/check_status_contrast.py
 	# The CONTRAST_CORE value test: pins the shared composited-contrast
 	# arithmetic (wash-over-opaque, opacity-group) against hand-computed

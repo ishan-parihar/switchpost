@@ -217,7 +217,7 @@
               onclick={(e) => { e.stopPropagation(); confirmDelete(item.id); }}
               class="absolute top-0 right-0 w-11 h-11 p-2 flex items-start justify-end opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-bl-xl"
             >
-              <span class="w-6 h-6 rounded-full flex items-center justify-center bg-error text-accent-fg">
+              <span class="w-6 h-6 rounded-full flex items-center justify-center bg-error text-error-fg">
                 <Icon name="close" class="w-3.5 h-3.5" />
               </span>
             </button>
