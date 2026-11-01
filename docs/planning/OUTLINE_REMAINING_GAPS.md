@@ -35,7 +35,7 @@ and the ordering is by *consequence to the founder*, not by size:
 | 11 | **Google-Suite grouping (undecided)** | connect flow | blocked | M | a *platform* constraint, not a code mess |
 | 12 | **C1: one resumable-upload implementation** | `google.rs:286-326`, `youtube.rs:1023-1073` | next | S–M | two copies of an upload protocol |
 | 13 | **C2: seam debt** | splitter signature, `EpochUtc` | next | S | only when touching either file |
-| 14 | **A11-D001-D005: one orphan doc** | `PLAN_UI_PARITY_LAUNCHES_CALENDAR_2026-10-30.md` | next | S | the last hard docs-gate failure |
+| 14 | **A11-D001-D005: one orphan doc** | `PLAN_UI_PARITY_LAUNCHES_CALENDAR_2026-10-30.md` | **done 2026-11-01** | S | CLOSED: the plan is now a row in `docs/planning/README.md`, and `docs_lint.py` reports 0 hard failures |
 | 15 | V1a–V1d, C3, LIVE-X-FLAKE, R1 | see §6 | deferred | — | blocked on credentials / a decision |
 
 ---
@@ -332,8 +332,12 @@ Two items from the previous pass that are **no longer open**:
   run is needed. This was listed as a follow-up in the last outline; the
   follow-up is closed.
 - **The docs gate D003 for `OUTLINE_TOKEN_REFRESH.md`** is closed (`ae35795`).
-  The one remaining hard failure is `PLAN_UI_PARITY_LAUNCHES_CALENDAR_2026-10-30.md`
-  from `eda6828`, an earlier commit — that one IS in this queue (item 14).
+  The one remaining hard failure was `PLAN_UI_PARITY_LAUNCHES_CALENDAR_2026-10-30.md`
+  from `eda6828`. It is now closed: the plan is a row in `docs/planning/README.md`,
+  so `docs_lint.py` reports 0 hard failures. The README rubric's `length_in_band`
+  (which had been failing on every commit for weeks) is closed the same day, by
+  replacing three unmeasured performance claims with measured ones and cutting
+  the duplicated CLI block.
 
 Both were carried as open in the previous outline's closing sentence. Both
 were measured again rather than assumed; the measurement is what changed the

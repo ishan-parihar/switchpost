@@ -643,6 +643,40 @@ channel). Switchpost's model is one shared body + per-channel targets
 
 ### Phase 7. Preview, polish, and the measurement gate (V-1)
 
+**Status: LANDED 2026-11-01. This is the ship gate for the whole plan and it now
+passes as a whole.**
+
+Its own exit criterion was never run end to end until 2026-11-01, and the first
+time it was, `make audit` returned **EXIT 3** - the failure was in a gate, not in
+the app (`e2e-calendar-drag.mjs` seeded its fixture with `integrations[0]`, which
+on this instance is GitHub, whose `char_limit` is 0, so the calendar drag had
+never been measured). Fixed in `e986aea`. The gate now shares the composer's
+`char_limit` rule, runs for real, and reports `0 drag failures` - which is the
+first time this series exercised the §9.17/§9.30 wall-clock path at all.
+
+Re-measured 2026-11-01:
+
+- "one primary colour in the footer" - the render has exactly **1** solid
+  `bg-accent-fill` button (`Schedule`) among 26 visible buttons in the composer
+  dialog. `check-ink-on-fill.mjs` now pins the fill/ink pairing of every solid
+  semantic button, and it is mutation-tested in both directions.
+- the preview empty state now says what happens next, not just "Select a
+  channel".
+
+**Acceptance, all green on the rebuilt binary**: `cargo check` 0 errors;
+`cargo test --lib` 543 passed; `pnpm build` succeeds; `svelte-check` 0 errors;
+`make audit` **EXIT 0** with `FAIL: 0` on every pass - route, Month, List, Day,
+`New Post`, `New Post,Preview` and the logged-out login page; `audit-targets` 0
+under the 24x24 floor (81 in the reported band); `audit-contrast` 0 failures in
+both themes; `audit-dialogs` 0 contract failures; `state-hunt` 0 findings;
+`audit-analytics` 0 failures.
+
+**Before/after, both halves measured rather than asserted**: rail 224 -> **80px**;
+calendar chrome 218 -> **132px** (not the ~60px this phase predicted, recorded
+here so the number is not read as met); chip 21 -> **24px**; cell uncapped -> 3 + a
+`+N more` disclosure; preview `display:none` below `lg` -> **reachable at every
+width**.
+
 **Files**: `frontend/src/lib/composer/PlatformPreviewPane.svelte`, `frontend/src/lib/composer/previews/*`, `Makefile`, `frontend/scripts/`.
 
 **Change**:

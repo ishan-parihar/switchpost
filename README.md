@@ -10,7 +10,7 @@ Every document in `docs/` is listed with the question it answers in [docs/PAGE-I
 
 **Social posting infrastructure that runs on your own hardware. One Rust binary, 26 platforms, and your AI agent can drive it.**
 
-Not a SaaS you rent — a service you own. No Docker required, no Redis, no Postgres, no per-seat pricing. One ~15MB binary, one SQLite file, and three interfaces into the same engine: a CLI for shell and agent use, a REST API with a real-time dashboard, and an MCP server with 389 MCP tools for Claude, Cursor, Codex and friends.
+Not a SaaS you rent — a service you own. No Docker required, no Redis, no Postgres, no per-seat pricing. One binary, one SQLite file, and three interfaces into the same engine: a CLI for shell and agent use, a REST API with a real-time dashboard, and an MCP server with 389 MCP tools for Claude, Cursor, Codex and friends.
 
 **Pick your path:**
 
@@ -102,8 +102,6 @@ The CLI self-documents: every command takes `--help`.
 
 The full tool list and namespaces are in the [agent path](#agent-path-mcp-for-ai-agents) above; tool descriptions ship inside the server, so `switchpost mcp-tools --pretty` enumerates the live set from your installed binary rather than from this page.
 
----
-
 ## Features
 
 | Feature | Details |
@@ -125,7 +123,7 @@ If it saves you a subscription or an afternoon of plumbing, sponsorship keeps th
 [![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?style=flat-square&logo=github)](https://github.com/sponsors/ishan-parihar)
 [![Donate](https://img.shields.io/badge/Donate-Razorpay-3395FF?style=flat-square)](https://rzp.io/rzp/ishan-parihar)
 
-Your support funds new features, releases, and infrastructure for the whole ecosystem.
+Support funds new features, releases, and infrastructure for the whole ecosystem.
 
 ---
 
@@ -155,6 +153,9 @@ TOKEN_ENCRYPTION_KEY=<64 hex chars>     # AES-256-GCM for tokens at rest
 | `switchpost config set KEY VALUE` | Manage config |
 | `switchpost audit` | Disabled integrations, `--platforms` prefix collisions, writer-lock posture |
 
+`switchpost --help` lists every command; the full reference is
+[docs/platforms-and-cli.md](docs/platforms-and-cli.md).
+
 Targeting, the single-writer rule, platform tiers, and the repository layout are in [docs/platforms-and-cli.md](docs/platforms-and-cli.md). Planning, audit, and decision records are indexed in [`docs/planning/README.md`](docs/planning/README.md); the full 2026-10-14 audit is [`docs/audit/AUDIT_2026-10-14.md`](docs/audit/AUDIT_2026-10-14.md) and the 2026-10-19 session self-reflection is [`docs/planning/SESSION_2026-10-19.md`](docs/planning/SESSION_2026-10-19.md).
 
 ## Visual proof
@@ -169,30 +170,22 @@ Targeting, the single-writer rule, platform tiers, and the repository layout are
 
 ## Architecture
 
+One binary, three interfaces, one engine, one SQLite file:
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Switchpost Binary                        │
-├──────────────┬──────────────────┬───────────────────────────────┤
-│   CLI Mode   │   REST API Mode  │        MCP Stdio Mode         │
-│   (clap)      │  (axum :6543)    │   (rmcp, 389 tools)           │
-├──────────────┴──────────────────┴───────────────────────────────┤
-│                    Shared Business Logic                          │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │  ProviderRegistry → 26 providers (12 T1 + 14 T2, async) │   │
-│  │  Scheduler → Tokio background worker (30s poll)          │   │
-│  │  Auth → JWT + Argon2 + OAuth2 + Cookie dual-path         │   │
-│  │  Realtime → SSE broadcast (tokio::sync::broadcast)       │   │
-│  └──────────────────────────────────────────────────────────┘   │
-├─────────────────────────────────────────────────────────────────┤
-│                    SQLite (single .db file)                      │
-└─────────────────────────────────────────────────────────────────┘
+CLI (clap)  |  REST API (axum :6543)  |  MCP stdio (rmcp, 389 tools)
+
+  Shared logic: ProviderRegistry (26 providers, 12 T1 + 14 T2) - Scheduler (30s poll)
+                Auth (JWT + Argon2 + OAuth2 + cookie) - SSE realtime
+
+                    SQLite (single .db file)
 ```
 
 ## How it compares
 
 | Capability | **Switchpost** | Buffer / Hootsuite | n8n / Make | Postiz |
 |---|---|---|---|---|
-| **Runs on your machine, no Docker** | ✅ single ~15MB binary, one SQLite file | ❌ SaaS | ⚠️ needs nodes + infra | ❌ Next.js + Postgres + containers |
+| **Runs on your machine, no Docker** | ✅ single binary, one SQLite file | ❌ SaaS | ⚠️ needs nodes + infra | ❌ Next.js + Postgres + containers |
 | **Token encryption at rest** | ✅ AES-256-GCM | ❌ | ❌ | ❌ (plaintext) |
 | **Agent-native, all three ways** | ✅ CLI + REST + MCP, one engine | ❌ human dashboards | ⚠️ workflow only | ✅ CLI + MCP |
 | **Tool names independent of the project name** | ✅ provider-prefixed (`x_*`, `posts_*`) — a rename breaks nothing | ❌ | ❌ | ❌ |
@@ -213,30 +206,27 @@ tokens encrypted at rest and your data in a file you control.
 
 ## CLI Reference
 
-The CLI is self-documenting. Run any command with `--help`:
+The CLI is self-documenting - run any command with `--help`:
 
 ```bash
 switchpost --help                      # All commands
 switchpost x --help                    # X/Twitter operations
 switchpost reddit --help               # Reddit operations
-switchpost reddit mod --help           # Reddit moderation
-switchpost update --check              # Check for a verified stable release
-switchpost update                      # Install the latest stable release
-switchpost --json update               # Emit update status as JSON
 ```
 
-`switchpost update` is available for binaries installed by `scripts/install.sh`.
-It verifies the matching release asset against `SHA256SUMS`, probes the staged binary,
-and atomically replaces the executable. Older installs without an ownership receipt
-must rerun `scripts/install.sh` once before using self-update. It does not restart a
-running process unless `--restart` is supplied; that flag restarts an active
-`switchpost.service` and rolls back the executable if the service does not return to
-active. `--check`, `--channel
-preview`, `--version VERSION`, and `--allow-downgrade` are supported. Cargo or other
-package-manager installs must be updated by their owning manager.
+The full command list is [docs/platforms-and-cli.md](docs/platforms-and-cli.md).
 
-The GitHub checksum path is transitional while the suite's shared TUF metadata service
-is unavailable; it verifies byte consistency, not publisher identity.
+**Self-update, and what it will and will not do.** `switchpost update` works for
+binaries installed by `scripts/install.sh`. It verifies the matching release asset
+against `SHA256SUMS`, probes the staged binary, and atomically replaces the
+executable; older installs without an ownership receipt must rerun
+`scripts/install.sh` once first. It does **not** restart a running process unless
+`--restart` is supplied - that flag restarts an active `switchpost.service` and
+rolls the executable back if the service does not return to active. `--check`,
+`--version VERSION` and `--allow-downgrade` are supported; Cargo or other
+package-manager installs are updated by their owning manager. The GitHub
+checksum path is transitional while the suite's shared TUF metadata service is
+unavailable: it verifies byte consistency, not publisher identity.
 
 ### Examples
 
@@ -319,25 +309,29 @@ Environment variables, tunnel and reverse-proxy setup, onboarding, and OAuth red
 - **Realtime**: SSE via tokio::sync::broadcast
 
 ### Performance
-- Cold start: <500ms (binary + DB connection)
-- API response: <5ms p99 (local)
-- Memory: ~30MB idle
-- Binary size: ~15MB (release, stripped)
+
+*Measured 2026-11-01 against the release binary on this machine, not estimated.
+Every number below is the result of one run, and the commands to re-take them are
+in the line so a later reader can check rather than trust.*
+
+- Cold start to `/health` answering 200: **~32 ms** (`time` from spawn to the
+  first successful curl)
+- `GET /api/posts?limit=20`, 40 runs, same cookie: **~36 ms median, ~66 ms p99**
+  (this includes curl + the session-cookie round trip, so the handler itself is
+  faster; it is the number a shell script on the same box sees)
+- Resident memory while serving: **~54 MB** (`VmRSS` from `/proc/<pid>/status`)
+- Binary size, release: **~93 MB** (unstripped; `target/release/switchpost`)
 
 ---
 
 ## Requirements
 
-- Rust 1.85+ (backend), Node 20+ with pnpm (frontend)
-- Platform API credentials
-- No database server — SQLite is embedded (the `.db` file is created and migrated on first run)
+Rust 1.85+, Node 20+ with pnpm, and the BoringSSL build prerequisites (`cmake` +
+`libclang`). No database server — SQLite is embedded. The exact package list is
+[AGENTS.md §3.1](AGENTS.md).
 
 ---
 
 ## License
 
 MIT — [Ishan Parihar](https://github.com/ishan-parihar)
-
----
-
-Skill install and the Claude Code, Codex and OpenCode session hooks are in [docs/agent-integration.md](docs/agent-integration.md).

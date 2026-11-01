@@ -20,5 +20,6 @@ authority on which document answers which question; this page only lists them.
 | [`SESSION_2026-10-19.md`](SESSION_2026-10-19.md) | post-mortem | Session self-reflection: what worked, every failure with its evidence, and the carry-forward checklist. Read before a delegated or browser-driven session — it records the harness mistakes that produced 48 false-positive probe failures. |
 | [`PHASES_P0-P9.md`](PHASES_P0-P9.md) | live | The P0–P9 phase plan the objective names, with each phase's acceptance criteria and the register-row mapping. The register in `TODO.md` carries live status; this file owns the plan (AGENTS rule 1). |
 | [`GAPS_2026-10-15.md`](GAPS_2026-10-15.md) | archived (superseded). Archived at `docs/archive/GAPS_2026-10-15.md` | What the 13 audit commits did not close, before the register existed. |
+| [`PLAN_UI_PARITY_LAUNCHES_CALENDAR_2026-10-30.md`](PLAN_UI_PARITY_LAUNCHES_CALENDAR_2026-10-30.md) | **landed 2026-11-01** | The 7-phase UI parity plan (chip, cell cap, one-row header, composer preview, 80px rail, per-channel dates, measurement gate). All seven phases are in the tree and every acceptance number was re-measured on the running app — the top blockquote records the three defects the phase verdicts had missed. |
 
 The live work register is `TODO.md` at the repository root.
