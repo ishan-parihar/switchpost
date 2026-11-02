@@ -1301,6 +1301,96 @@ for the title, grep `frontend/build/` for the old literal AFTER a clean
 it embeds the new assets. A rename is not complete until the running
 process serves the new name.
 
+### 9.54 A class that COMPUTES to the width it replaced is a no-op
+
+Swapping `min-w-[120px]` for `w-[7.5rem]` looks like a fix, reads like a
+fix, and is the same 120px. `app.css` declares no `font-size` on `:root`
+and neither does the html shell, so `rem` resolves against the browser's
+16px default and 7.5rem computes to exactly the floor it replaced. It
+shipped green, and it was a small REGRESSION besides: the filter row held
+one line at 960px before, and 960px no longer held after.
+
+Worse, no test could see it. The guard asserted on CLASS STRINGS -
+`min-w-[120px]` absent, `min-w-0` present, neither button `shrink-0` -
+every one of which a width-preserving change satisfies. A test about
+GEOMETRY has to resolve the class to PIXELS, against the root font-size
+this app actually has, not to a symbol. `w-16` means 64px because
+Tailwind's scale is 0.25rem per step; `w-[7.5rem]` means whatever the
+root says, and nothing in the source declares it.
+
+**A number that reads as considered is the shape that survives a review
+that reads instead of measuring.** 7.5rem looks chosen. It is 120px.
+
+### 9.55 Tailwind scans COMMENTS, so a class in prose ships its CSS rule
+
+`.w-[7.5rem]{width:7.5rem}` is still generated into
+`frontend/build/_app/immutable/assets/*.css` although no source class uses
+it - three comments quote the class to explain it. Tailwind's content
+scanner does not know a comment from a template.
+
+Two consequences. "The rule is gone from the built CSS" is not a check
+anyone can run, because the rule is not gone. And a guard that asserts on
+`src.contains(...)` over the RAW source is satisfied by the comment that
+explains the defect - the same trap as 9.33 and 9.44, wearing a new hat.
+
+So a geometry guard reads the STRIPPED source, and a strip has to remove
+BOTH comment forms: `//` lines AND `<!-- ... -->` blocks, the latter with
+a non-nesting sweep rather than a per-line filter. And a `find` for a
+label must be over the template, not the stripped source - this file's
+measurement comments mention `+ New Post`, and that prose satisfied the
+label walk's `find` before the real button did.
+
+### 9.56 A MEASUREMENT whose value depends on how you asked is not a measurement
+
+Scanning candidate widths one row at a time, a flex-wrap row's wrap point
+drifted with `waitForTimeout`: 820px, then 835px, then 844px, depending on
+how long layout was left to settle. Every one of those was reported with
+the same confidence.
+
+Put all the candidate rows on the page at once, inside their own
+fixed-width containers, wait on `document.fonts.status === 'loaded', and
+measure them in ONE `page.evaluate`. The value settles and stops moving.
+
+The general rule: if a number changes when you change the step size, the
+interval, or the timeout, you have measured your method, not the thing.
+
+### 9.57 A CONTROL that counts elements can pass on an element that is not the thing
+
+A reproduction asserted "3 selects, 8 buttons, 2 groups" and passed while
+BOTH action buttons rendered with no classes at all. An unstyled button
+is still a child; the count cannot tell.
+
+The extraction that read the classes out of the SHIPPED chunk matched
+nothing - it looked for `class:"..."` and Svelte's minified output uses
+`class="..."`. So the two controls existed, were counted, and were inert.
+
+Only asserting the controls' OWN classes (`min-w-0 truncate` present) and
+their COMPUTED widths (105px, 82px) exposed it. So a reproduction is not
+verified by its shape: assert the shape, the classes and the computed
+widths, and only then read geometry off it. And extract from the compiled
+artifact by grepping for the template's actual quote shape, not the one
+you expect.
+
+### 9.58 A SHARED working tree EATS the work you did not push
+
+A concurrent writer commits in a shared tree and takes the WHOLE tree with
+it, not only their files. An AGENTS.md addition that was correct, verified
+and uncommitted vanished twice in one sitting - once to their working-tree
+state and once to their commit `764c50a`, which touched 14 files and none
+of the calendar fix's.
+
+The rule the earlier entries of this list already imply, stated for the
+case that burned it: **a standalone doc edit has no deliverable until it is
+on the remote.** The fix was safe (my code files were never in their
+commit, and the remote still carries `67c30ef`) but the PITFALL ENTRY was
+not, because it was prose in a file another writer was also mid-edit in.
+
+Before editing a doc in this repo, check whether another writer has it:
+`git log -1 --format=%ad -- <file>` against the clock. If it is being
+edited, append your entry as its own commit against the current base the
+moment it is written, and expect to re-apply it - twice was the count
+here.
+
 ---
 
 ## 10. Environment Variables
