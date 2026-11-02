@@ -10,17 +10,19 @@ import { isGoogleFamily } from "./google-suite";
  * "Gmail", `calendar` reports "Google Calendar", `drive` reports
  * "Google Drive", `youtube` reports "YouTube".
  *
- * One "Connect Google" on the connect grid therefore produced three
+ * One "Connect Google" on the connect grid therefore produced six
  * channel-list headings —
  *
  *     Google Suite (1)
  *     Gmail (1)
  *     Google Calendar (1)
+ *     Google Drive (1)
+ *     YouTube (1)
  *
  * — for a single login, on the same account, which is the redundancy the
  * founder reported: the unified Google-Suite option is not unified once
- * the channels land in the list. The count was also always 1, so the
- * heading could never say how many Google accounts there really were.
+ * the channels land in the list. Every heading read (1), so none of them
+ * carried a count that described the account.
  *
  * THE RULE: the Google family is ONE credential pair (`provider_credentials`
  * resolves every one of them to the same client id/secret, and

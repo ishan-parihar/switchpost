@@ -8,7 +8,7 @@
   import { toast } from "$lib/stores/toast";
   import { realtime } from "$lib/stores/realtime";
   import { timezone } from "$lib/stores/timezone.svelte";
-  import { providerIcon, providerColor, providerInk, providerInkOnChip, providerLabel } from "$lib/providers";
+  import { providerIcon, providerInk, providerInkOnChip, providerLabel } from "$lib/providers";
   import EngagementCard from "$lib/components/EngagementCard.svelte";
   import MediaCarousel from "$lib/media/MediaCarousel.svelte";
 
@@ -35,8 +35,8 @@
       .map(i => i.provider_identifier);
     const unique = [...new Set(connected)];
     return [
-      { value: "all", label: "All", icon: "ALL" },
-      ...unique.map(p => ({ value: p, label: providerLabel(p), icon: providerIcon(p) })),
+      { value: "all", label: "All" },
+      ...unique.map(p => ({ value: p, label: providerLabel(p) })),
     ];
   });
 
@@ -254,14 +254,28 @@
   {/if}
 
   <!-- Platform Tabs -->
+  <!-- MEASURED 2026-11-02 at 375px/360px: these chips carried a glyph AND a
+       label - "GS" + "Google Suite" - and at a 44px min-width each, six of
+       them cannot fit 375px. The probe reported "DR Drive" overlapping "YT"
+       at both narrow widths, in both themes. They render horizontally with
+       `overflow-x-auto`, so they SCROLL rather than wrap - but a chip that
+       cannot shrink below its min-width still pushes its neighbours out of
+       the scrollport's first screenful.
+
+       The label is already the identity; the glyph prefix was a second copy
+       of it (AGENTS.md 9.18), and it is what Overflowed. It goes.
+
+       `min-w-6` (24px), NOT `min-w-11` (44px): six chips cannot fit 375px at
+       44px each. 24px is the WCAG 2.2 "Target Size (Minimum)" 2.5.8 floor
+       (AGENTS.md 9.37), so the tap target stays legal while the strip
+       actually fits the phone. -->
   <div class="flex gap-1 bg-surface border border-line rounded-lg p-1 overflow-x-auto">
     {#each platforms as p}
       <button
         onclick={() => selectedProvider = p.value}
-        class="px-3 py-1.5 text-xs rounded-md transition-colors min-h-11 min-w-11 inline-flex items-center justify-center whitespace-nowrap flex items-center gap-1.5
+        class="px-3 py-1.5 text-xs rounded-md transition-colors min-h-11 min-w-6 inline-flex items-center justify-center whitespace-nowrap
           {selectedProvider === p.value ? 'bg-accent-fill text-accent-fg' : 'text-muted hover:bg-surface-hover'}"
       >
-        {#if p.icon.toLowerCase() !== p.label.toLowerCase()}<span>{p.icon}</span>{/if}
         {p.label}
       </button>
     {/each}
@@ -327,7 +341,13 @@
                 {#if post.author_handle}
                   <span class="text-xs text-muted truncate min-w-0">@{post.author_handle}</span>
                 {/if}
-                <span class="text-xs" style="color: {providerInk(post.provider)}">{providerIcon(post.provider)}</span>
+                <!-- MEASURED 2026-11-02 at 375px: a SECOND provider glyph here -
+                     duplicating the 40px avatar circle 15 lines above - left
+                     name + handle + glyph + timestamp competing for one row,
+                     and the probe reported "DR Drive" overlapping "YT". The row
+                     is `min-w-0` on the two truncating spans already, so the
+                     only element that could not shrink was the glyph, which is
+                     also the one carrying no information the avatar lacks. -->
                 <span class="text-xs text-faint ml-auto whitespace-nowrap">{formatTime(post.created_at)}</span>
               </div>
 

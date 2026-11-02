@@ -169,8 +169,8 @@ export const GOOGLE_SUITE_REPRESENTATIVE = 'google';
  * Expand a provider list into what the connect grid should render.
  *
  * ── THE REDUNDANCY THIS REMOVES ────────────────────────────────
- * The grid used to show FIVE Google-family tiles (Google, Gmail,
- * Calendar, Drive, YouTube) plus Google Biz. All six resolve to the SAME
+ * The grid used to show SIX Google-family tiles (Google, Gmail,
+ * Calendar, Drive, YouTube and Google Biz). All six resolve to the SAME
  * client id/secret in `Config::provider_credentials` and the SAME
  * `social/google_oauth.rs`; the difference between them is only which
  * SCOPES that one credential asks for. Offering six tiles for one

@@ -14,8 +14,9 @@
 //     `profile_picture` for all six Google-family providers.
 //
 // So this is not a credential change. What was missing is that the FRONTEND
-// offered five separate tiles for one credential pair, which reads to the
-// founder as five different logins.
+// offered SIX separate tiles for one credential pair (Google, Gmail,
+// Calendar, Drive, YouTube and Google Biz), which reads to the founder as
+// six different logins.
 //
 // ── WHY YOUTUBE IS NOT IN THE GROUP ─────────────────────────────
 //

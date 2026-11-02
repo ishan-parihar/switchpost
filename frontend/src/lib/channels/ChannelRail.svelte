@@ -32,7 +32,6 @@
     type Integration,
   } from '$lib/api/integrations';
   import { providerColor, providerLabel } from '$lib/providers';
-  import { providerInkOnTint } from '$lib/providers';
   import { channelStatus } from '$lib/channels/channel-status';
   import ChannelQuickMenu from './ChannelQuickMenu.svelte';
   import ConnectFlow from './ConnectFlow.svelte';
@@ -115,11 +114,24 @@
     }
   }
 
-  function initials(name: string): string {
-    const t = name.trim();
-    if (!t) return '?';
-    return t.slice(0, 2).toUpperCase();
-  }
+  // ─── WHY THIS FILE DERIVES NOTHING ───────────────────────────
+  //
+  // Every avatar here is a `ProviderIcon`, which paints the provider's logo
+  // (or its curated 2-letter code) on the SOLID brand colour. There is no
+  // self-made glyph rule in this file, and there must not be one:
+  //
+  //   - `initials(provider_name)` gave every Google-family account a "GO"
+  //     glyph - three indistinguishable ones, reported by the founder as
+  //     conflictingly integrated tags and confirmed by the probe as
+  //     "GO" overlaps "GO" on /calendar and /search.
+  //   - `glyph()`, which read the curated code instead, then collided with
+  //     the ProviderIcon badge BESIDE it: "GS" overlaps "GS".
+  //   - A 10px tinted-letter variant of it measured 4.27:1 - 4.36:1, under
+  //     the AA floor in both themes, on the calendar channel trigger.
+  //
+  // All three were the same mistake: a second copy of an identity that
+  // `ProviderIcon` already carries (AGENTS.md 9.18). The functions were
+  // DELETED rather than left behind, so the next reader cannot wire one back.
 </script>
 
 {#if variant === 'calendar' && live.length === 0}
@@ -151,12 +163,24 @@
       >
         <span class="flex {live.length > 1 ? '-space-x-2' : ''}">
           {#each live.slice(0, 3) as int (int.id)}
-            <span class="w-7 h-7 rounded-full border-2 border-surface overflow-hidden flex items-center justify-center text-[10px] font-semibold"
-              style="background-color: {providerColor(int.provider_identifier)}22; color: {providerInkOnTint(int.provider_identifier)}">
+            <!-- MEASURED 2026-11-02 at 375/360px, both themes: a 10px glyph on
+                 a 28px TINTED circle with a 2px border measures 4.27:1-4.36:1
+                 against the composited wash - under the 4.5:1 AA floor for
+                 EVERY Google-family glyph (GS 4.27, GM 4.36, CA 4.27), on the
+                 calendar's channel trigger. A 10px label in a 24px inner box
+                 cannot clear the floor for a washed brand tint; the ink math in
+                 providerInkOnTint is correct, the geometry is not.
+
+                 ProviderIcon paints the logo on the SOLID brand colour, where
+                 the ink is chosen to clear the floor (white, or black on
+                 Google blue) and the glyph is an SVG rather than 10px type -
+                 and it is the same treatment every other avatar in this file
+                 uses, so the rail is one rule again (AGENTS.md 9.18). -->
+            <span class="shrink-0 rounded-full ring-2 ring-surface">
               {#if int.profile_picture}
-                <img src={int.profile_picture} alt="" class="w-full h-full object-cover" />
+                <img src={int.profile_picture} alt="" class="w-7 h-7 rounded-full object-cover" />
               {:else}
-                {initials(int.provider_name)}
+                <ProviderIcon provider={int.provider_identifier} size="sm" />
               {/if}
             </span>
           {/each}
@@ -184,10 +208,13 @@
                 {#if int.profile_picture}
                   <img src={int.profile_picture} alt="" class="w-9 h-9 rounded-full object-cover" />
                 {:else}
-                  <span class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold"
-                    style="background-color: {providerColor(int.provider_identifier)}22; color: {providerInkOnTint(int.provider_identifier)}">
-                    {initials(int.provider_name)}
-                  </span>
+                  <!-- Tint only. The ProviderIcon badge below is the identity
+                       and it reads the same curated glyph as `glyph()`, so
+                       rendering both put the same two letters on screen
+                       twice, one on top of the other - the probe's
+                       "GS" overlaps "GS". -->
+                  <span class="w-9 h-9 rounded-full"
+                    style="background-color: {providerColor(int.provider_identifier)}22"></span>
                 {/if}
                 <span class="absolute -bottom-0.5 -end-0.5 w-[18px] h-[18px] rounded-full border-2 border-surface overflow-hidden flex items-center justify-center" aria-hidden="true">
                   <ProviderIcon provider={int.provider_identifier} size="sm" />
@@ -280,12 +307,17 @@
               {#if int.profile_picture}
                 <img src={int.profile_picture} alt="" class="w-9 h-9 rounded-full object-cover" />
               {:else}
+                <!-- TINT ONLY. The 18px ProviderIcon badge below already names
+                     the provider, and it reads the SAME curated glyph as
+                     `glyph()` - so rendering the text here too put the same two
+                     letters on screen twice, one on top of the other. That is
+                     what the probe reported as "GS" overlaps "GS" (and, before
+                     the glyph fix, "GO" overlaps "GO"): a second copy of an
+                     identity already on screen, not a harmless redundancy. -->
                 <span
-                  class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold"
-                  style="background-color: {providerColor(int.provider_identifier)}22; color: {providerInkOnTint(int.provider_identifier)}"
-                >
-                  {initials(int.provider_name)}
-                </span>
+                  class="w-9 h-9 rounded-full"
+                  style="background-color: {providerColor(int.provider_identifier)}22"
+                ></span>
               {/if}
               <span class="absolute -bottom-0.5 -end-0.5 w-[18px] h-[18px] rounded-full border-2 border-surface overflow-hidden flex items-center justify-center" aria-hidden="true">
                 <ProviderIcon provider={int.provider_identifier} size="sm" />

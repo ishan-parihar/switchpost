@@ -8,6 +8,16 @@
   //
   // For providers without a logo, falls back to the first 2 letters of
   // the provider name in a colored circle.
+  //
+  // MEASURED 2026-11-02 (the whole Google family is this cycle's bug): the
+  // fallback was the first 2 letters of the IDENTIFIER, which collides for
+  // `google` and `google-my-business` - both render "GO", on a brand-colored
+  // circle each, and the probe reported "GO" overlaps "GO" on /calendar and
+  // /search. The curated 2-letter code in providers.ts already resolves each
+  // one distinctly (google GS, gmail GM, calendar CA, drive DR,
+  // google-my-business GB), so the fallback reads THAT instead of deriving a
+  // second copy of the rule here (AGENTS.md 9.18).
+  import { providerIcon as curatedGlyph } from "$lib/providers";
 
   let { provider = "", size = "md" }: { provider?: string; size?: "sm" | "md" | "lg" } = $props();
 
@@ -100,8 +110,12 @@
     skool: '<path d="M12 0L0 6v12l12 6 12-6V6L12 0zm0 3.5L19.5 7 12 10.5 4.5 7 12 3.5zM3 9.5l8 4v7.5l-8-4V9.5zm18 0v7.5l-8 4V13.5l8-4z"/>',
   };
 
-  // Fallback: first 2 letters of provider name in a colored circle.
-  const fallbackText = $derived(provider.slice(0, 2).toUpperCase());
+  // The letter fallback is the canned glyph, which ALWAYS exists (as `•`
+  // for an unregistered provider) - except that a bullet renders nothing at
+  // 12px, so an unknown provider keeps the identifier's first two letters.
+  const fallbackText = $derived(
+    curatedGlyph(provider) === "\u{2022}" ? provider.slice(0, 2).toUpperCase() : curatedGlyph(provider)
+  );
   // v25 F1: the fallback was a hardcoded `#1e2435` - a dark-mode border color
   // used as a fill, so an unknown provider rendered as a near-invisible circle
   // on a light page. `--surface-hover` is the neutral avatar fill for both

@@ -69,6 +69,13 @@ export const PROVIDERS: Record<string, ProviderMeta> = {
   calendar:             { label: 'Calendar',   color: '#4285f4', icon: 'CA',  charLimit: 65536 },
   drive:                { label: 'Drive',      color: '#1fa463', icon: 'DR',  charLimit: 65536 },
   'google-my-business': { label: 'Google Biz', color: '#4285f4', icon: 'GB',  charLimit: 1500 },
+  // The `google` provider is the Suite consent itself. Its glyph has to be
+  // DISTINCT from the four services it connects (GM/CA/DR/YT): deriving a
+  // glyph from the display name "Google Suite" gives "GO", and Google
+  // Calendar and Google Drive give the same two letters - which is
+  // precisely the collision in ChannelRail when one login produced a
+  // connected account per service.
+  google:               { label: 'Google Suite', color: '#4285f4', icon: 'GS',  charLimit: 65536 },
 };
 
 const FALLBACK_COLOR = '#818cf8'; // indigo-400
@@ -133,6 +140,23 @@ export function setProviderCharLimits(limits: Record<string, number>): void {
 export function providerMeta(provider: string): ProviderMeta {
   const meta = PROVIDERS[provider];
   if (meta) return { ...meta, charLimit: charLimitFor(provider) };
+
+  // ─── THE UNDERSCORE/HYPHEN ALIAS ────────────────────────────
+  // The backend registry registers `google_my_business` with an underscore;
+  // the static table above spells the SAME provider `google-my-business`
+  // with a hyphen (the frontend's own alias, per the channels page comment).
+  // Without this bridge, every GMB channel falls through to
+  // `label: 'Google_my_business'`, the indigo FALLBACK color and the `•`
+  // glyph - so the provider looks unconfigured rather than connected, and a
+  // curated 2-letter code never reaches the rail.
+  //
+  // Normalising BOTH directions makes the two spellings interchangeable
+  // rather than blessing one of them.
+  if (provider.includes('_')) {
+    const hyphenated = PROVIDERS[provider.replace(/_/g, '-')];
+    if (hyphenated) return { ...hyphenated, charLimit: charLimitFor(provider) };
+  }
+
   return {
     label: provider.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
     color: FALLBACK_COLOR,
@@ -249,18 +273,31 @@ export function providerInkOnCard(provider: string): string {
     : inkForSurface(brand, '#1a1f2e'); // --bg-card, dark
 }
 
-/// Ink for the channel rail's avatar: the brand fill at 22% alpha over the
+/// Ink for a channel rail avatar: the brand fill at 22% alpha over the
 /// surface it sits on.
 ///
 /// This exists because "the provider ink is computed against a surface, and
 /// there are four" (AGENTS.md 9.40) turned out to be five: the rail paints
 /// `brand`22` as a wash, which composites to something that is NOT
 /// `--bg-card`, and the ink chosen for the card cleared only 4.33:1 on it.
-/// MeASURED 2026-10-31 on /calendar at 1440 light: 24 contrast FAILs, all on
+/// MEASURED 2026-10-31 on /calendar at 1440 light: 24 contrast FAILs, all on
 /// the rail's own initials.
 ///
 /// The wash is built here rather than by the caller so the wash and the ink
 /// cannot disagree about what the background is.
+///
+/// NO CURRENT CALLER (2026-11-02), and that is DELIBERATE, not an oversight.
+/// The rail's tinted-letter avatars were removed in the same cycle: a 10px
+/// glyph on a 28px washed circle measured 4.27:1-4.36:1 in both themes, and
+/// no ink value can fix that - the geometry is the problem (a 10px letter in
+/// a 24px inner box after the 2px border). The rail now paints the provider's
+/// logo on the SOLID brand colour via ProviderIcon, whose ink is chosen by
+/// `inkFor` and clears the floor.
+///
+/// This is kept because it is the CORRECT ink for any future tinted avatar,
+/// and because the measurement above is the reason the tinted treatment was
+/// retired - a future agent who re-adds one should find that here rather than
+/// re-derive the wash and re-discover the 4.33:1.
 export function providerInkOnTint(provider: string): string {
   const brand = providerColor(provider);
   const surface = theme.value === 'light' ? '#f8fafc' : '#131720';

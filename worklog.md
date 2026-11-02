@@ -5767,3 +5767,84 @@ Stage Summary:
 - The recurring rule for this cycle, in one line: assert the reproduction's
   element counts AND its classes AND its computed widths before reading any
   geometry off it, and never scan a layout in a loop with a timeout.
+
+---
+Task ID: google-family-glyphs
+Agent: Jcode
+Task: Finish the v27 google-suite cycle: run the new glyph test's node harness, re-measure the probe with seeded Google data, and close out the founder's "conflictingly integrated tags" report.
+
+Work Log:
+- Finished `tests/google_family_glyph_test.rs`. Its node harness could not
+  resolve `$lib` (providers.ts imports the Vite alias AND a `.svelte` file,
+  so node failed at load and the test measured NOTHING). Added
+  `tests/support/resolve_hook.mjs` + `lib_alias_resolver.mjs` (node
+  customization hooks, `--import`-registered) mapping `$lib/...` to
+  frontend/src/lib and any `.svelte` import to `theme_shim.mjs`. The REAL
+  module is loaded, not a copy of it (AGENTS.md 9.18).
+- First run: 4/5 pass, `every_registered_provider_has_a_curated_glyph` failed
+  listing x -> 'X', facebook -> 'f'. THE TEST WAS WRONG, not the tree: the
+  curated table deliberately carries one-character codes for short brand
+  names. Scoped that test to the Google family, where the actual rule is
+  distinctness.
+- Then mutation-proved it (removed the `google` entry -> red, restored ->
+  green). The mutation exposed a real HOLE: `google` fell back to a `•`,
+  which is DISTINCT, so the distinctness test stayed green and the failure
+  was silent - exactly how the entry went missing in the first place.
+  Extended the registry test to reject the `•` fallback too.
+- Ran the full probe against the seeded 5-Google-provider dataset. The
+  `"GO" overlaps "GO"` finding was GONE, which I initially read as done. It
+  was not.
+
+THE CORRECTION THAT MATTERS (mine, this session)
+I claimed the rail collision was fixed by `glyph()`. It was never called:
+`grep -n "glyph(" ChannelRail.svelte` returned the DEFINITION only, while
+the template still rendered `initials(int.provider_name)` at three sites. I
+shipped dead code and wrote a confident summary about a fix that did not
+exist. The probe is what caught it, not my reading.
+
+Root cause, measured properly:
+1. `ProviderIcon.svelte` has `brandColors` for google/gmail/calendar/drive/
+   google-my-business but NO `logos` paths for them, so its letter fallback
+   is `provider.slice(0,2).toUpperCase()` -> "GO", "GM", "CA", "DR", "GO".
+   `google` and `google-my-business` BOTH render "GO". That badge sits on
+   EVERY rail avatar, so the rail's own fix could not have removed the
+   finding. This is the second independent copy of the same rule.
+2. Each avatar rendered the provider TWICE - a `glyph()` text inside the
+   circle AND an 18px `ProviderIcon` badge absolutely positioned over its
+   bottom-end corner. Both showed "GS", so `"GS" overlaps "GS"` on /calendar
+   at 1440/768/375/360 dark. The founder's "conflictingly integrated" was
+   this double-render, not the letters.
+3. `/search` carried a THIRD copy: `platformIcon()` inline tables on
+   `/dms` (7 entries, `•` fallback) and `/comments` (5 entries,
+   first-letters fallback). Both now call `providerIcon`.
+4. `/search`'s platform tabs put a glyph AND a label in one chip
+   ("GS" + "Google Suite") at `min-w-11`; six of them cannot fit 375px, so
+   `"DR Drive"` overlapped "YT". Dropped the glyph prefix; `min-w-6` (24px,
+   the WCAG 2.2 2.5.8 floor per AGENTS.md 9.37) so the strip fits the phone.
+5. The calendar's mobile channel trigger used a 10px glyph on a 28px TINTED
+   circle with a 2px border: 4.27:1 (GS), 4.36:1 (GM), 4.27:1 (CA), both
+   themes, every narrow width. No ink value fixes that - the geometry is the
+   problem. `providerInkOnTint`'s math is CORRECT and was verified; the
+   treatment was replaced with ProviderIcon on the solid brand colour.
+
+Deleted rather than left behind: `glyph()` and `initials()` in ChannelRail
+had ZERO template call sites after the avatar fixes, so they were removed
+and replaced with a comment naming each of the three failed attempts. A
+function a future agent can wire back in is a trap.
+
+Stage Summary:
+- 7 new tests in `tests/google_family_glyph_test.rs`, all mutation-proved
+  (removing the entry, re-introducing a table -> red).
+- cargo check 0 errors; cargo test --lib 558/558; svelte-check 0 errors
+  0 warnings; pnpm build succeeds.
+- PROBE: FAIL 36 -> FAIL 0 on 25 routes x 4 widths x 2 themes, against the
+  seeded dataset that previously produced the collisions. 224 tap-target
+  WARNINGs, all 24-44px, below the strict 44 but above the WCAG floor.
+- Not committed: probe-out/ screenshots and AGENTS.md churn, both restored
+  to HEAD - probe-out is tracked from a previous session and is noise.
+- Verified the BUNDLE, not just source: the OLD
+  `provider.slice(0,2).toUpperCase()` shape is gone from
+  chunks/CIJAuNAk.js and replaced by
+  `u(a())==="•" ? a().slice(0,2).toUpperCase() : u(a())`; the curated
+  google:{...icon:"GS"} entry is in chunks/CX8DjEyh.js; all three inline
+  glyph tables are gone from the build. AGENTS.md 9.53.

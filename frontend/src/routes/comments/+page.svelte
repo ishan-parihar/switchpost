@@ -6,6 +6,7 @@
   import EmptyState from '$lib/ui/EmptyState.svelte';
   import { commentsApi, type Comment } from "$lib/api/comments";
   import { integrationsApi, type Integration } from "$lib/api/integrations";
+  import { providerIcon } from "$lib/providers";
   import { toast } from "$lib/stores/toast";
   import { realtime } from "$lib/stores/realtime";
 
@@ -67,9 +68,13 @@
     sending = false;
   }
 
+  // Same rule as the DM page: the curated table is the ONE source of
+  // provider glyphs (AGENTS.md 9.18). This page had a hand-maintained copy of
+  // 5 entries that also fell back to the first two letters of the id, so a
+  // google account rendered "GO" and the collision the founder reported
+  // appeared here too.
   function platformIcon(p: string): string {
-    const icons: Record<string, string> = { x: "X", reddit: "R", linkedin: "in", facebook: "f", instagram: "IG" };
-    return icons[p] || p.slice(0, 2).toUpperCase();
+    return providerIcon(p);
   }
 
   let commentsUnsubscribers: (() => void)[] = [];

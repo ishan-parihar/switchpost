@@ -7,6 +7,7 @@
   import { realtime } from "$lib/stores/realtime";
   import { dmsApi, type Conversation, type DmMessage } from "$lib/api/dms";
   import { integrationsApi, type Integration } from "$lib/api/integrations";
+  import { providerIcon } from "$lib/providers";
 
   let conversations = $state<Conversation[]>([]);
   let integrations = $state<Integration[]>([]);
@@ -155,9 +156,13 @@
     loadMessages(id);
   }
 
+  // The curated table is the ONE source of provider glyphs (AGENTS.md 9.18).
+  // This page had a hand-maintained copy of 7 entries, so every other channel
+  // - YouTube, Gmail, Drive, Calendar, the whole Google family the founder
+  // reported - rendered a `•` in the DM list while the channel rail beside it
+  // showed a real code. Deleting the local copy makes the two agree.
   function platformIcon(p: string): string {
-    const icons: Record<string, string> = { x: "X", reddit: "R", linkedin: "in", facebook: "f", instagram: "IG", telegram: "TG", whatsapp: "WA", discord: "DC" };
-    return icons[p] || "•";
+    return providerIcon(p);
   }
 
   let dmsUnsubscribers: (() => void)[] = [];
