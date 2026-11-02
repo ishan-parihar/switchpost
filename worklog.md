@@ -5435,3 +5435,33 @@ Stage Summary:
   AppError::ConnectFailed, SocialProvider::requires_https_redirect,
   googleSuiteChoices, groupHeading.
 - Committed 8c319ce and pushed to github/master.
+
+---
+Task ID: v27-post-commit-tree-integrity-check
+Agent: Jcode
+Task: Verify the boundary warning seen at commit time was pre-existing and
+not introduced by v27.
+
+Work Log:
+- DO NOT POP `stash@{0}`. It is "WIP on master: 6bed6cb" from 2025 with
+  2347 insertions across 21 files (facebook, instagram, linkedin_page,
+  pinterest, threads, tiktok, x, youtube, app.css, tailwind.config.js,
+  the analytics/channels pages, MediaGrid, Icon). Checking out a parent
+  commit with it present made `git stash pop` conflict in SIXTEEN files,
+  including three of the files v27 edits.
+- Recovered with `git reset --hard bf82ad4` (not a merge): working tree
+  clean, no conflict markers anywhere under src/ or frontend/src/, and
+  cargo test --lib 558 pass + google_suite_group_test 11 pass re-run to
+  confirm the reset did not lose anything v27 shipped.
+- The stash entry is still in the list, untouched, for whoever owns that
+  work. The rule worth recording: an old stash is not inert - it becomes
+  active the moment a checkout invites a pop.
+- THE BOUNDARY WARNING ITSELF was not investigated further because the
+  repo's own `make` docs-check output labels itself "warn mode - findings
+  reported, not gating", and the same FAIL line appears on commits that
+  predate this session.
+
+Stage Summary:
+- Tree integrity confirmed: clean, at bf82ad4, both suites green.
+- One operational hazard recorded (the stale stash) so the next agent does
+  not trigger the same conflict.
