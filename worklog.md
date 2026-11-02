@@ -6160,3 +6160,57 @@ Stage Summary:
   than only in this file's prose.
 - Follow-up, deliberately NOT done in a deploy: give switchpost the aroute
   conventions (checksum-verifying installer, backup history, watchdog).
+
+---
+Task ID: channel-login-threads-whatsapp-telegram
+Agent: Jcode
+Task: Fix the three channel login failures the founder reported live.
+
+Work Log:
+
+THREADS. The report was a Meta `privacy/consent` URL with `error_code=1349003`
+and `source=gdp_error`, and `redirect_uri` appearing as
+`%22https%3A%5C%2F%5C%2F...%22`. Read the URL rather than assuming: Meta
+ECHOED our params back JSON-encoded (that quoting is its own), and it echoed
+the full nine-scope list in the order `threads.rs` builds it. So the URL we
+build is clean; the quoting is Meta's, and `eb2973d` already swallows it. The
+real failure is the consent gate refusing. Meta's get-started page states each
+`threads_*` permission is a separate App Review gate, and that an unreviewed
+app's permissions can only be granted by a user with a ROLE on the app. We
+requested nine, four of which (`threads_delete`, `threads_keyword_search`,
+`threads_manage_mentions`, `threads_profile_discovery`) had no call site
+anywhere in the provider. Narrowed to the five that are implemented, and added
+a callback-side recogniser so a consent failure that DOES come back is not a
+bare `invalid_request`. Note honestly: 1349003 is also reported by Meta for
+Threads accounts tied to an Instagram BUSINESS account, which is the founder's
+account, not our code - the message says so rather than implying we fixed it.
+
+WHATSAPP. The error named `WHATSAPP_SESSION_PATH`, which does not exist in
+this tree; the real variable is `WHATSAPP_STORE_DIR` (config.rs, .env.example
+:142). Worse than the wrong name: `opt("WHATSAPP_STORE_DIR")` returned `None`
+with no default, so the startup gate in main.rs/cli run.rs never built the
+wa-rs client - while `social::whatsapp` already defaulted to `./data/whatsapp`.
+The channel was dead on a default install. One default, one place, at config
+load.
+
+TELEGRAM. telegram-user is MTProto-only and does genuinely need
+TELEGRAM_API_ID/HASH, but `provider_credentials` returned a dummy
+`("user","daemon")` unconditionally, so /setup and the REST connect handler
+advertised a Connect button that could only fail at request-code time with a
+raw 502. Now truthful, and both request-code and sign-in messages name the
+bot-token alternative (which needs only a paste-in token).
+
+Stage Summary:
+- Threads: 9 scopes -> the 5 implemented ones; consent failures named.
+- WhatsApp: store dir defaults at config load; wrong env var name fixed in
+  three messages; the duplicate default in the provider collapsed to one.
+- Telegram: provider_credentials is truthful; both errors name @BotFather.
+- `cargo test --lib` 562/562 (4 new tests), frontend build + svelte-check 0
+  errors, cargo check 0 errors.
+- All three new tests were mutation-checked against the old behaviour: each
+  fails when the fix is reverted. The WhatsApp "no default at all" mutation is
+  now a type error, because the field is `Some(_)`.
+- Pre-existing clippy errors in `cli/autopost.rs` and `cli/oauth_browser.rs`
+  are unchanged (3 on clean HEAD, 3 with these changes) and not mine.
+- Known open: `scripts/genome` and ~50 unrelated files show as modified from a
+  stray `cargo fmt`; I stashed the unrelated churn and kept only my four files.

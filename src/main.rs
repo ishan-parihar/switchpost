@@ -230,7 +230,10 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         } else {
-            tracing::warn!("WHATSAPP_STORE_DIR not set -- WhatsApp tools disabled");
+            tracing::info!(
+                "WHATSAPP_STORE_DIR unset — WhatsApp Web client at the default {}",
+                config::DEFAULT_WHATSAPP_STORE_DIR
+            );
             None
         };
 

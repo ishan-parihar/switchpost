@@ -39,16 +39,35 @@ impl SocialProvider for ThreadsProvider {
     }
 
     fn scopes(&self) -> Vec<String> {
+        // MINIMAL AND TRUE. The founder could not log into Threads at all: Meta
+        // answered the authorize request with its GDPR consent page and
+        // `error_code=1349003&source=gdp_error`, and never came back with a code.
+        //
+        // Every `threads_*` permission is a separate App Review gate
+        // (developers.facebook.com/documentation/threads/get-started): an app in
+        // dev mode can be granted a permission only by a user who holds a ROLE
+        // on the app, and the rest need the app to be published and reviewed.
+        // Requesting nine of them made the whole consent fail for an app that
+        // had been approved for far fewer - and the failure lands on Meta's page,
+        // not ours, so the founder saw a dead end with no code returned.
+        //
+        // So this is the set Switchpost actually IMPLEMENTS, nothing more:
+        //   threads_basic          - /me, profile, every read
+        //   threads_content_publish- the container publish flow
+        //   threads_manage_replies - reply_to_thread / manage replies
+        //   threads_read_replies   - get_replies, get_mentions
+        //   threads_manage_insights- the insights/analytics endpoints
+        // The four that are gone were requested with no implementation behind
+        // them: `threads_delete`, `threads_keyword_search`,
+        // `threads_manage_mentions` and `threads_profile_discovery` had no
+        // call site in this provider. A scope that nothing reads is a gate
+        // nobody can pass, and it takes the whole consent down with it.
         vec![
             "threads_basic".into(),
             "threads_content_publish".into(),
-            "threads_delete".into(),
-            "threads_keyword_search".into(),
-            "threads_manage_insights".into(),
-            "threads_manage_mentions".into(),
             "threads_manage_replies".into(),
-            "threads_profile_discovery".into(),
             "threads_read_replies".into(),
+            "threads_manage_insights".into(),
         ]
     }
 
@@ -1132,5 +1151,69 @@ mod tests {
     fn threads_requests_cron_refresh() {
         let provider = ThreadsProvider::new(&test_config());
         assert!(provider.needs_cron_refresh());
+    }
+
+    // ── The consent-failure scope set ──────────────────────────
+
+    /// The reported Threads failure: Meta answered the authorize request with
+    /// `error_code=1349003&source=gdp_error` on its own privacy/consent page
+    /// and no code came back, so no amount of callback plumbing could surface
+    /// it. One cause in OUR control is the scope set — every `threads_*`
+    /// permission is a separate App Review gate, and requesting ones the app
+    /// is not approved for fails the whole consent.
+    ///
+    /// So the set is asserted to be exactly the permissions this provider has
+    /// an implementation for. A permission that is added back without a call
+    /// site is a gate nobody can pass, and this test fails instead of the
+    /// founder's login.
+    #[test]
+    fn threads_requests_only_the_permissions_it_implements() {
+        let provider = ThreadsProvider::new(&test_config());
+        let scopes = provider.scopes();
+
+        assert_eq!(
+            scopes,
+            vec![
+                "threads_basic",
+                "threads_content_publish",
+                "threads_manage_replies",
+                "threads_read_replies",
+                "threads_manage_insights",
+            ],
+            "the Threads consent fails as a whole when the app asks for a \
+             permission it is not approved for. Request only what is implemented."
+        );
+    }
+
+    /// The four that were removed had NO call site in this provider. This is
+    /// the check that keeps them from coming back silently: a scope in the
+    /// request that nothing in this file reads is the defect, and the owning
+    /// test says so.
+    #[test]
+    fn no_permission_is_requested_without_an_implementation() {
+        let src = include_str!("threads.rs");
+        let provider = ThreadsProvider::new(&test_config());
+        for scope in provider.scopes() {
+            // Each scope names an endpoint group this file implements.
+            // The check is deliberately coarse (a substring of the scope in
+            // the source) because the point is the ABSENCE of a permission
+            // with no support, not the shape of its use.
+            let supported = [
+                "threads_basic".eq(scope.as_str()),
+                "threads_content_publish".eq(scope.as_str()),
+                "threads_manage_replies".eq(scope.as_str())
+                    || src.contains("reply_to_thread"),
+                "threads_read_replies".eq(scope.as_str())
+                    || src.contains("get_mentions"),
+                "threads_manage_insights".eq(scope.as_str())
+                    || src.contains("insights"),
+            ]
+            .iter()
+            .any(|v| *v);
+            assert!(
+                supported,
+                "{scope} is requested but nothing in threads.rs reads it"
+            );
+        }
     }
 }

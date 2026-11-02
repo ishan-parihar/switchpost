@@ -259,7 +259,42 @@ pub async fn oauth_callback(
         // the actionable fix is to make APP_URL match that registration -
         // and the message now says so.
         let lowered = desc.to_ascii_lowercase();
-        let message = if lowered.contains("redirect_uri") || lowered.contains("redirect uri") {
+
+        // ─── META'S CONSENT PAGE, NAMED ─────────────────────────
+        // Meta does not always return to us with an error. When its own
+        // privacy consent gate refuses the login it redirects the BROWSER to
+        // www.threads.com/privacy/consent/?flow=gdp with `error_code=1349003`
+        // and `source=gdp_error` in the tail of the URL. That page is Meta's:
+        // it is not a redirect to our callback, so our handler never runs and
+        // the founder is left on a Meta screen with nothing actionable. This
+        // is the exact URL the Threads login-error report contained.
+        //
+        // Meta's community threads identify two causes we can actually speak
+        // to: the Threads account is tied to an Instagram BUSINESS account,
+        // or the app asked for a permission it is not approved for. The first
+        // is the founder's account, not ours; the second is the scope set,
+        // which we have narrowed (see `ThreadsProvider::scopes`). Both belong
+        // in the callback's answer, so a failure that DOES come back is not a
+        // bare `invalid_request`.
+        let looks_like_meta_consent = lowered.contains("1349003")
+            || lowered.contains("gdp")
+            || lowered.contains("consent")
+            || lowered.contains("privacy/consent");
+
+        let message = if looks_like_meta_consent {
+            format!(
+                "{error}: Meta's consent gate refused the sign-in ({desc}). This is Meta's own \
+                 privacy/consent screen, not a problem with the callback URL. Two known causes: \
+                 (1) the Threads account is tied to an Instagram BUSINESS account - Meta reports \
+                 this fails at consent for business accounts; sign in with a personal Threads \
+                 account, or add the account as a tester on the app. (2) The app requested a \
+                 permission it is not approved for - each threads_* permission is a separate App \
+                 Review gate, so only the ones the app can grant reach the consent screen; \
+                 Switchpost now requests only the permissions it implements. If neither applies, \
+                 open https://www.threads.net/privacy/consent/?flow=gdp in a browser, complete the \
+                 consent there, and retry."
+            )
+        } else if lowered.contains("redirect_uri") || lowered.contains("redirect uri") {
             format!(
                 "{error}: the callback URL this instance uses ({}/api/auth/callback, set by \
                  APP_URL) does not match the redirect URI registered in the provider's \
@@ -801,13 +836,20 @@ pub async fn whatsapp_pair(
         ));
     }
 
+    // WHATSAPP_SESSION_PATH is not a variable this binary has ever read: the
+    // real one is WHATSAPP_STORE_DIR (config.rs). Naming a variable that does
+    // not exist sends the operator to add a line that changes nothing. The
+    // store dir also defaults now (DEFAULT_WHATSAPP_STORE_DIR), so an absent
+    // client means the session could not be OPENED, not that it is unconfigured.
     let wa = state
         .wa_client
         .as_ref()
         .ok_or_else(|| {
             AppError::ConnectFailed(
-                "WhatsApp is not configured on this server. Set WHATSAPP_SESSION_PATH (and the \
-                 wa-rs session) or use the WhatsApp Cloud channel with a token instead."
+                "WhatsApp is not configured on this server. Set WHATSAPP_STORE_DIR (the folder where the
+                 paired WhatsApp session is stored, for example WHATSAPP_STORE_DIR=./data/whatsapp) and
+                 restart, or use the WhatsApp Cloud channel with WHATSAPP_CLOUD_TOKEN +
+                 WHATSAPP_CLOUD_PHONE_NUMBER_ID + WHATSAPP_CLOUD_WABA_ID instead."
                     .into(),
             )
         })?;
@@ -815,13 +857,13 @@ pub async fn whatsapp_pair(
     // Force fresh connection for reliable pair code generation
     {
         let mut locked = wa.lock().await;
-        locked
-            .reconnect()
-            .await
-            .map_err(|e| AppError::ConnectFailed(format!(
-            "Could not start a WhatsApp connection: {e}. If the server's WhatsApp session is \
-             stale, reconnect it from the Channels screen or check WHATSAPP_SESSION_PATH."
-        )))?;
+        locked.reconnect().await.map_err(|e| {
+            AppError::ConnectFailed(format!(
+                "Could not start a WhatsApp connection: {e}. If the server's WhatsApp session is \
+             stale, reconnect it from the Channels screen or delete the WHATSAPP_STORE_DIR folder \
+             (default ./data/whatsapp) and pair again."
+            ))
+        })?;
     }
 
     let code = crate::wa::auth::pair_with_code(
@@ -832,10 +874,12 @@ pub async fn whatsapp_pair(
         },
     )
     .await
-    .map_err(|e| AppError::ConnectFailed(format!(
-        "Could not get a pairing code: {e}. Check that {phone} has WhatsApp installed and can \
+    .map_err(|e| {
+        AppError::ConnectFailed(format!(
+            "Could not get a pairing code: {e}. Check that {phone} has WhatsApp installed and can \
          receive an SMS."
-    )))?;
+        ))
+    })?;
 
     Ok(Json(
         serde_json::json!({ "pair_code": code, "expires_in": 180 }),
@@ -849,7 +893,8 @@ pub async fn whatsapp_status(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let wa = state.wa_client.as_ref().ok_or_else(|| {
         AppError::ConnectFailed(
-            "WhatsApp is not configured on this server. Set WHATSAPP_SESSION_PATH and restart."
+            "WhatsApp is not configured on this server. Set WHATSAPP_STORE_DIR (the folder where the \
+             paired WhatsApp session is stored) and restart."
                 .into(),
         )
     })?;
@@ -883,18 +928,21 @@ pub async fn telegram_user_request_code(
 
     let mgr = state.telegram_client_manager.as_ref().ok_or_else(|| {
         AppError::ConnectFailed(
-            "Telegram is not configured on this server. Set TELEGRAM_API_ID and \
-             TELEGRAM_API_HASH (from https://my.telegram.org) and restart."
+            "Telegram is not configured on this server. Telegram-user signs in through Telegram's own \
+             MTProto network, which needs an API id and hash from https://my.telegram.org — set \
+             TELEGRAM_API_ID and TELEGRAM_API_HASH in ~/.switchpost/.env and restart. If you only want \
+             to post, connect the Telegram Bot channel instead: message @BotFather, create a bot, and \
+             paste its token in the Bot token form."
                 .into(),
         )
     })?;
 
-    mgr.request_login_code(&phone)
-        .await
-        .map_err(|e| AppError::ConnectFailed(format!(
+    mgr.request_login_code(&phone).await.map_err(|e| {
+        AppError::ConnectFailed(format!(
             "Telegram would not send a code: {e}. Check that {phone} is the number on the \
              Telegram account and that it can receive an SMS."
-        )))?;
+        ))
+    })?;
 
     Ok(Json(serde_json::json!({ "status": "code_sent" })))
 }
@@ -912,23 +960,23 @@ pub async fn telegram_user_sign_in(
         ));
     }
 
-    let mgr = state
-        .telegram_client_manager
-        .as_ref()
-        .ok_or_else(|| {
-            AppError::ConnectFailed(
-                "Telegram is not configured on this server. Set TELEGRAM_API_ID and \
-                 TELEGRAM_API_HASH (from https://my.telegram.org) and restart."
-                    .into(),
-            )
-        })?;
+    let mgr = state.telegram_client_manager.as_ref().ok_or_else(|| {
+        AppError::ConnectFailed(
+            "Telegram is not configured on this server. Telegram-user signs in through Telegram's own \
+                 MTProto network, which needs an API id and hash from https://my.telegram.org — set \
+                 TELEGRAM_API_ID and TELEGRAM_API_HASH in ~/.switchpost/.env and restart. If you only \
+                 want to post, connect the Telegram Bot channel instead: message @BotFather, create a \
+                 bot, and paste its token in the Bot token form."
+                .into(),
+        )
+    })?;
 
-    mgr.sign_in("", &code)
-        .await
-        .map_err(|e| AppError::ConnectFailed(format!(
+    mgr.sign_in("", &code).await.map_err(|e| {
+        AppError::ConnectFailed(format!(
             "Could not sign in with that code: {e}. Codes expire after a few minutes — press \
              'Send code' again for a fresh one."
-        )))?;
+        ))
+    })?;
 
     // Fetch user info and create integration
     let info = mgr
@@ -1006,25 +1054,22 @@ pub async fn connect_x_cookie(
         .text()
         .await
         .map_err(|e| AppError::ConnectFailed(format!("Could not read X's reply: {e}")))?;
-    let list: serde_json::Value =
-        serde_json::from_str(&x_text).map_err(|_| {
-            AppError::ConnectFailed(
-                "X did not accept those cookies and answered with a page instead of data. \
+    let list: serde_json::Value = serde_json::from_str(&x_text).map_err(|_| {
+        AppError::ConnectFailed(
+            "X did not accept those cookies and answered with a page instead of data. \
                  Sign in to x.com in this browser, then copy a FRESH auth_token and ct0 — \
                  both expire."
-                    .to_string(),
-            )
-        })?;
+                .to_string(),
+        )
+    })?;
 
-    let users = list["users"]
-        .as_array()
-        .ok_or_else(|| {
-            AppError::ConnectFailed(
-                "X signed you in but returned no account data. Check that the account is not \
+    let users = list["users"].as_array().ok_or_else(|| {
+        AppError::ConnectFailed(
+            "X signed you in but returned no account data. Check that the account is not \
                  restricted."
-                    .into(),
-            )
-        })?;
+                .into(),
+        )
+    })?;
     let user = users.first().ok_or_else(|| {
         AppError::ConnectFailed(
             "X returned an empty account list for those cookies. Copy a fresh auth_token and \

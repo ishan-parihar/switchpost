@@ -28,6 +28,31 @@ pub fn load_dotenv() {
 /// `switchpost init`, `.env.example`, and the installer.
 pub const DEFAULT_DATABASE_URL: &str = "sqlite://data/switchpost.db";
 
+/// Where the WhatsApp Web (wa-rs) session lives when WHATSAPP_STORE_DIR is
+/// unset. Relative to the process CWD, which is the install/serve directory.
+///
+/// The provider already defaulted to this path (`social::whatsapp`), while the
+/// config loader left the field `None` — so the startup gate in `main.rs` /
+/// `cli::run.rs` refused to build the client at all and the WhatsApp channel
+/// was dead on a default install despite the provider having a working
+/// default. The default is resolved HERE, at config load, so there is ONE
+/// place that decides it and the gate that reads the config sees a real path.
+pub const DEFAULT_WHATSAPP_STORE_DIR: &str = "./data/whatsapp";
+
+/// Resolve the WhatsApp store dir from an env value.
+///
+/// A blank or whitespace-only value means "unset" (dotenvy hands back the
+/// empty string for `KEY=`, and an operator who clears the line has not
+/// asked for a different folder), so it falls through to the default. That is
+/// the behaviour the WhatsApp channel's availability depends on: with no
+/// default the startup gate in `main.rs` never builds the wa-rs client and the
+/// channel is unreachable on a default install.
+fn resolve_whatsapp_store_dir(provided: Option<String>) -> String {
+    provided
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_WHATSAPP_STORE_DIR.into())
+}
+
 /// SQLite-only guard for `DATABASE_URL`.
 ///
 /// `sqlx`'s `SqliteConnectOptions::from_str` just `trim_start_matches("sqlite:")`
@@ -337,7 +362,7 @@ impl Config {
             pinterest_client_secret: opt("PINTEREST_CLIENT_SECRET"),
             instagram_app_id: opt("INSTAGRAM_APP_ID"),
             instagram_app_secret: opt("INSTAGRAM_APP_SECRET"),
-            whatsapp_store_dir: opt("WHATSAPP_STORE_DIR"),
+            whatsapp_store_dir: Some(resolve_whatsapp_store_dir(opt("WHATSAPP_STORE_DIR"))),
             whatsapp_cloud_token: opt("WHATSAPP_CLOUD_TOKEN"),
             whatsapp_cloud_phone_number_id: opt("WHATSAPP_CLOUD_PHONE_NUMBER_ID"),
             whatsapp_cloud_waba_id: opt("WHATSAPP_CLOUD_WABA_ID"),
@@ -414,7 +439,19 @@ impl Config {
                 self.discord_client_secret.clone()?,
             )),
             "telegram-bot" => Some(("bot".into(), self.telegram_bot_tokens.clone()?)),
-            "telegram-user" => Some(("user".into(), "daemon".into())),
+            // telegram-user is MTProto (Grammers). It needs the API
+            // id/hash from my.telegram.org to build a client at ALL — there is
+            // no token to paste — so an absent pair is reported as UNCONFIGURED
+            // instead of the dummy pair this arm used to return. The dummy
+            // made /setup and the REST connect handler offer a Connect button
+            // that could only fail at request-code time with a raw 502, and
+            // it made `integrations.providers` claim the channel was ready.
+            "telegram-user" => match (&self.telegram_api_id, &self.telegram_api_hash) {
+                (Some(id), Some(hash)) if !id.trim().is_empty() && !hash.trim().is_empty() => {
+                    Some(("user".into(), "mtproto".into()))
+                }
+                _ => None,
+            },
             "whatsapp" => self
                 .whatsapp_store_dir
                 .as_ref()
@@ -531,7 +568,7 @@ pub fn frontend_origins_cover_port(frontend_url: &str, bind_port: u16) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_sqlite_url, frontend_origins_cover_port};
+    use super::{ensure_sqlite_url, frontend_origins_cover_port, Config, DEFAULT_WHATSAPP_STORE_DIR};
 
     #[test]
     fn accepts_sqlite_urls_and_bare_paths() {
@@ -614,5 +651,75 @@ mod tests {
         assert!(frontend_origins_cover_port("not a url, https://localhost:6544", 6544));
         // Nothing parseable at all — never claim coverage.
         assert!(!frontend_origins_cover_port("*", 6544));
+    }
+
+    // ── The three channel-login regressions ───────────────────
+
+    /// The founder's WhatsApp connect failed with "Set WHATSAPP_SESSION_PATH"
+    /// — a variable this binary has never read. The real one is
+    /// WHATSAPP_STORE_DIR, and it had NO default, so the startup gate in
+    /// main.rs refused to build the wa-rs client and the channel was dead on a
+    /// default install even though the provider had a working default of its own.
+    /// A default resolved at config load means ONE place decides it.
+    #[test]
+    fn whatsapp_store_dir_defaults_so_the_channel_is_reachable() {
+        use super::resolve_whatsapp_store_dir;
+
+        assert_eq!(
+            resolve_whatsapp_store_dir(None),
+            "./data/whatsapp",
+            "an unset WHATSAPP_STORE_DIR must still yield a usable path, or the \
+             startup gate never builds the wa-rs client and the channel is dead"
+        );
+
+        // A cleared line is "unset", not "use the empty string".
+        assert_eq!(resolve_whatsapp_store_dir(Some("".into())), "./data/whatsapp");
+        assert_eq!(
+            resolve_whatsapp_store_dir(Some("   ".into())),
+            "./data/whatsapp"
+        );
+
+        // A real choice is honoured verbatim.
+        assert_eq!(
+            resolve_whatsapp_store_dir(Some("/var/lib/wa".into())),
+            "/var/lib/wa"
+        );
+
+        // And the constant the two log sites print is the same default.
+        assert_eq!(DEFAULT_WHATSAPP_STORE_DIR, "./data/whatsapp");
+    }
+
+    /// telegram-user is MTProto: without the id/hash the client manager is
+    /// never built, so the channel must report UNCONFIGURED rather than
+    /// pretending to be ready. The dummy pair this arm used to return made
+    /// /setup and the REST connect handler offer a Connect button that could
+    /// only fail at request-code time.
+    #[test]
+    fn telegram_user_credentials_reflect_the_real_requirement() {
+        let mut config = Config::from_env().expect("config");
+
+        // No id/hash: not configured, so the UI says so up front.
+        config.telegram_api_id = None;
+        config.telegram_api_hash = None;
+        assert!(
+            config.provider_credentials("telegram-user").is_none(),
+            "telegram-user with no api id/hash must report as not configured"
+        );
+
+        // A blank pair is the same as absent: the CLI treats empty strings as
+        // "not set" when it builds the manager, so config must agree.
+        config.telegram_api_id = Some("  ".into());
+        config.telegram_api_hash = Some("".into());
+        assert!(
+            config.provider_credentials("telegram-user").is_none(),
+            "a blank api id/hash must report as not configured"
+        );
+
+        config.telegram_api_id = Some("12345".into());
+        config.telegram_api_hash = Some("abc".into());
+        assert!(
+            config.provider_credentials("telegram-user").is_some(),
+            "a real id/hash pair must report as configured"
+        );
     }
 }

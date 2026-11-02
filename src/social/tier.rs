@@ -216,7 +216,7 @@ pub fn provider_meta(id: &str) -> (&str, &'static str, &'static str) {
         "telegram-user" => (
             "Telegram User",
             "✈️",
-            "Requires: TELEGRAM_CLI_PATH (or tg in PATH)",
+            "Requires: TELEGRAM_API_ID + TELEGRAM_API_HASH (from https://my.telegram.org)",
         ),
         "bluesky" => (
             "Bluesky",

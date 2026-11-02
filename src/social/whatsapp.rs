@@ -25,11 +25,15 @@ pub struct WhatsAppProvider {
 
 impl WhatsAppProvider {
     pub fn new(config: &Config, wa_client: Option<Arc<Mutex<WhaClient>>>) -> Self {
-        let store_dir = config
-            .whatsapp_store_dir
-            .clone()
-            .unwrap_or_else(|| "./data/whatsapp".into());
-        let store_dir = PathBuf::from(&store_dir);
+        // ONE default, one place: `config.whatsapp_store_dir` is always Some
+        // now (`config::DEFAULT_WHATSAPP_STORE_DIR`), so the fallback here is
+        // unreachable and only exists to keep this constructor total.
+        let store_dir = PathBuf::from(
+            config
+                .whatsapp_store_dir
+                .clone()
+                .unwrap_or_else(|| crate::config::DEFAULT_WHATSAPP_STORE_DIR.into()),
+        );
         Self {
             store_dir,
             wa_client,
