@@ -52,24 +52,29 @@
   // nav group's own border box at 40px, and both the selects and the group
   // render 40px at 1440, so no control in this row sticks out of the line.
   //
-  // The filter selects come out 120px wide with the shortest label and grow,
-  // which is measured, not decorative.
+  // A comment sat here recording "the row wraps anyway - 88px over TWO rows,
+  // measured at 1440, 1600, 1920 and 2560... the equal 40px heights keep the
+  // wrap clean (two aligned lines, not a ragged edge) - they do not prevent
+  // it." That is a defect being described as a design property: three selects
+  // each had a hard 120px floor and the two actions were `shrink-0`.
   //
-  // THAT 120px USED TO BE A FLOOR, AND THE FLOOR WAS THE BUG. A comment sat
-  // here recording "the row wraps anyway - 88px over TWO rows, measured at
-  // 1440, 1600, 1920 and 2560... the equal 40px heights keep the wrap clean
-  // (two aligned lines, not a ragged edge) - they do not prevent it." That is
-  // a defect being described as a design property. The row wrapped because
-  // three selects each had a hard floor and the two action buttons were
-  // `shrink-0`: the row's minimum content width was about 1040px, against a
-  // box that is 1040px at its widest and about 700px when the channel rail is
-  // expanded. It wrapped worse exactly when the founder widened the rail.
-  // The floor is gone - the selects use a `w-[7.5rem]` BASIS with `min-w-0`,
-  // and the actions carry `truncate` - so the row keeps its equal heights AND
-  // its one line. The old comment's mistake was reading "aligned" as "fine"
-  // and stopping there; the one before that claimed the row was one line tall
-  // on the strength of the heights matching, and the rendered app contradicted
-  // it at every width tested.
+  // MEASURED 2026-11-02 against the app's own compiled stylesheet, the box is
+  // 1040px with the channel rail collapsed and 844px with it expanded (the
+  // rails are siblings of `<main>` and consume viewport width; `max-w-6xl`
+  // caps whatever is left at 1104). The row's content is 953px at a 120px
+  // select basis and 793px at the 64px basis below.
+  //
+  // A "fix" here once swapped the floor for `w-[7.5rem]` and left it at that.
+  // app.css sets no `:root` font-size, so `rem` resolves against the 16px
+  // browser default and 7.5rem computes to 120px - the floor it replaced. The
+  // guard above the class is on PIXELS now, so a width that does not actually
+  // change cannot pass.
+  //
+  // The floor is gone: `w-16` is a 64px BASIS with `min-w-0`, and the actions
+  // carry `truncate`. Measured, that holds one line to 800px. Below that no
+  // single control reaches, because the nav group (267px) and the view
+  // switcher (147px) are `shrink-0` with their own content setting the floor -
+  // releasing those is a design decision, not a class swap.
   const selectClass = "h-10 min-w-0 w-16 px-2 bg-background-input border border-line rounded-lg text-xs text-content focus:outline-none focus:border-accent";
 </script>
 

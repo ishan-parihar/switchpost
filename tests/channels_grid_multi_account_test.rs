@@ -383,23 +383,17 @@ fn the_rails_action_cluster_is_in_flow_not_overlaid() {
 // Founder-reported: expanding the channel rail distorted the calendar, with
 // the controls overflowing onto extra rows.
 //
-// MEASURED, not assumed. The calendar page is `max-w-6xl` (1040px) and holds
-// the global rail (80px) plus the channel rail. Expanded, that rail is 260px,
-// so the calendar gets 700px. The header's filter row is `flex-wrap`, so it
-// only stays on one line while its MIN-CONTENT fits the box.
+// The header's filter row is `flex-wrap`, so it only stays on one line while
+// its MIN-CONTENT fits the box. That is the row this test measures.
 //
-// Before this fix the floor was about 1040px: three `min-w-[120px]` selects
-// plus two `shrink-0` action buttons. That exceeds 1040 at every viewport and
-// 700 with the rail open, so the controls wrapped into two rows - and three
-// when the rail was expanded. The file's own comment even recorded the two-row
-// measurement as if it were a fact of the design; it is a bug.
+// MEASURED 2026-11-02 against the app's compiled stylesheet: the calendar's box is 1040px with the channel rail collapsed and 844px with it expanded (the rails are siblings of `<main>` in the layout's `flex h-dvh` row, so they consume viewport width; `max-w-6xl` caps what is left at 1104). The pre-fix row's content was 953px - three selects at a hard 120px floor, plus the nav group, the view switcher and two `shrink-0` actions - so it held one line only to 900px and wrapped below that, including at 844. The file's own comment even recorded the two-row measurement as if it were a fact of the design; it is a bug.
 //
-// The fix makes the flexible parts actually flexible: the selects take a
-// `w-[7.5rem]` basis with `min-w-0`, and the action buttons carry `min-w-0
-// truncate` instead of `shrink-0`. The nav group and the view switcher stay
-// `shrink-0`, because truncating "Week of October 31" or "Day/Week/Month"
-// would destroy the meaning rather than the overflow. Min-content drops to
-// about 524px, which fits beside an expanded rail.
+// The selects take a 64px (`w-16`) basis with `min-w-0` and the action
+// buttons carry `min-w-0 truncate` instead of `shrink-0`. The nav group and
+// the view switcher stay `shrink-0`, because truncating "Week of October
+// 31" or "Day/Week/Month" would destroy the meaning rather than the
+// overflow. Measured, the row's content drops to 793px, which holds one
+// line to 800px.
 
 /// THE SELECTS' BASIS IN PIXELS. A class-string test cannot tell 120px
 /// from 120px-renamed, which is how a no-op shipped as a fix: the row
