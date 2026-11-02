@@ -393,8 +393,23 @@ fn the_rails_action_cluster_is_in_flow_not_overlaid() {
 // the view switcher stay `shrink-0`, because truncating "Week of October
 // 31" or "Day/Week/Month" would destroy the meaning rather than the
 // overflow. Measured with three separate <select> elements, the row's content
-// drops from 962px to 794px, and holds one line to 835px measured in a single
-// layout pass (the reported 844px case fits with 9px spare).
+// drops from 962px to 794px.
+//
+// NO THRESHOLD IS ASSERTED HERE, AND NONE SHOULD BE. An earlier revision of
+// this comment claimed the fixed row "holds one line to 835px measured in a
+// single layout pass". Re-measured 2026-11-02 against the real header, that
+// number does not survive its own reproduction: with the app's real
+// `flex-wrap` container and the nav group's true `shrink-0` width, the
+// one-line threshold is ~660px, and reproducing the group at the 267px that
+// an earlier probe had assumed moves it to ~760px. A single layout pass
+// removes the RACE (that was 9.56) but not the ASSUMPTION - a 100px swing
+// from one borrowed constant is the reproduction being unfaithful, which is
+// 9.57 in its other half. So this test asserts the property that decision
+// follows from - the basis in PIXELS, and that each shrinkable thing really
+// shrinks - and does not encode a wrap point it cannot reproduce.
+//
+// The assertions below ARE the claim; this prose is evidence for them, and a
+// number in it is not a number the test reads.
 
 /// THE SELECTS' BASIS IN PIXELS. A class-string test cannot tell 120px
 /// from 120px-renamed, which is how a no-op shipped as a fix: the row

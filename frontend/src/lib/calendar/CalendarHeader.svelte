@@ -73,12 +73,24 @@
   // change cannot pass.
   //
   // The floor is gone: `w-16` is a 64px BASIS with `min-w-0`, and the actions
-  // carry `truncate`. MEASURED 2026-11-02 (all candidate rows in one layout
-  // pass, so no per-row timing race), that holds one line to 835px - it fits
-  // the reported case (844px) with 9px spare. Below 835px it wraps.
-  // single control reaches, because the nav group (267px) and the view
-  // switcher (147px) are `shrink-0` with their own content setting the floor -
-  // releasing those is a design decision, not a class swap.
+  // carry `truncate`. The row's min-content drops from 962px to 794px.
+  //
+  // An earlier revision of this comment put the one-line threshold at 835px,
+  // "measured in a single layout pass". That measurement does not survive
+  // re-measuring against the real header: the single pass removed the timing
+  // race but NOT the assumption, and the nav group is `shrink-0` at its own
+  // content's width, not the 267px the probe had assumed. Reproduce the real
+  // `flex-wrap` container and the group at its real width and the threshold
+  // is ~660px; borrow the 267px constant and it reads ~760px. A 100px swing
+  // from one borrowed constant is the reproduction being unfaithful, so no
+  // wrap point is asserted here.
+  //
+  // single control reaches, because the nav group and the view switcher are
+  // `shrink-0` with their own content setting the floor. An earlier revision
+  // of this comment pinned them at 267px and 147px; those were the PROBE's
+  // assumed widths, and reproducing the group at that constant moves the
+  // wrap point by ~100px, so the constants are not recorded here. Releasing
+  // them is a design decision, not a class swap.
   const selectClass = "h-10 min-w-0 w-16 px-2 bg-background-input border border-line rounded-lg text-xs text-content focus:outline-none focus:border-accent";
 </script>
 
@@ -118,6 +130,16 @@
      below. Part by part that is nav 267 + views 147 + 3 x select + Generate
      105 + New Post 82 + the gaps.
 
+     THOSE FIVE CONSTANTS ARE THE PROBE'S MODEL, NOT A MEASUREMENT OF THE
+     GROUP. 267 + 147 + (3 x 120) + 105 + 82 + 6 gaps of 8 = 962, and the
+     same stack at a 64px basis = 794, so the arithmetic closes - which is
+     why it was repeated as fact. But re-measuring the row against the REAL
+     header gave a ~100px different wrap point, because the nav group is
+     `shrink-0` at its own content's width, not at the 267px this model
+     assumed. What the model established is DIRECTION and RATIO - three
+     selects at 120px are the largest single term, and a 64px basis removes
+     168px of it - not a wrap point. Do not read a threshold off them.
+
      THE TRAP THAT SHIPPED A NO-OP. A previous fix replaced the 120px FLOOR
      with `w-[7.5rem]` and called it fixed. `app.css` declares no font-size on
      `:root`, so `rem` resolves against the browser default of 16px and
@@ -127,9 +149,11 @@
      shipped broken, and a small REGRESSION at 960px besides.
 
      THE BASIS IS NOW `w-16` (64px), MEASURED, NOT CHOSEN TO LOOK PRECISE.
-     One line to 835px, so the reported case (844px) fits with room to spare.
-     single control reaches because the nav group (267px) and the view
-     switcher (147px) are `shrink-0` with their content setting the floor -
+     The min-content drops 168px and the reported case fits. No wrap point is
+     claimed: see the note above on why the earlier one was the probe's model.
+     single control reaches because the nav group and the view switcher are
+     `shrink-0` with their content setting the floor (267px and 147px in the
+     probe's model, per the note above) -
      the date is `whitespace-nowrap`. Releasing THAT is a design decision
      about what the founder loses, so it is named here rather than guessed.
 

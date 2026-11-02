@@ -274,11 +274,24 @@ section used to make, was false.
 
 The fix gives the flexible parts the ability to flex: the selects take a 64px
 (`w-16`) basis with `min-w-0`, and the actions carry `min-w-0 truncate`. The
-content drops to 794px, which holds one line to 835px in a single layout pass,
-so the reported 844px case fits with 9px spare. The nav group and the
+content drops to 794px. The nav group and the
 view switcher keep `shrink-0` deliberately - they hold "Week of October 31" and
 "Day/Week/Month", where truncating destroys the meaning rather than the
 overflow.
+
+**THE 835px THRESHOLD WAS WITHDRAWN.** An earlier revision of this section
+said the fixed row "holds one line to 835px in a single layout pass".
+Re-measured against the real header, that number does not survive its own
+reproduction: the single layout pass removed the timing RACE (the row's wrap
+point drifted 820 / 835 / 844 depending on the probe's timeout) but NOT the
+ASSUMPTION. The nav group is `shrink-0` at its own content's width, and the
+267px the probe had assumed for it is a borrowed constant - reproduce the
+real `flex-wrap` container at that width and the threshold reads ~760px;
+reproduce it against the real group and it reads ~660px. A 100px swing from
+one borrowed constant is the reproduction being unfaithful, which is the
+other half of the same trap. So the guard asserts the PIXELS of the basis and
+that each shrinkable element really shrinks, and no wrap point is asserted
+anywhere.
 
 **AND THE FIRST "FIX" DID NOTHING, WHICH IS THE REAL LESSON.** This section
 used to describe replacing the 120px floor with `w-[7.5rem]`. `app.css`
