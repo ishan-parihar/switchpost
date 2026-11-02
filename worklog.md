@@ -5982,3 +5982,46 @@ Stage Summary:
   of the three edits on restore; caught by grepping for the correction
   prose rather than trusting the exit status. Restore from git, not from
   a scratch copy.
+
+---
+Task ID: calendar-overflow-real-markup
+Agent: Jcode
+Task: Measure the wrap point from the header's REAL markup, not a model.
+
+THREE FIGURES FOR ONE ELEMENT, AND THE LAST REVISION WAS WRONG. The nav
+group was 267px in one revision, 296px in another, and both were read off
+a probe that modelled the whole group as ONE DIV. Transcribe the real
+four children and it is 271px, and then the row reconciles with the
+browser to the pixel:
+
+  pre-fix 271 + 147 + 3x120 + 105 + 82 + 6x8 = 1013 content, wrap at 1020
+  fixed   271 + 147 + 3x 64 + 105 +  82 + 6x8 =  845 content, wrap at  846
+
+Measured pre-fix beside fixed in ONE layout pass, real markup, all rows
+on the page together.
+
+THE REPORTED CASE IS 1PX SHORT OF CLOSED. The row needs 845px;
+`calendar/+page.svelte`'s own measurement of the box with the channel
+rail expanded is 844px at a 1440 viewport. So the basis change removes
+168px of 1013 and does NOT itself close the founder's report - the last
+pixel is the group's `shrink-0` 271px, and trimming it is a design
+decision about what the founder loses (the date must never truncate).
+NAMED at the measurement now, in the component and the guard.
+
+AND I WALKED INTO MY OWN RECORDED TRAP. Applying the mutation arm I
+restored the file with `git checkout`, which discarded that file's
+uncommitted corrections - the exact failure written into worklog.md
+earlier in this same session. The edits were re-applied and are committed.
+Mutation re-run against the restored source: RED.
+
+A SEVENTH HOLDER, FOUND BY SWEEPING. The previous pass corrected five
+files and left the same stale figure standing in two more: the
+component's top-of-file block and the plan doc's own pre-fix paragraph.
+Each correction pass had fixed the files in front of it; no individual
+edit was wrong, the withdrawal was just INCOMPLETE. A claim wrong in N
+files must be withdrawn in all N, and only a whole-tree grep tells you N.
+
+Stage Summary:
+- 82dc271 + follow-up on github/master: 1013/845/1020/846 everywhere.
+- Guard 7/7, `cargo test --lib` 558/558, svelte-check clean, build OK.
+- The fix ships and is worth shipping; it does not close the report alone.
