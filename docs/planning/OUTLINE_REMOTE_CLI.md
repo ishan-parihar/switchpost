@@ -256,23 +256,39 @@ name's `truncate` does the job it was written to do.
 ### 5.2 The calendar header wrapped into two and then three rows - THE REPORT
 
 After 5.1 shipped, re-reading the report said *"expanding the columns of the
-channels in the calendar view"*. Widening the rail costs the calendar width:
-`max-w-6xl` caps the page at 1040px, and with the global rail (80px) plus an
-expanded channel rail (260px) the calendar is left about 700px.
+channels in the calendar view"*. Widening the rail costs the calendar width.
+
+MEASURED 2026-11-02 in a real browser against the app's own compiled
+stylesheet: `max-w-6xl` (1104px) lives inside `<main>`, which is a SIBLING of
+the `<aside>` in the layout's `flex h-dvh` row - so the rails consume viewport
+width. The calendar's box is 1040px with the channel rail collapsed and 844px
+with it expanded, which is the reported case. An earlier revision of this
+section said "about 700px"; that was wrong.
 
 `CalendarHeader.svelte`'s filter row is `flex-wrap`, so it only stays on one
-line while its MIN-CONTENT fits the box. That floor was about 1040px - three
-filter selects each with `min-w-[120px]`, plus two action buttons at
-`shrink-0`. So the row wrapped at every viewport, and wrapped into a THIRD
-line precisely when the founder widened the channel rail. That is the reported
-bug, and 5.1 did not touch it.
+line while its MIN-CONTENT fits the box. That content was 962px - three filter
+selects each at a hard 120px floor, plus the nav group, the view switcher and
+two action buttons at `shrink-0`. It held one line down to 900px and wrapped
+below that, including at 844 - so "wrapped at every viewport", the claim this
+section used to make, was false.
 
-The fix gives the flexible parts the ability to flex: the selects take a
-`w-[7.5rem]` basis with `min-w-0`, and the actions carry `min-w-0 truncate`.
-The nav group and the view switcher keep `shrink-0` deliberately - they hold
-"Week of October 31" and "Day/Week/Month", where truncating destroys the
-meaning rather than the overflow. Min-content drops to about 524px, which fits
-beside an expanded rail.
+The fix gives the flexible parts the ability to flex: the selects take a 64px
+(`w-16`) basis with `min-w-0`, and the actions carry `min-w-0 truncate`. The
+content drops to 794px, which holds one line to 800px. The nav group and the
+view switcher keep `shrink-0` deliberately - they hold "Week of October 31" and
+"Day/Week/Month", where truncating destroys the meaning rather than the
+overflow.
+
+**AND THE FIRST "FIX" DID NOTHING, WHICH IS THE REAL LESSON.** This section
+used to describe replacing the 120px floor with `w-[7.5rem]`. `app.css`
+declares no `font-size` on `:root`, so `rem` resolves against the browser
+default of 16px and 7.5rem computes to 120px - the exact floor it replaced.
+Measured side by side, that basis wrapped at 1040 and 844 AND at 960, which
+the pre-fix row held: a no-op plus a small regression. The tests guarding the
+row asserted only on class strings (`min-w-[120px]` absent, `min-w-0` present),
+all of which a width-preserving change satisfies, so nothing could detect it.
+The guard now resolves the width utility to PIXELS and asserts the basis fits
+the 844px box.
 
 **The trap worth carrying.** A comment in that file already recorded the
 wrap, verbatim: *"the header is 88px over TWO rows at 1440, 1600, 1920 and

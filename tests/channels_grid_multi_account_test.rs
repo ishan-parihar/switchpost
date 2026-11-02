@@ -386,14 +386,14 @@ fn the_rails_action_cluster_is_in_flow_not_overlaid() {
 // The header's filter row is `flex-wrap`, so it only stays on one line while
 // its MIN-CONTENT fits the box. That is the row this test measures.
 //
-// MEASURED 2026-11-02 against the app's compiled stylesheet: the calendar's box is 1040px with the channel rail collapsed and 844px with it expanded (the rails are siblings of `<main>` in the layout's `flex h-dvh` row, so they consume viewport width; `max-w-6xl` caps what is left at 1104). The pre-fix row's content was 953px - three selects at a hard 120px floor, plus the nav group, the view switcher and two `shrink-0` actions - so it held one line only to 900px and wrapped below that, including at 844. The file's own comment even recorded the two-row measurement as if it were a fact of the design; it is a bug.
+// MEASURED 2026-11-02 against the app's compiled stylesheet: the calendar's box is 1040px with the channel rail collapsed and 844px with it expanded (the rails are siblings of `<main>` in the layout's `flex h-dvh` row, so they consume viewport width; `max-w-6xl` caps what is left at 1104). The pre-fix row's content was 962px - three selects at a hard 120px floor, plus the nav group, the view switcher and two `shrink-0` actions - so it held one line only to 900px and wrapped below that, including at 844. The file's own comment even recorded the two-row measurement as if it were a fact of the design; it is a bug.
 //
 // The selects take a 64px (`w-16`) basis with `min-w-0` and the action
 // buttons carry `min-w-0 truncate` instead of `shrink-0`. The nav group and
 // the view switcher stay `shrink-0`, because truncating "Week of October
 // 31" or "Day/Week/Month" would destroy the meaning rather than the
-// overflow. Measured, the row's content drops to 793px, which holds one
-// line to 800px.
+// overflow. Measured with three separate <select> elements, the row's content
+// drops from 962px to 794px, which holds one line to 800px.
 
 /// THE SELECTS' BASIS IN PIXELS. A class-string test cannot tell 120px
 /// from 120px-renamed, which is how a no-op shipped as a fix: the row
@@ -407,11 +407,14 @@ fn the_rails_action_cluster_is_in_flow_not_overlaid() {
 /// out of the comment-stripped source and resolves the width utility the
 /// way Tailwind's JIT does, so the assertion is on pixels.
 fn select_basis_in_pixels(src: &str) -> u32 {
-    // `const selectClass = "...";` is the one definition the three selects share.
-    let decl = src
-        .split("selectClass")
-        .nth(1)
-        .unwrap_or_else(|| panic!("the header no longer defines selectClass"));
+    // Anchor on the DECLARATION, not the first mention. The word also appears
+    // three times in the template as `class={selectClass}`, so `split().nth(1)`
+    // over the raw source works only by luck of ordering; a doc comment that
+    // names the constant first would silently read a sentence instead.
+    let decl_at = src
+        .find("const selectClass")
+        .unwrap_or_else(|| panic!("the header no longer declares selectClass"));
+    let decl = &src[decl_at..];
     let quote = decl.find('"').unwrap_or_else(|| panic!("selectClass has no quoted value"));
     let rest = &decl[quote + 1..];
     let end = rest.find('"').unwrap_or_else(|| panic!("selectClass is unterminated"));

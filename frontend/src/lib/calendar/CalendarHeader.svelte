@@ -61,8 +61,10 @@
   // MEASURED 2026-11-02 against the app's own compiled stylesheet, the box is
   // 1040px with the channel rail collapsed and 844px with it expanded (the
   // rails are siblings of `<main>` and consume viewport width; `max-w-6xl`
-  // caps whatever is left at 1104). The row's content is 953px at a 120px
-  // select basis and 793px at the 64px basis below.
+  // caps whatever is left at 1104). The row's content measures 962px at a
+  // 120px select basis and 794px at the 64px basis below (three selects,
+  // measured as three separate elements - an earlier probe concatenated its
+  // markup and only ever rendered one, so its totals were short by two).
   //
   // A "fix" here once swapped the floor for `w-[7.5rem]` and left it at that.
   // app.css sets no `:root` font-size, so `rem` resolves against the 16px
@@ -109,9 +111,10 @@
      every viewport". Neither was true: the pre-fix row held one line down to
      900px and only wrapped below that.
 
-     THE ROW'S MIN-CONTENT, measured part by part: nav 267 + views 147 +
-     three selects 120 + Generate 105 + New Post 82 + gaps = 961px. With the
-     selects at the 64px basis below it is 793px.
+     THE ROW'S CONTENT, measured with three selects rendered as three
+     separate elements: 962px at the 120px floor, 794px at the 64px basis
+     below. Part by part that is nav 267 + views 147 + 3 x select + Generate
+     105 + New Post 82 + the gaps.
 
      THE TRAP THAT SHIPPED A NO-OP. A previous fix replaced the 120px FLOOR
      with `w-[7.5rem]` and called it fixed. `app.css` declares no font-size on
