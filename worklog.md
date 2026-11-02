@@ -5931,3 +5931,54 @@ it has a real SVG play-button path, and only google/gmail/calendar/drive are
 letters. A second check corrected my own first claim, which is the same
 discipline as the earlier glyph() dead-code correction.
 
+
+---
+Task ID: calendar-overflow-threshold-withdrawn
+Agent: Jcode
+Task: Validate the 835px claim against the REAL header, not the probe's model.
+
+IT DID NOT SURVIVE, AND THE ERROR WAS MINE. The single layout pass
+removed the timing RACE, not the ASSUMPTION. The probe that produced
+835px had reproduced the header as `flex-wrap:nowrap` with the nav group
+at an ASSUMED 267px. Reproduce the real container - `flex items-center
+flex-wrap gap-x-2 gap-y-2`, line 144 - with the group at its true
+`shrink-0` content width and the threshold reads ~660px. Keep the
+borrowed constant and it reads ~760px.
+
+A 100px SWING FROM ONE BORROWED CONSTANT. That is the reproduction being
+unfaithful - 9.57's other half, where a shape control passed on an
+element that was not the thing. Both halves of the same rule: never read
+geometry off a reproduction you have not verified is the thing.
+
+WHAT SURVIVED, AND WHAT DID NOT
+- SURVIVES: three selects at a hard 120px floor were the dominant term,
+  and a 64px basis removes 168px. The reported 844px case fits either
+  way. The FIX IS UNCHANGED AND CORRECT.
+- WITHDRAWN: the 835px wrap point and the 267px/147px constants, from all
+  four files. The 962 -> 794 stack is kept but RELABELLED the probe's
+  model - the arithmetic closes, which is exactly why it was repeated as
+  fact.
+- THE GUARD NEVER ASSERTED IT, which is the point. Its assertions are
+  the width utility in PIXELS (<= 80) and that each shrinkable element
+  really shrinks, so the wrong prose cost nothing but the record.
+
+MY VALIDATION PROBE MADE THE SAME CLASS OF ERROR TWICE WHILE CHECKING IT
+- 6 buttons where the real header has 8, and an `action-group` anchor
+  that does not exist in the file - caught, because the next assertion
+  was about the controls' OWN classes.
+- `os.readdirSync` thrown inside a `try/catch` that swallowed it, so
+  `findChrome` silently returned nothing. The silent-catch shape of 9.57
+  in the tool doing the checking.
+
+GATES: guard 7/7, `cargo test --lib` 558/558, svelte-check clean on the
+file, `pnpm build` OK. Mutation `w-16` -> `w-[7.5rem]` still RED.
+
+Stage Summary:
+- fd5e3b1 on github/master. Threshold withdrawn from CalendarHeader, the
+  test comment and OUTLINE_REMOTE_CLI.
+- Six wrong measurements this cycle. Every one was caught by an assertion
+  about the THING rather than the shape of it.
+- A `/tmp` backup of the svelte file was stale and silently reverted two
+  of the three edits on restore; caught by grepping for the correction
+  prose rather than trusting the exit status. Restore from git, not from
+  a scratch copy.
