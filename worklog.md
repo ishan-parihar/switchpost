@@ -6095,3 +6095,68 @@ Stage Summary:
 - The `.2.36` recipe works but `make deploy` does NOT on this host as
   written: it needs the zig shim, and it installs to /usr/local/bin with a
   system unit that does not exist here. Both deviations are recorded above.
+
+---
+Task ID: vps-app-deploy-skill
+Agent: Jcode
+Task: Capture the production deploy lessons as a reusable skill, generalized to
+every app on this VPS.
+
+INSTALLED AT `~/.agents/skills/vps-app-deploy/` (name `vps-app-deploy`, not
+`switchpost-deploy` - the class is "deploy an app to this host", and the
+topology lessons belong to the host, not to one app).
+
+WHAT IT RECORDS, each item traced to a real failure in this session
+- The unit is `systemd --user`. `systemctl status switchpost` answers "Unit
+  could not be found" and reads as "not deployed". This cost several wrong
+  turns before `ps aux` and `ss -tlnp` showed the process running fine.
+- `/home/nerd/switchpost` is NOT a checkout: `data/` + `.env` only, with a
+  stray `.git` pointing at reddit-httpx. It is the unit's WorkingDirectory.
+  Building there is impossible (no target/, no pnpm, no zig, 2GB RAM, ~90%
+  disk) and `git pull` there is meaningless.
+- The install path is `~/.local/bin/<app>`, not the Makefile's
+  `/usr/local/bin`. `make deploy` also targets a system unit that does not
+  exist here, so it fails as written - the deviation is documented, not fixed.
+- The VPS is Debian 12 glibc 2.36. A host-target build requires GLIBC_2.39
+  (`pidfd_spawnp`, `__isoc23_sscanf` - both verified by `objdump -T` on a
+  host debug build) and fails at exec. The `.2.36` cross-target is mandatory.
+- The Zig failure `unsupported linker arg: --no-keep-memory` is a toolchain
+  combination, not a project bug and not a version skew (rejected by Zig
+  0.11/0.13/0.14.1/0.16/0.17; both cargo-zigbuild 0.23.4 and 0.24.0). Fixed
+  by a drop-in `zig` shim that strips the rejected flags, forwarding to
+  zig 0.14.1, with `~/.cache/cargo-zigbuild/*/wrappers` cleared.
+- `strings | grep -c w-16` returned 7 on a build with NO w-16 class: a
+  substring count is not a verdict. Assert on the app's own long
+  distinguishing string.
+- An embedded frontend ships with the binary, so a stale binary serves a
+  stale frontend and "active + health 200" proves nothing about what users
+  see. Only fetching the served asset over the public URL settles it.
+
+GENERALIZED, AND THE GENERALIZATION FOUND SOMETHING. `aroute` shares the same
+shape (user unit, ~/.local/bin, cloudflared tunnel) but is an
+OpenAI-compatible PROXY: it answers 404 on /health and / BY DESIGN. A check
+written for switchpost would have read as a broken deploy. The script and the
+skill now probe rather than assume a web app. `aroute` also has conventions
+switchpost lacks and should adopt: an audited saved installer that verifies
+release checksums with `--version` pinning and a `--check` mode, MULTIPLE
+dated backups rather than one, and a watchdog `oneshot` unit.
+
+BUNDLED AND ACTUALLY RUN
+- `scripts/verify_deploy.sh <host> <app> <url> [--expect-gone STR]`: detects
+  the unit scope, reports MainPID, probes public endpoints without assuming a
+  web app, filters the journal to the signal, and verifies a retired string is
+  gone from every publicly served asset. Ran exit 0 against BOTH switchpost
+  and aroute; against switchpost it printed "clean: absent from every served
+  asset" for the old 120px floor.
+- `references/cross-build.md`: the glibc gate, the `.2.36` recipe and the
+  zig shim, verbatim.
+- The 172k-475k-token subagent validation runs are recorded in the eval
+  workspace; see <workspace>/benchmark.json for the with-skill vs baseline
+  comparison.
+
+Stage Summary:
+- `~/.agents/skills/vps-app-deploy/` installed and validated live.
+- The deploy discipline now lives where the next agent will find it, rather
+  than only in this file's prose.
+- Follow-up, deliberately NOT done in a deploy: give switchpost the aroute
+  conventions (checksum-verifying installer, backup history, watchdog).
