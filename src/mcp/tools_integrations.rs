@@ -9,6 +9,48 @@ use crate::api::AppState;
 use crate::services::integrations::IntegrationService;
 use crate::social::TargetInfo;
 
+/// The `(auth_url, instructions)` pair a one-time-token connect returns.
+///
+/// Extracted from `connect_integration` so the RULE is testable on its own:
+/// the text must name the flow THAT provider actually uses. Every
+/// one-time-token channel once answered "Open Telegram, start a chat with
+/// this bot", which is only true of telegram-bot - for telegram-user (MTProto,
+/// no bot) and whatsapp (phone pairing) it told the founder to do something
+/// impossible, and a wrong instruction is worse than an error because it
+/// reads like guidance.
+pub fn one_time_token_instructions(provider: &str, code: &str) -> (String, String) {
+    match provider {
+        "telegram-bot" => (
+            format!("Open Telegram, start a chat with your bot, and send: /connect {code}"),
+            format!(
+                "Send /connect {code} to your Telegram bot to link this channel. The bot is the \
+                 one whose token is in TELEGRAM_BOT_TOKENS - the REST connect route resolves its \
+                 @username via getMe, so the web UI names the exact chat to open."
+            ),
+        ),
+        "telegram-user" => (
+            format!("Telegram user login (MTProto): {code}"),
+            format!(
+                "Telegram user accounts have no bot to message. Request a login code for the phone \
+                 number with the telegram_user_request_code tool, then redeem it with \
+                 telegram_user_sign_in. Code: {code}"
+            ),
+        ),
+        "whatsapp" => (
+            format!("WhatsApp pairing: {code}"),
+            format!(
+                "WhatsApp pairs by phone number, not by a bot chat. Call the whatsapp pairing \
+                 endpoint with the number in international format, then enter the pair code it \
+                 returns on the phone under Linked Devices. Code: {code}"
+            ),
+        ),
+        _ => (
+            format!("/connect {code}"),
+            format!("Send this code to the provider to link this channel: /connect {code}"),
+        ),
+    }
+}
+
 // ── Input/Output Types ──────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -160,19 +202,16 @@ pub async fn connect_integration(
 
     // Handle non-OAuth providers (e.g., Bluesky with app passwords)
     if !provider_obj.uses_oauth() {
-        // One-time-token providers (Telegram): return instructions
+        // One-time-token providers. The instructions name the flow THAT
+        // provider uses — one shared "message this bot" string was wrong for
+        // telegram-user and whatsapp (see one_time_token_instructions).
         if provider_obj.one_time_token() {
             let code = uuid::Uuid::new_v4().to_string();
+            let (auth_url, instructions) = one_time_token_instructions(&input.provider, &code);
             return Ok(Json(ConnectOutput {
-                auth_url: format!(
-                    "Open Telegram, start a chat with this bot, and send: /connect {}",
-                    code
-                ),
+                auth_url,
                 state: "one-time-token".into(),
-                instructions: format!(
-                    "Send /connect {} to your Telegram bot to link this channel.",
-                    code,
-                ),
+                instructions,
             }));
         }
 
@@ -341,4 +380,66 @@ pub async fn list_targets(
         integration_id: input.integration_id.clone(),
         provider: integration.provider_identifier,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::one_time_token_instructions;
+
+    /// The bug: every one-time-token channel answered "Open Telegram, start a
+    /// chat with this bot, and send: /connect <code>". That is true of
+    /// telegram-bot and FALSE of telegram-user (MTProto, no bot exists) and
+    /// whatsapp (a phone pairing, not a chat command). A wrong instruction is
+    /// worse than an error, because an error says "this did not work" while a
+    /// wrong instruction says "do this impossible thing" and reads as guidance.
+    #[test]
+    fn one_time_token_instructions_name_the_providers_own_flow() {
+        for (provider, must_contain, must_not_contain) in [
+            (
+                "telegram-bot",
+                vec!["Open Telegram", "your bot"],
+                vec![] as Vec<&str>,
+            ),
+            (
+                "telegram-user",
+                vec!["MTProto", "no bot to message"],
+                vec!["your Telegram bot to link", "start a chat with your bot"],
+            ),
+            (
+                "whatsapp",
+                vec!["pairs by phone number", "Linked Devices"],
+                vec!["start a chat with your bot", "Telegram"],
+            ),
+        ] {
+            let (auth_url, instructions) = one_time_token_instructions(provider, "CODE");
+            for needle in must_contain {
+                assert!(
+                    auth_url.contains(needle) || instructions.contains(needle),
+                    "{provider}: expected {needle:?} in the answer, got {auth_url:?} / {instructions:?}"
+                );
+            }
+            for needle in must_not_contain {
+                assert!(
+                    !auth_url.contains(needle) && !instructions.contains(needle),
+                    "{provider}: must NOT say {needle:?} - that is another channel's flow"
+                );
+            }
+            // Both halves must carry the code, or the founder has nothing to redeem.
+            assert!(auth_url.contains("CODE"), "{provider}: code missing from auth_url");
+            assert!(
+                instructions.contains("CODE"),
+                "{provider}: code missing from instructions"
+            );
+        }
+    }
+
+    /// An unknown provider still gets a usable generic answer rather than
+    /// Telegram's bot flow, which is the shape of the original defect.
+    #[test]
+    fn an_unknown_provider_does_not_inherit_the_telegram_flow() {
+        let (auth_url, instructions) = one_time_token_instructions("skool", "CODE");
+        assert!(!auth_url.contains("Telegram"), "got {auth_url:?}");
+        assert!(!instructions.contains("Telegram"), "got {instructions:?}");
+        assert!(auth_url.contains("CODE") && instructions.contains("CODE"));
+    }
 }
