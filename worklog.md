@@ -6291,3 +6291,29 @@ Stage Summary:
   TELEGRAM_SESSION_DIR=./data/telegram-sessions. Rewritten to assert the
   invariant (always Some, never blank) rather than an environment-dependent
   value. The failure was the test's fault and it caught my own sloppiness.
+
+---
+Task ID: docs-check-failure-attribution
+Agent: Jcode
+Task: Attribute the `FAIL: outward boundary (D001-D005)` the pre-commit hook prints.
+
+Work Log: Both v27c and v27d commits printed "FAIL: outward boundary (D001-D005)
+(rc=2) - 1 hard failure(s)" from `.git/hooks/pre-commit`. That hook is
+`managed-by: install-docs-gate` and execs an EXTERNAL script,
+`/home/ishanp/.agents/skills/doc/scripts/docs-check.sh --staged --mode=warn` -
+it is not part of this repo and cannot be fixed by editing this tree.
+
+MEASURED, NOT ASSUMED: `git stash -u` then re-run on the clean committed HEAD.
+The FAIL is identical. It is pre-existing and unrelated to either of my commits.
+The hook also runs in `--mode=warn`, which reports findings without gating, so
+it does not block the commit.
+
+The gate that actually belongs to this repo is `scripts/genome lint`, which
+reports 0 errors and 3 pre-existing W010s (long planning docs with no table of
+contents). That is the one to keep clean here.
+
+Stage Summary:
+- docs-check FAIL: pre-existing, external script, non-gating. Not mine.
+- genome lint: 0 errors. Push confirmed on github/master.
+- Deliberately NOT touched: the two stashes (`WIP on master`) and the other
+  writer's uncommitted `scripts/genome` work.
