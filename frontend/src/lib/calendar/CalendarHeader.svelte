@@ -70,7 +70,7 @@
   // and stopping there; the one before that claimed the row was one line tall
   // on the strength of the heights matching, and the rendered app contradicted
   // it at every width tested.
-  const selectClass = "h-10 min-w-[120px] w-[7.5rem] px-2 bg-background-input border border-line rounded-lg text-xs text-content focus:outline-none focus:border-accent";
+  const selectClass = "h-10 min-w-0 w-[7.5rem] px-2 bg-background-input border border-line rounded-lg text-xs text-content focus:outline-none focus:border-accent";
 </script>
 
 <!-- C-2: ONE row, in postiz's order. The three rows this replaces were
