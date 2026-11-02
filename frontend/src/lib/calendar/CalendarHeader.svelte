@@ -61,10 +61,12 @@
   // MEASURED 2026-11-02 against the app's own compiled stylesheet, the box is
   // 1040px with the channel rail collapsed and 844px with it expanded (the
   // rails are siblings of `<main>` and consume viewport width; `max-w-6xl`
-  // caps whatever is left at 1104). The row's content measures 962px at a
-  // 120px select basis and 794px at the 64px basis below (three selects,
-  // measured as three separate elements - an earlier probe concatenated its
-  // markup and only ever rendered one, so its totals were short by two).
+  // caps whatever is left at 1104). The row's content measures 1013px at a
+  // 120px select basis and 845px at the 64px basis below - wired from the
+  // REAL subtree, the four-child nav group at 271, the view switcher at 147,
+  // the two actions at 105 and 82, and six 8px gaps (an earlier probe
+  // modelled the group as one div and was short by its three siblings; that
+  // is where 962/794, and the 835px and ~660px thresholds, came from).
   //
   // A "fix" here once swapped the floor for `w-[7.5rem]` and left it at that.
   // app.css sets no `:root` font-size, so `rem` resolves against the 16px

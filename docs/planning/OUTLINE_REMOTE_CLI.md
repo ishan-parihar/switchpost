@@ -266,9 +266,9 @@ with it expanded, which is the reported case. An earlier revision of this
 section said "about 700px"; that was wrong.
 
 `CalendarHeader.svelte`'s filter row is `flex-wrap`, so it only stays on one
-line while its MIN-CONTENT fits the box. That content was 962px - three filter
+line while its MIN-CONTENT fits the box. That content was 1013px - three filter
 selects each at a hard 120px floor, plus the nav group, the view switcher and
-two action buttons at `shrink-0`. It held one line down to 900px and wrapped
+two action buttons at `shrink-0`. It held one line down to 1020px and wrapped
 below that, including at 844 - so "wrapped at every viewport", the claim this
 section used to make, was false.
 
