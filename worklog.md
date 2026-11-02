@@ -5848,3 +5848,45 @@ Stage Summary:
   `u(a())==="•" ? a().slice(0,2).toUpperCase() : u(a())`; the curated
   google:{...icon:"GS"} entry is in chunks/CX8DjEyh.js; all three inline
   glyph tables are gone from the build. AGENTS.md 9.53.
+
+---
+Task ID: calendar-overflow-pitfalls
+Agent: Jcode
+Task: Write down the five traps this cycle found, where the next agent reads.
+
+THEY WERE ABSENT, AND THAT IS THE FINDING. AGENTS.md 9 ended at 9.53 and
+covered the earlier repos', not this cycle's. Added 9.54 - 9.58 (41aa9f0).
+
+THE ONE THAT BEAT A TEST (9.54). `min-w-[120px]` -> `w-[7.5rem]` computes
+to the same 120px, because nothing in the source declares a root
+font-size. It shipped green because the guard asserted on CLASS STRINGS
+while the property under test was GEOMETRY. "A number that reads as
+considered is the shape that survives a review that reads instead of
+measuring."
+
+TAILWIND SCANS COMMENTS (9.55). `.w-[7.5rem]` is still generated into the
+built CSS from three comments that quote it. So "the rule is gone from the
+built CSS" is uncheckable, and a raw-source `contains()` is satisfied by
+the comment that documents the defect.
+
+A MEASUREMENT WHOSE VALUE DEPENDS ON HOW YOU ASKED (9.56). 820 / 835 / 844
+depending on the timeout.
+
+A CONTROL THAT COUNTED ELEMENTS (9.57). Passed while both action buttons
+rendered with no classes, because the extraction looked for
+`class:"..."` where Svelte emits `class="..."`.
+
+A SHARED TREE EATS UNPUSHED WORK (9.58) - PROVED TWICE THIS SITTING.
+This very entry was lost twice: once to the concurrent writer's
+working-tree state, and once to their commit `764c50a`, which took the
+whole tree (14 files) and none of the calendar fix's. The fix was safe -
+my code files were never in their commit and the remote still carries
+`67c30ef` - but prose in a file another writer was mid-edit in has no
+deliverable until it is on the remote. Hence: commit immediately, and
+check `git log -1 --format=%ad -- <file>` against the clock first.
+
+Stage Summary:
+- 41aa9f0 on github/master, 5 entries, verified on the remote ref.
+- My calendar fix intact on the remote: none of `CalendarHeader.svelte`,
+  the test, or `OUTLINE_REMOTE_CLI.md` were touched by `764c50a`.
+- Records the collision as a pitfall rather than an incident.
