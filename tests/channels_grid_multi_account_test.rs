@@ -386,27 +386,32 @@ fn the_rails_action_cluster_is_in_flow_not_overlaid() {
 // The header's filter row is `flex-wrap`, so it only stays on one line while
 // its MIN-CONTENT fits the box. That is the row this test measures.
 //
-// MEASURED 2026-11-02 against the app's compiled stylesheet: the calendar's box is 1040px with the channel rail collapsed and 844px with it expanded (the rails are siblings of `<main>` in the layout's `flex h-dvh` row, so they consume viewport width; `max-w-6xl` caps what is left at 1104). The pre-fix row's content was 962px - three selects at a hard 120px floor, plus the nav group, the view switcher and two `shrink-0` actions - so it held one line only to 900px and wrapped below that, including at 844. The file's own comment even recorded the two-row measurement as if it were a fact of the design; it is a bug.
+// MEASURED 2026-11-02 against the app's compiled stylesheet, pre-fix row and fixed row transcribed from the header's real subtree in ONE layout pass: the calendar's box is 1040px with the channel rail collapsed and 844px with it expanded (the rails are siblings of `<main>` in the layout's `flex h-dvh` row, so they consume viewport width; `max-w-6xl` caps what is left at 1104). The pre-fix row's content was 1013px - three selects at a hard 120px floor, plus the nav group, the view switcher and two `shrink-0` actions - so it held one line only to 1020px and wrapped below that, including at 844. The fixed row's content is 845px with the wrap at 846, which is ONE PIXEL SHORT of the reported case: the residual is the nav group's `shrink-0` 271px, a design decision, named below. The file's own comment even recorded the two-row measurement as if it were a fact of the design; it is a bug.
 //
 // The selects take a 64px (`w-16`) basis with `min-w-0` and the action
 // buttons carry `min-w-0 truncate` instead of `shrink-0`. The nav group and
 // the view switcher stay `shrink-0`, because truncating "Week of October
 // 31" or "Day/Week/Month" would destroy the meaning rather than the
-// overflow. Measured with three separate <select> elements, the row's content
-// drops from 962px to 794px.
+// overflow. Measured with three separate <select> elements transcribed from
+// the header's REAL subtree, the row's content goes from 1013px to 845px.
 //
-// NO THRESHOLD IS ASSERTED HERE, AND NONE SHOULD BE. An earlier revision of
-// this comment claimed the fixed row "holds one line to 835px measured in a
-// single layout pass". Re-measured 2026-11-02 against the real header, that
-// number does not survive its own reproduction: with the app's real
-// `flex-wrap` container and the nav group's true `shrink-0` width, the
-// one-line threshold is ~660px, and reproducing the group at the 267px that
-// an earlier probe had assumed moves it to ~760px. A single layout pass
-// removes the RACE (that was 9.56) but not the ASSUMPTION - a 100px swing
-// from one borrowed constant is the reproduction being unfaithful, which is
-// 9.57 in its other half. So this test asserts the property that decision
-// follows from - the basis in PIXELS, and that each shrinkable thing really
-// shrinks - and does not encode a wrap point it cannot reproduce.
+// TWO PROBE MODELS, BOTH WITHDRAWN. An earlier revision claimed the fixed row
+// "holds one line to 835px measured in a single layout pass"; a later one
+// replaced that with ~660px. NEITHER SURVIVED, because both were read off a
+// probe that modelled the nav group as a SINGLE DIV rather than the source's
+// four-child group. Transcribe the real subtree and the arithmetic closes
+// exactly against the browser: 271 + 147 + 3 x 64 + 105 + 82 + six 8px gaps =
+// 845, and the wrap falls at exactly 846 (MEASURED 2026-11-02, one layout
+// pass, real markup, all candidate rows on the page together).
+//
+// THE FOUNDER'S CASE IS 1PX SHORT OF CLOSED, AND THAT IS THE USEFUL PART. The
+// row needs 845px; `calendar/+page.svelte`'s own measurement of the box with
+// the channel rail expanded is 844px, at a 1440 viewport. So the basis change
+// removes 168px of the original 1013 and does NOT by itself close the reported
+// wrap - the last pixel is the nav group's `shrink-0` 271px, and trimming it
+// is a design decision the founder owns. This test therefore asserts the
+// PIXELS of the basis and that each shrinkable element really shrinks, and
+// names the residual rather than hiding it behind a threshold.
 //
 // The assertions below ARE the claim; this prose is evidence for them, and a
 // number in it is not a number the test reads.

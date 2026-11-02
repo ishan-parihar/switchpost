@@ -274,24 +274,28 @@ section used to make, was false.
 
 The fix gives the flexible parts the ability to flex: the selects take a 64px
 (`w-16`) basis with `min-w-0`, and the actions carry `min-w-0 truncate`. The
-content drops to 794px. The nav group and the
+row's content, wired from the header's REAL subtree, goes from 1013px to
+845px. The nav group and the
 view switcher keep `shrink-0` deliberately - they hold "Week of October 31" and
 "Day/Week/Month", where truncating destroys the meaning rather than the
 overflow.
 
-**THE 835px THRESHOLD WAS WITHDRAWN.** An earlier revision of this section
-said the fixed row "holds one line to 835px in a single layout pass".
-Re-measured against the real header, that number does not survive its own
-reproduction: the single layout pass removed the timing RACE (the row's wrap
-point drifted 820 / 835 / 844 depending on the probe's timeout) but NOT the
-ASSUMPTION. The nav group is `shrink-0` at its own content's width, and the
-267px the probe had assumed for it is a borrowed constant - reproduce the
-real `flex-wrap` container at that width and the threshold reads ~760px;
-reproduce it against the real group and it reads ~660px. A 100px swing from
-one borrowed constant is the reproduction being unfaithful, which is the
-other half of the same trap. So the guard asserts the PIXELS of the basis and
-that each shrinkable element really shrinks, and no wrap point is asserted
-anywhere.
+**TWO THRESHOLDS WERE WITHDRAWN IN SEQUENCE, AND BOTH WERE THE PROBE'S
+MODEL.** The first said "one line to 835px in a single layout pass"; the
+second replaced it with ~660px, off a ~760px at the 267px it had assumed for
+the nav group. Neither survived, because both were read off a probe that
+modelled the nav group as a SINGLE DIV rather than the source's four-child
+group. Transcribe the real subtree and the arithmetic closes exactly against
+the browser: 271 + 147 + 3 x 64 + 105 + 82 + six 8px gaps = 845, and the wrap
+falls at exactly 846 (MEASURED 2026-11-02, one layout pass, real markup).
+
+**AND THE REPORTED CASE IS 1PX SHORT OF CLOSED, WHICH IS THE USEFUL PART.**
+The row needs 845px. This page's own measurement of the calendar box with the
+channel rail expanded is 844px at a 1440 viewport, recorded 2026-10-31 in
+`calendar/+page.svelte`. So the basis change removes 168px of 1013 and does
+NOT by itself close the report: the last pixel is the nav group's `shrink-0`
+271px, and trimming THAT is a design decision about what the founder loses -
+named here rather than guessed at with a class swap.
 
 **AND THE FIRST "FIX" DID NOTHING, WHICH IS THE REAL LESSON.** This section
 used to describe replacing the 120px floor with `w-[7.5rem]`. `app.css`

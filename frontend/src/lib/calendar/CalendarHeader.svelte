@@ -73,17 +73,28 @@
   // change cannot pass.
   //
   // The floor is gone: `w-16` is a 64px BASIS with `min-w-0`, and the actions
-  // carry `truncate`. The row's min-content drops from 962px to 794px.
+  // carry `truncate`. The row's content, wired from the REAL subtree, goes
+  // from 1013px (271 + 147 + 3 x 120 + 105 + 82 + six 8px gaps) to 845px
+  // (271 + 147 + 3 x 64 + 105 + 82 + six 8px gaps). An earlier revision of
+  // this comment said 962 -> 794, off a model of the group that was 29px short.
   //
   // An earlier revision of this comment put the one-line threshold at 835px,
-  // "measured in a single layout pass". That measurement does not survive
-  // re-measuring against the real header: the single pass removed the timing
-  // race but NOT the assumption, and the nav group is `shrink-0` at its own
-  // content's width, not the 267px the probe had assumed. Reproduce the real
-  // `flex-wrap` container and the group at its real width and the threshold
-  // is ~660px; borrow the 267px constant and it reads ~760px. A 100px swing
-  // from one borrowed constant is the reproduction being unfaithful, so no
-  // wrap point is asserted here.
+  // "measured in a single layout pass". A later revision replaced that with
+  // ~660px, reading the wrap off a probe that had modelled the nav group as a
+  // single div. BOTH WERE THE PROBE'S MODEL. Transcribe the header's real
+  // subtree from this file - the four-child nav group, the three selects on
+  // `selectClass`, the three-option view switcher, the two actions - and the
+  // arithmetic closes exactly against the browser: the content is 845px and
+  // the browser puts the wrap at exactly 846. MEASURED 2026-11-02, real
+  // markup, one layout pass, all candidate rows on the page together.
+  //
+  // What that number means for the founder's report: the row needs 845px and
+  // the page author's own measurement of the box with the rail expanded is
+  // 844px - ONE PIXEL SHORT, measured at a 1440 viewport
+  // (`calendar/+page.svelte`, 2026-10-31). So the wrap the report describes is
+  // NOT fully closed by the basis change alone; the last pixel is the nav
+  // group's `shrink-0` 271px, and trimming THAT is a design decision about
+  // what the founder loses, not a class swap. NAMED, NOT GUESSED.
   //
   // single control reaches, because the nav group and the view switcher are
   // `shrink-0` with their own content setting the floor. An earlier revision
@@ -123,22 +134,23 @@
         844px with the channel rail expanded     (the reported bug)
      An earlier revision of this comment said "about 700px", and "wraps at
      every viewport". Neither was true: the pre-fix row held one line down to
-     900px and only wrapped below that.
+     1020px - measured, pre-fix row beside the fixed one in one layout pass,
+     real markup - and wrapped below that, including at 844.
 
      THE ROW'S CONTENT, measured with three selects rendered as three
-     separate elements: 962px at the 120px floor, 794px at the 64px basis
-     below. Part by part that is nav 267 + views 147 + 3 x select + Generate
-     105 + New Post 82 + the gaps.
+     separate elements transcribed from the real subtree: 1013px at the 120px
+     floor, 845px at the 64px basis below. Part by part that is nav 271 +
+     views 147 + 3 x select + Generate 105 + New Post 82 + six 8px gaps.
 
-     THOSE FIVE CONSTANTS ARE THE PROBE'S MODEL, NOT A MEASUREMENT OF THE
-     GROUP. 267 + 147 + (3 x 120) + 105 + 82 + 6 gaps of 8 = 962, and the
-     same stack at a 64px basis = 794, so the arithmetic closes - which is
-     why it was repeated as fact. But re-measuring the row against the REAL
-     header gave a ~100px different wrap point, because the nav group is
-     `shrink-0` at its own content's width, not at the 267px this model
-     assumed. What the model established is DIRECTION and RATIO - three
-     selects at 120px are the largest single term, and a 64px basis removes
-     168px of it - not a wrap point. Do not read a threshold off them.
+     THOSE CONSTANTS ARE MEASURED, AND THE THREE FIGURES BEFORE THEM WERE
+     NOT. The pre-fix stack was 1013px with the wrap at 1020, the fixed one
+     is 845px with the wrap at 846 - each closes exactly against the browser.
+     Two earlier revisions pinned the group at 267px (and one at 296px, "with
+     generous arrows"), off probes that modelled the group as a single div
+     instead of this file's four children. Transcribe the real subtree and
+     the arithmetic reconciles to the pixel, which is what a measurement
+     looks like: three wrong numbers, one right one, and a rule that the
+     wrong ones were the ones nobody re-derived.
 
      THE TRAP THAT SHIPPED A NO-OP. A previous fix replaced the 120px FLOOR
      with `w-[7.5rem]` and called it fixed. `app.css` declares no font-size on
@@ -175,8 +187,9 @@
        give way, so they are icon-width rather than 44px buttons: a 44px tap
        target for a chevron inside a 40px row is not reachable anyway, and
        this row has a `Today` that is a comfortable target for the same
-       intent. The nav group measured 296px with generous arrows; trimming
-       them keeps the whole header on one line at 1440. -->
+       intent. Measured in place, with the real four children, the group is
+       271px; an earlier revision of this comment said 296px "with generous
+       arrows", off a probe that had modelled the whole group as one div. -->
   <div class="flex items-stretch border border-line rounded-lg overflow-hidden h-10 shrink-0">
     <button
       onclick={onPrev}
