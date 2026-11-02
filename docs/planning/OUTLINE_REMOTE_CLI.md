@@ -274,7 +274,8 @@ section used to make, was false.
 
 The fix gives the flexible parts the ability to flex: the selects take a 64px
 (`w-16`) basis with `min-w-0`, and the actions carry `min-w-0 truncate`. The
-content drops to 794px, which holds one line to 800px. The nav group and the
+content drops to 794px, which holds one line to 835px in a single layout pass,
+so the reported 844px case fits with 9px spare. The nav group and the
 view switcher keep `shrink-0` deliberately - they hold "Week of October 31" and
 "Day/Week/Month", where truncating destroys the meaning rather than the
 overflow.

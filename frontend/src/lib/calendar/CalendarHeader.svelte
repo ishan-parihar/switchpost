@@ -73,7 +73,9 @@
   // change cannot pass.
   //
   // The floor is gone: `w-16` is a 64px BASIS with `min-w-0`, and the actions
-  // carry `truncate`. Measured, that holds one line to 800px. Below that no
+  // carry `truncate`. MEASURED 2026-11-02 (all candidate rows in one layout
+  // pass, so no per-row timing race), that holds one line to 835px - it fits
+  // the reported case (844px) with 9px spare. Below 835px it wraps.
   // single control reaches, because the nav group (267px) and the view
   // switcher (147px) are `shrink-0` with their own content setting the floor -
   // releasing those is a design decision, not a class swap.
@@ -125,7 +127,7 @@
      shipped broken, and a small REGRESSION at 960px besides.
 
      THE BASIS IS NOW `w-16` (64px), MEASURED, NOT CHOSEN TO LOOK PRECISE.
-     One line at 1040 and 844; the row only wraps below 800px, which no
+     One line to 835px, so the reported case (844px) fits with room to spare.
      single control reaches because the nav group (267px) and the view
      switcher (147px) are `shrink-0` with their content setting the floor -
      the date is `whitespace-nowrap`. Releasing THAT is a design decision

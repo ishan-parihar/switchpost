@@ -393,7 +393,8 @@ fn the_rails_action_cluster_is_in_flow_not_overlaid() {
 // the view switcher stay `shrink-0`, because truncating "Week of October
 // 31" or "Day/Week/Month" would destroy the meaning rather than the
 // overflow. Measured with three separate <select> elements, the row's content
-// drops from 962px to 794px, which holds one line to 800px.
+// drops from 962px to 794px, and holds one line to 835px measured in a single
+// layout pass (the reported 844px case fits with 9px spare).
 
 /// THE SELECTS' BASIS IN PIXELS. A class-string test cannot tell 120px
 /// from 120px-renamed, which is how a no-op shipped as a fix: the row
