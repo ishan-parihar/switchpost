@@ -25,6 +25,9 @@
 use std::path::PathBuf;
 
 const PAGE: &str = "frontend/src/routes/channels/+page.svelte";
+/// The calendar view's chrome. Its filter row is what wrapped into two and
+/// then three rows when the channel rail was expanded.
+const CAL_HEADER: &str = "frontend/src/lib/calendar/CalendarHeader.svelte";
 /// The channel rail. Its rows hold the buttons that used to overflow the
 /// channel name, so the invariants for that bug live against this file.
 const RAIL: &str = "frontend/src/lib/channels/ChannelRail.svelte";
@@ -57,6 +60,19 @@ fn rail_source_without_comments() -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(RAIL);
     std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read {RAIL}: {e}"))
+        .lines()
+        .map(|l| l.trim_start())
+        .filter(|l| !l.starts_with("//"))
+        .map(|l| l.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The calendar header's CODE, comment-stripped.
+fn cal_header_without_comments() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(CAL_HEADER);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {CAL_HEADER}: {e}"))
         .lines()
         .map(|l| l.trim_start())
         .filter(|l| !l.starts_with("//"))
@@ -327,4 +343,75 @@ fn the_rails_action_cluster_is_in_flow_not_overlaid() {
          the name block and it sits ON TOP of the channel name - the \
          overflow this test was written to pin: {cluster}"
     );
+}
+
+// ── The calendar header's min-content must fit beside an expanded rail ──
+//
+// Founder-reported: expanding the channel rail distorted the calendar, with
+// the controls overflowing onto extra rows.
+//
+// MEASURED, not assumed. The calendar page is `max-w-6xl` (1040px) and holds
+// the global rail (80px) plus the channel rail. Expanded, that rail is 260px,
+// so the calendar gets 700px. The header's filter row is `flex-wrap`, so it
+// only stays on one line while its MIN-CONTENT fits the box.
+//
+// Before this fix the floor was about 1040px: three `min-w-[120px]` selects
+// plus two `shrink-0` action buttons. That exceeds 1040 at every viewport and
+// 700 with the rail open, so the controls wrapped into two rows - and three
+// when the rail was expanded. The file's own comment even recorded the two-row
+// measurement as if it were a fact of the design; it is a bug.
+//
+// The fix makes the flexible parts actually flexible: the selects take a
+// `w-[7.5rem]` basis with `min-w-0`, and the action buttons carry `min-w-0
+// truncate` instead of `shrink-0`. The nav group and the view switcher stay
+// `shrink-0`, because truncating "Week of October 31" or "Day/Week/Month"
+// would destroy the meaning rather than the overflow. Min-content drops to
+// about 524px, which fits beside an expanded rail.
+
+/// Every control in the header's filter row must be able to give way, so the
+/// row keeps one line at the calendar's real width.
+#[test]
+fn the_calendar_header_fits_beside_an_expanded_channel_rail() {
+    let src = cal_header_without_comments();
+
+    // The two immovable controls: the date/nav group and the view switcher.
+    // They legitimately refuse to shrink, and they are the reason everything
+    // else must be able to.
+    assert!(
+        src.contains("shrink-0"),
+        "the header lost every `shrink-0`, so the date and the view switcher \
+         can now be truncated instead of the controls beside them"
+    );
+
+    // The filter selects must NOT carry a min-width floor any more. A floor
+    // is what made 1040px the header's minimum, which is wider than the
+    // calendar ever gets.
+    assert!(
+        !src.contains("min-w-[120px]"),
+        "a filter select carries `min-w-[120px]` again: three of them plus the \
+         two action buttons set the header's floor above the calendar's width, \
+         and the row wraps into two or three lines"
+    );
+    assert!(
+        src.contains("min-w-0"),
+        "the header has no `min-w-0` anywhere, so nothing can give way and the \
+         row can only overflow"
+    );
+
+    // The two actions must shrink, not sit at full size on a second line.
+    for label in ["Generate Posts", "+ New Post"] {
+        let at = src
+            .find(label)
+            .unwrap_or_else(|| panic!("the header lost its {label} action"));
+        // Walk back to the opening tag of the button that holds this label.
+        let open = src[..at]
+            .rfind("<button")
+            .unwrap_or_else(|| panic!("{label} is not inside a button"));
+        let tag = &src[open..at + label.len()];
+        assert!(
+            !tag.contains("shrink-0"),
+            "the {label} button is `shrink-0` again - it cannot give way, so it \
+             pushes the filter row onto a second line: {tag}"
+        );
+    }
 }

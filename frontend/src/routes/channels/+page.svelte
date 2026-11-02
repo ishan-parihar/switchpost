@@ -8,7 +8,7 @@
   import { onMount, onDestroy } from "svelte";
   import { toast } from "$lib/stores/toast";
   import { realtime } from "$lib/stores/realtime";
-  import { groupIntegrations } from "$lib/channels/group-integrations";
+  import { groupIntegrations, groupHeading } from "$lib/channels/group-integrations";
   import ChannelCard from "$lib/channels/ChannelCard.svelte";
   import ProviderIcon from "$lib/channels/ProviderIcon.svelte";
   import ConnectFlow from "$lib/channels/ConnectFlow.svelte";
@@ -45,7 +45,7 @@
   // Calendar, Drive and YouTube keep their own tiles because Google refuses
   // their scope combinations. See the module for the measured reasoning -
   // `tests/google_suite_group_test.rs` pins both the list and the reason.
-  import { collapseGoogleSuite, GOOGLE_SUITE_NOTE } from "$lib/channels/google-suite";
+  import { collapseGoogleSuite, GOOGLE_SUITE_NOTE, isGoogleFamily, googleSuiteChoices, GOOGLE_SUITE_CHOICE_LABELS } from "$lib/channels/google-suite";
   const PROVIDER_LABEL_OVERRIDES: Record<string, string> = {
     x: "X (Twitter)",
     "instagram-standalone": "Instagram (Standalone)",
@@ -141,14 +141,14 @@
   });
   let connectableProviders = $derived(collapseGoogleSuite(availableProviders).standalone);
 
-  // How many Google-family accounts the founder has, across BOTH the suite
-  // tile and the separate Google tiles. The suite tile's "N connected" badge
-  // has to describe the credential pair, not just `google`, or a founder with
-  // a connected Gmail sees "Connect Google" and thinks their account is gone.
+  // How many Google-family accounts the founder has, under the ONE suite
+  // tile. The badge has to describe the whole credential pair, not just
+  // `google`, or a founder with a connected Gmail and a connected Calendar
+  // sees two separate tiles and thinks the account is gone.
   let suiteConnected = $derived.by(() => {
     let n = 0;
     for (const i of integrations) {
-      if (i.provider_identifier === 'google' || i.provider_identifier === 'gmail') n++;
+      if (isGoogleFamily(i.provider_identifier)) n++;
     }
     return n;
   });
@@ -364,7 +364,7 @@
     {:else}
       {#each [...groups.entries()] as [name, ints] (name)}
         <div class="mb-4 last:mb-0">
-          <div class="text-xs text-muted px-1 mb-1">{name} ({ints.length})</div>
+          <div class="text-xs text-muted px-1 mb-1">{groupHeading(name, ints)} ({ints.length})</div>
           <!-- F4: <ul> because ChannelCard renders an <li>; the list semantics
                let a screen reader announce the item count before reading rows. -->
           <ul class="page-enter space-y-0.5">
@@ -397,31 +397,65 @@
         {#each connectableProviders as provider (provider)}
           {@const isSuite = provider === SUITE_REPRESENTATIVE}
           {@const connCount = isSuite ? suiteConnected : (connectedCounts.get(provider) ?? 0)}
-          <button
-            onclick={() => initiateConnect(provider)}
-            disabled={connecting === provider}
-            aria-label="Connect another {providerLabel(provider)}{connCount > 0 ? ` (${connCount} connected)` : ''}"
-            class="relative flex flex-col items-center gap-2 p-4 bg-background-input border border-line rounded-xl hover:border-accent/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {#if connCount > 0}
-              <span class="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded-full border border-line text-muted bg-surface">
-                {connCount} connected
+          <!--
+            A wrapper `div` for the EVERY case, not just the suite: the
+            chooser below is a sibling of the tile button, never a child.
+            A `<button>` inside a `<button>` is invalid HTML - the browser
+            repairs it on parse, which produces a hydration mismatch and a
+            warning that hides real defects.
+          -->
+          <div class="relative">
+            <button
+              onclick={() => initiateConnect(provider)}
+              disabled={connecting === provider}
+              aria-label="Connect another {providerLabel(provider)}{connCount > 0 ? ` (${connCount} connected)` : ''}"
+              class="w-full h-full relative flex flex-col items-center gap-2 p-4 bg-background-input border border-line rounded-xl hover:border-accent/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {#if connCount > 0}
+                <span class="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded-full border border-line text-muted bg-surface">
+                  {connCount} connected
+                </span>
+              {/if}
+              <ProviderIcon {provider} size="lg" />
+              <span class="text-xs text-center">
+                {connCount > 0 ? `Add another ${providerLabel(provider)}` : providerLabel(provider)}
               </span>
-            {/if}
-            <ProviderIcon {provider} size="lg" />
-            <span class="text-xs text-center">
-              {connCount > 0 ? `Add another ${providerLabel(provider)}` : providerLabel(provider)}
-            </span>
+              {#if isSuite}
+                <!--
+                  What the one credential covers. WITHOUT the chooser below,
+                  the founder sees one Google tile covering only Google+Gmail
+                  while Calendar/Drive/YouTube sit nowhere, and reads it as a
+                  bug. It is a platform constraint, not an omission.
+                -->
+                <span class="text-[10px] text-muted leading-tight px-1">{GOOGLE_SUITE_NOTE}</span>
+              {/if}
+            </button>
+
             {#if isSuite}
               <!--
-                The reason the group exists, under the tile. Without it the
-                founder sees one Google tile covering only Google+Gmail while
-                Calendar/Drive/YouTube sit beside it with their own tiles, and
-                reads it as a bug. It is a platform constraint, not an omission.
+                The services the Google credential can connect. The grid
+                collapsed the whole Google family into ONE tile - Calendar,
+                Drive, YouTube and Google Biz are no longer separate tiles -
+                so this is what keeps each of them REACHABLE. Each entry runs
+                its own OAuth round because Google refuses certain scope pairs
+                together (`GOOGLE_CONFLICTING_SCOPE_FAMILIES`), but the
+                founder picks from here rather than hunting six tiles.
               -->
-              <span class="text-[10px] text-muted leading-tight px-1">{GOOGLE_SUITE_NOTE}</span>
+              <div class="flex flex-wrap justify-center gap-1 pt-1.5">
+                {#each googleSuiteChoices() as g}
+                  <button
+                    type="button"
+                    onclick={() => initiateConnect(g)}
+                    disabled={connecting === g}
+                    aria-label="Connect {GOOGLE_SUITE_CHOICE_LABELS[g] ?? g}"
+                    class="text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors disabled:opacity-40"
+                  >
+                    {GOOGLE_SUITE_CHOICE_LABELS[g] ?? providerLabel(g)}
+                  </button>
+                {/each}
+              </div>
             {/if}
-          </button>
+          </div>
         {/each}
       </div>
     {/if}

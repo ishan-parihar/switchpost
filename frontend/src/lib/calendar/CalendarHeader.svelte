@@ -52,17 +52,25 @@
   // nav group's own border box at 40px, and both the selects and the group
   // render 40px at 1440, so no control in this row sticks out of the line.
   //
-  // `min-w-[120px]` is measured, not decorative: the selects come out 120px
-  // wide with the shortest label and grow, which is why the row wraps.
+  // The filter selects come out 120px wide with the shortest label and grow,
+  // which is measured, not decorative.
   //
-  // THE ROW WRAPS ANYWAY - 88px over TWO rows, measured at 1440, 1600, 1920
-  // and 2560. It is not short of width: `max-w-6xl` in +layout.svelte caps the
-  // row at 1040px at every one of those viewports, and it still wraps. The
-  // equal 40px heights keep the wrap clean (two aligned lines, not a ragged
-  // edge) - they do not prevent it. An earlier version of this comment claimed
-  // "the row is one line tall" on the strength of the heights matching, and
-  // the rendered app contradicted it at every width tested.
-  const selectClass = "h-10 min-w-[120px] px-2 bg-background-input border border-line rounded-lg text-xs text-content focus:outline-none focus:border-accent";
+  // THAT 120px USED TO BE A FLOOR, AND THE FLOOR WAS THE BUG. A comment sat
+  // here recording "the row wraps anyway - 88px over TWO rows, measured at
+  // 1440, 1600, 1920 and 2560... the equal 40px heights keep the wrap clean
+  // (two aligned lines, not a ragged edge) - they do not prevent it." That is
+  // a defect being described as a design property. The row wrapped because
+  // three selects each had a hard floor and the two action buttons were
+  // `shrink-0`: the row's minimum content width was about 1040px, against a
+  // box that is 1040px at its widest and about 700px when the channel rail is
+  // expanded. It wrapped worse exactly when the founder widened the rail.
+  // The floor is gone - the selects use a `w-[7.5rem]` BASIS with `min-w-0`,
+  // and the actions carry `truncate` - so the row keeps its equal heights AND
+  // its one line. The old comment's mistake was reading "aligned" as "fine"
+  // and stopping there; the one before that claimed the row was one line tall
+  // on the strength of the heights matching, and the rendered app contradicted
+  // it at every width tested.
+  const selectClass = "h-10 min-w-[120px] w-[7.5rem] px-2 bg-background-input border border-line rounded-lg text-xs text-content focus:outline-none focus:border-accent";
 </script>
 
 <!-- C-2: ONE row, in postiz's order. The three rows this replaces were
@@ -80,15 +88,32 @@
      the number is spelled out as past tense and the current number is too.
 
      What is left is the date range as the title, the nav, the filters, the
-     view switcher, and the two actions - on one line that wraps to at most
-     two rows at 768. READ THAT WITH CARE: the wrap is not a small-screen
-     behaviour. Measured 2026-10-31 the header is 88px over TWO rows at 1440,
-     1600, 1920 and 2560 as well - `max-w-6xl` caps it at 1040px at every one
-     of those, and there is more content than that holds. Two rows is what it
-     is everywhere; "at 768" was measuring the width where it was first
-     noticed, not where it starts. Nothing here reaches for `new Date(...)`:
-     the range still resolves through `wallClockToUtc` in the page (AGENTS.md
-     9.17). -->
+     view switcher, and the two actions - on ONE line, at the calendar's real
+     width.
+
+     A comment sat here saying the row "is 88px over TWO rows at 1440, 1600,
+     1920 and 2560 as well" and calling that what the design is. That was a
+     defect recorded as a fact. The header's minimum content width was about
+     1040px - three filter selects that each refused to shrink below a fixed
+     120px floor, plus two action buttons pinned at full size - while this
+     box is `max-w-6xl` capped at 1040px at its widest,
+     and about 700px when the channel rail beside it is expanded. So it
+     wrapped everywhere, and it wrapped into a THIRD line precisely when the
+     founder widened the channel rail - the "expanding the columns distorts
+     the calendar" bug this row was fixed for. The number was true and the
+     conclusion drawn from it was wrong: two rows was never the design, it
+     was the bug.
+
+     The fix lets the flexible parts flex: the three selects take a
+     `w-[7.5rem]` basis with `min-w-0` instead of a 120px floor, and the two
+     action buttons carry `min-w-0 truncate` instead of `shrink-0`. The nav
+     group and the view switcher keep `shrink-0` deliberately: they hold
+     "Week of October 31" and "Day/Week/Month", where truncating destroys
+     the meaning rather than the overflow. Min-content drops to about 524px,
+     which fits beside an expanded rail.
+
+     Nothing here reaches for `new Date(...)`: the range still resolves
+     through `wallClockToUtc` in the page (AGENTS.md 9.17). -->
 <div class="flex items-center flex-wrap gap-x-2 gap-y-2">
   <!-- The nav arrows and the date are ONE bordered group, so the date reads
        as the thing being navigated rather than a title sitting between two
@@ -126,8 +151,10 @@
     >Today</button>
   </div>
 
-  <!-- v24-2: channel filter. Native semantics kept; only the geometry is
-       uniform now (h-10 + min-w), which is what makes the row read as a set. -->
+  <!-- v24-2: channel filter. Native semantics kept; the geometry is a
+       `w-[7.5rem]` BASIS with `min-w-0`, not a 120px floor - a floor is what
+       set this row's minimum content width above the calendar's width, and
+       forced the wrap. -->
   {#if integrations.length > 0 && onIntegrationFilter}
     <select
       value={selectedIntegrationId ?? ""}
@@ -186,18 +213,21 @@
   </div>
 
   <!-- The two actions live here now, not in a second row above. They were on
-       their own 44px line that existed only to carry them. -->
+       their own 44px line that existed only to carry them. They are
+       `min-w-0 truncate`, NOT `shrink-0`: an action that cannot give way is
+       what pushed this row onto a second line. The `title` keeps the full
+       label reachable when the text is truncated. -->
   {#if onGenerate}
     <button
       onclick={onGenerate}
-      class="h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors shrink-0"
+      class="h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors min-w-0 truncate"
       title="Generate multiple posts from a topic using AI"
     >Generate Posts</button>
   {/if}
   {#if onNewPost}
     <button
       onclick={onNewPost}
-      class="h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors shrink-0"
+      class="h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors min-w-0 truncate"
     >+ New Post</button>
   {/if}
 </div>

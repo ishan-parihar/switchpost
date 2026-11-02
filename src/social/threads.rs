@@ -64,6 +64,14 @@ impl SocialProvider for ThreadsProvider {
         true
     }
 
+    /// Meta REFUSES an `http://` redirect URI for Threads. The gate that
+    /// surfaces this lives in `api::integrations::connect`; see
+    /// `SocialProvider::requires_https_redirect` for why the URL is checked
+    /// before the founder is sent to the consent screen.
+    fn requires_https_redirect(&self) -> bool {
+        true
+    }
+
     async fn generate_auth_url(
         &self,
         state: &str,

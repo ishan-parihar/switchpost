@@ -52,18 +52,18 @@ fn eval_module(expr: &str) -> String {
         r#"
 import {{
   GOOGLE_SUITE_GROUP, GOOGLE_SEPARATE_PROVIDERS, GOOGLE_FAMILY_PROVIDERS,
-  isGoogleSuiteMember, isGoogleFamily, collapseGoogleSuite,
+  isGoogleSuiteMember, isGoogleFamily, collapseGoogleSuite, googleSuiteChoices,
 }} from '{module}';
 
 const expr = process.argv[1];
 const fn = new Function(
   'GOOGLE_SUITE_GROUP','GOOGLE_SEPARATE_PROVIDERS','GOOGLE_FAMILY_PROVIDERS',
-  'isGoogleSuiteMember','isGoogleFamily','collapseGoogleSuite',
+  'isGoogleSuiteMember','isGoogleFamily','collapseGoogleSuite','googleSuiteChoices',
   'return (' + expr + ')'
 );
 const out = fn(
   GOOGLE_SUITE_GROUP, GOOGLE_SEPARATE_PROVIDERS, GOOGLE_FAMILY_PROVIDERS,
-  isGoogleSuiteMember, isGoogleFamily, collapseGoogleSuite
+  isGoogleSuiteMember, isGoogleFamily, collapseGoogleSuite, googleSuiteChoices
 );
 process.stdout.write(JSON.stringify(out));
 "#,
@@ -238,16 +238,14 @@ fn youtube_is_never_in_the_group() {
             .as_array()
             .expect("array")
             .contains(&serde_json::json!("youtube")),
-        "YouTube must NOT be in the suite group: Google's authorize endpoint \
-         refuses a YouTube scope beside a Drive or a calendar.events scope, \
-         which would break the other four providers rather than add a fifth"
+        "YouTube must NOT be in the suite GROUP: Google's authorize endpoint \
+         refuses a YouTube scope beside a Drive or a calendar.events scope, so \
+         YouTube cannot share google's single consent request"
     );
     assert!(
-        json("GOOGLE_SEPARATE_PROVIDERS")
-            .as_array()
-            .expect("array")
-            .contains(&serde_json::json!("youtube")),
-        "YouTube must be listed as separate, so it still gets its own tile"
+        is_google_family("youtube"),
+        "YouTube must still be Google-FAMILY, so the collapsed suite tile \
+         offers it as a choice rather than losing it"
     );
 }
 
@@ -287,28 +285,67 @@ fn the_grid_collapses_google_providers_into_one_suite_tile() {
 
     // `google` stands in at its own first position, so the grid's order is
     // preserved rather than reshuffled - the founder's learned layout holds.
-    // Only `gmail` collapses into the suite tile; `calendar` and `drive` keep
-    // their own tiles because their scopes conflict with google's YouTube
-    // grant.
+    //
+    // ── WHAT CHANGED, AND WHY ────────────────────────────────
+    // This test used to assert that `youtube`, `calendar` and `drive` keep
+    // their OWN tiles beside the suite tile. The founder reported that as
+    // the bug: one client id/secret, one `social/google_oauth.rs`, and SIX
+    // tiles on the connect grid - "we have a unified google-suite options,
+    // but redundant gmail, drive, calendar options too on the frontend."
+    //
+    // The grid now presents ONE tile for the whole family, and the sibling
+    // services are offered as choices WITHIN that tile (see
+    // `googleSuiteChoices()`). The consent constraints that made this test
+    // defensive are unchanged and still pinned below - what changed is only
+    // how many tiles they are offered behind, not how many consents they
+    // need.
     assert_eq!(
         standalone,
         vec![
             "x".to_string(),
             "facebook".to_string(),
-            "google".to_string(), // the suite tile, at google's position
+            "google".to_string(), // the one suite tile, at google's position
             "reddit".to_string(),
-            "youtube".to_string(), // separate, untouched
-            "calendar".to_string(), // separate: calendar.events conflicts
-            "drive".to_string(),   // separate: Drive conflicts
             "linkedin".to_string(),
         ],
-        "the suite members must collapse to one tile in the FIRST member's \
-         position, and every non-suite provider must survive"
+        "the whole Google family must collapse to one tile in the FIRST \
+         member's position, and every non-Google provider must survive"
     );
     assert_eq!(
-        out["suiteMemberCount"], 2,
-        "both suite members must be counted, not just the first"
+        out["suiteMemberCount"], 5,
+        "all five Google-family providers in the input must be counted into \
+         the tile, not just the two that share one consent"
     );
+}
+
+/// The collapsed members must stay REACHABLE: the tile offers each one as a
+/// choice, so collapsing the grid cannot make a provider impossible to
+/// connect. This is the guard that makes the collapse safe rather than a
+/// shortcut - a member that vanishes here is a member the founder cannot
+/// connect at all.
+#[test]
+fn the_collapsed_members_are_still_reachable_as_suite_choices() {
+    let choices = json("googleSuiteChoices()");
+    let choices: Vec<String> = choices
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|v| v.as_str().expect("string").to_string())
+        .collect();
+
+    // The representative (`google`) is the tile itself, so it must not also
+    // appear as a choice - and every other family member must.
+    assert!(
+        !choices.contains(&"google".to_string()),
+        "the tile's own representative must not be duplicated as a choice"
+    );
+    for required in ["gmail", "calendar", "drive", "youtube", "google_my_business"] {
+        assert!(
+            choices.contains(&required.to_string()),
+            "'{required}' collapsed into the tile but is not offered as a \
+             choice, so it became unreachable"
+        );
+    }
 }
 
 /// The empty and no-Google cases: the collapse must be a no-op, so a

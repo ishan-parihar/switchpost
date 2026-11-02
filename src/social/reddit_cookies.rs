@@ -116,28 +116,57 @@ pub fn is_cookie_auth(token: &str) -> bool {
     parse_cookie_token(token).is_some()
 }
 
-/// Parse a raw cookie header string into components
+/// Parse a raw cookie paste into Reddit's components.
+///
+/// THE PARSE GOES THROUGH THE SHARED `cookie_paste` PARSER (§9: one
+/// implementation per rule, on both sides of the wire). The old body was a
+/// bare `split(';')` + `split_once('=')` loop, which failed on every paste
+/// shape a browser's devtools actually emits — newline lists, the JSON
+/// "Copy as JSON" export, a pasted `Cookie:` header, quoted values and
+/// percent-encoded names. The failure was not a clear refusal: a JSON blob
+/// that CONTAINED `reddit_session` passed the old `reddit_session?` guard
+/// with a session value that was really `[{`, and the handler then answered
+/// a 502 that a reverse proxy rewrites into an HTML error page.
+///
+/// The validation header is REBUILT from the parsed names, so the upstream
+/// request carries exactly the cookies Reddit needs and nothing else — a
+/// paste that arrives wrapped in JSON never sends JSON upstream.
 pub fn parse_cookie_string(cookie_str: &str) -> Option<ExtractedRedditCookies> {
-    let mut reddit_session = None;
-    let mut token_v2 = None;
+    use crate::social::cookie_paste::{parse_cookie_paste, rebuild_cookie_header};
 
-    for part in cookie_str.split(';') {
-        let part = part.trim();
-        if let Some((k, v)) = part.split_once('=') {
-            match k.trim() {
-                "reddit_session" => reddit_session = Some(v.trim().to_string()),
-                "token_v2" => token_v2 = Some(v.trim().to_string()),
-                _ => {}
-            }
-        }
-    }
+    let paste = parse_cookie_paste(cookie_str)?;
 
-    let session = reddit_session?;
+    let reddit_session = paste
+        .cookies
+        .get("reddit_session")
+        .filter(|v| !v.is_empty())
+        .cloned()
+        .or_else(|| {
+            // `token_v2` alone is a valid Reddit auth: the browser walk
+            // accepted it (`map_reddit_rows`), so a manual paste must too.
+            paste.cookies.get("token_v2").filter(|v| !v.is_empty()).cloned()
+        })?;
+
+    let token_v2 = paste.cookies.get("token_v2").cloned();
+
+    // Rebuild the header from what we actually parsed, keeping every cookie
+    // Reddit's own state may read (the browser walk's `REDDIT_SPEC` names
+    // plus the two auth cookies) rather than echoing the raw paste.
+    let wanted = &[
+        "reddit_session",
+        "token_v2",
+        "csrf_token",
+        "loid",
+        "session_tracker",
+        "edgebucket",
+    ];
+    let cookie_string = rebuild_cookie_header(&paste.cookies, wanted);
+
     Some(ExtractedRedditCookies {
-        reddit_session: session,
+        reddit_session,
         token_v2,
-        cookie_string: cookie_str.to_string(),
-        source: "manual".into(),
+        cookie_string,
+        source: format!("manual ({})", paste.format.label()),
     })
 }
 

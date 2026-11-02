@@ -57,9 +57,26 @@
   function watchPopup(): () => void {
     const onMessage = (e: MessageEvent) => {
       if (e.data?.type === "oauth-connected") {
+        // ─── THE POPUP'S VERDICT IS NOT ALWAYS SUCCESS ──────────
+        // The callback page posts this one event for BOTH outcomes, with
+        // a `success` flag. The old listener only looked at the TYPE, so a
+        // failed OAuth (a provider rejection, a redirect_uri mismatch, an
+        // expired consent) reported "Connected" to the founder — which is
+        // exactly what the Threads login-error report described: nothing
+        // happened, and no error was shown anywhere.
+        //
+        // Only a `success: true` closes the dialog and calls onSuccess. A
+        // failure keeps the dialog open and shows the provider's own
+        // message, so the next attempt starts from what actually went
+        // wrong.
         cleanup();
-        phase = "done";
-        onSuccess?.();
+        if (e.data.success) {
+          phase = "done";
+          onSuccess?.();
+        } else {
+          phase = "idle";
+          errorMsg = e.data.error || "The sign-in did not complete. Close this and try again.";
+        }
       }
     };
     window.addEventListener("message", onMessage);

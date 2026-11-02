@@ -126,7 +126,22 @@ export const GOOGLE_SUITE_LABEL = 'Google Suite';
  * is not in here - otherwise the tile looks broken.
  */
 export const GOOGLE_SUITE_NOTE =
-  'One login for Gmail and Calendar, plus YouTube through the same account. Drive needs its own - Google refuses Drive and YouTube together.';
+  'One tile for the whole Google account. Google refuses some scope pairs together, so Calendar, Drive, YouTube and Google Biz each run their own consent - pick one below.';
+
+/**
+ * The label each suite choice shows in the chooser, so the founder sees the
+ * service name rather than the internal provider id.
+ *
+ * Kept here rather than in the page so the label and the provider id cannot
+ * drift apart, and so a test can assert every choice has a label.
+ */
+export const GOOGLE_SUITE_CHOICE_LABELS: Record<string, string> = {
+  gmail: 'Gmail',
+  calendar: 'Calendar',
+  drive: 'Drive',
+  youtube: 'YouTube',
+  google_my_business: 'Google Business Profile',
+};
 
 /** Is this provider one of the suite group's members? */
 export function isGoogleSuiteMember(provider: string): boolean {
@@ -153,14 +168,25 @@ export const GOOGLE_SUITE_REPRESENTATIVE = 'google';
 /**
  * Expand a provider list into what the connect grid should render.
  *
- * The five Google-family entries collapse into ONE suite entry; every other
- * provider passes through unchanged. Input order is preserved, and the suite
- * entry takes the position of its first member so the grid does not reshuffle
- * when the grouping lands.
+ * ── THE REDUNDANCY THIS REMOVES ────────────────────────────────
+ * The grid used to show FIVE Google-family tiles (Google, Gmail,
+ * Calendar, Drive, YouTube) plus Google Biz. All six resolve to the SAME
+ * client id/secret in `Config::provider_credentials` and the SAME
+ * `social/google_oauth.rs`; the difference between them is only which
+ * SCOPES that one credential asks for. Offering six tiles for one
+ * credential reads to the founder as six separate logins - the redundancy
+ * this collapses.
+ *
+ * ── WHAT THE COLLAPSE DOES NOT DO ──────────────────────────────
+ * It does NOT merge the consents. Google refuses certain scope pairs
+ * (`GOOGLE_CONFLICTING_SCOPE_FAMILIES`), so Calendar, Drive and YouTube
+ * still run their own OAuth round. The tile opens a chooser for the
+ * family, so every provider stays reachable with one click - the group is
+ * a PRESENTATION of the union, not a replacement.
  *
  * Exported so a test can assert the shape without rendering the page: the
- * grid is a pure function of the provider list, and the pure function is the
- * thing worth pinning.
+ * grid is a pure function of the provider list, and the pure function is
+ * the thing worth pinning.
  */
 export function collapseGoogleSuite(
   providers: readonly string[],
@@ -168,9 +194,10 @@ export function collapseGoogleSuite(
   const standalone: string[] = [];
   let suiteMemberCount = 0;
   for (const p of providers) {
-    if (isGoogleSuiteMember(p)) {
+    if (isGoogleFamily(p)) {
       suiteMemberCount += 1;
-      // The suite tile stands in at the FIRST member's position.
+      // The one suite tile stands in at the FIRST Google-family member's
+      // position, so the grid does not reshuffle when the grouping lands.
       if (suiteMemberCount === 1) standalone.push(GOOGLE_SUITE_REPRESENTATIVE);
       continue;
     }
@@ -180,10 +207,14 @@ export function collapseGoogleSuite(
 }
 
 /**
- * The service chips a suite tile shows, so the founder sees what one login
- * covers before clicking. Derived from the group, not hand-listed, so adding
- * a member updates the chips automatically.
+ * The Google-family providers the suite tile offers, in the order the
+ * chooser shows them.
+ *
+ * Derived from the family list rather than hand-written, so a provider
+ * added to `GOOGLE_FAMILY_PROVIDERS` appears here automatically. This is
+ * the list that keeps every member REACHABLE after the grid collapses
+ * them into one tile.
  */
-export function googleSuiteMembers(): readonly string[] {
-  return GOOGLE_SUITE_GROUP;
+export function googleSuiteChoices(): readonly string[] {
+  return GOOGLE_FAMILY_PROVIDERS.filter((p) => p !== GOOGLE_SUITE_REPRESENTATIVE);
 }

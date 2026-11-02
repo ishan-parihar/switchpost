@@ -233,42 +233,79 @@ Every item is a design preference this repo has already declared
 
 ---
 
-## 5. The overflow fix, which is in this changeset and is done
+## 5. Two overflow fixes, and which one the report was about
 
-Separate from the plan, because it is a defect rather than a feature.
+Both are in this changeset. They are separate defects, and naming them apart
+matters because the first one I fixed was not the one that was reported.
 
-**What was wrong.** `frontend/src/lib/channels/ChannelRail.svelte` rendered
-its expanded row's action cluster as
-`absolute end-1 top-1/2 -translate-y-1/2`, while the name block next to it was
+### 5.1 The channel rail's action buttons sat on top of the channel name
+
+`frontend/src/lib/channels/ChannelRail.svelte` rendered its expanded row's
+action cluster as an absolutely positioned overlay, beside a name block of
 `min-w-0 flex-1` with `truncate`.
 
 An absolutely positioned element does not participate in flex sizing, so the
 name block could never be shrunk by it. The two 44px buttons were drawn on
-top of the channel name, which is what the founder reported as "the buttons
-overflow in two two rows distorting the calendar preview".
+top of the channel name. The mobile bottom-sheet variant already had the
+correct shape (cluster in flow), which is why only the desktop rail was wrong.
 
-**The fix.** The cluster is now an in-flow flex sibling, and the select went
-from `w-full` to `min-w-0 flex-1`. The cluster's 92px is now taken out of the
-row by layout, and the name's `truncate` does the job it was already written
-to do. The bottom-sheet variant already had this shape, which is why only the
-desktop rail was wrong.
+The fix puts the cluster in flow, and the select goes from `w-full` to
+`min-w-0 flex-1`. The cluster's 92px comes out of the row by layout, and the
+name's `truncate` does the job it was written to do.
 
-**Proof, both directions** (tests/channels_grid_multi_account_test.rs,
-`the_rails_action_cluster_is_in_flow_not_overlaid`):
+### 5.2 The calendar header wrapped into two and then three rows - THE REPORT
 
-- With the `absolute …` restored: **FAILED**, with the mechanism named.
-- With the fix: **6/6 green**.
+After 5.1 shipped, re-reading the report said *"expanding the columns of the
+channels in the calendar view"*. Widening the rail costs the calendar width:
+`max-w-6xl` caps the page at 1040px, and with the global rail (80px) plus an
+expanded channel rail (260px) the calendar is left about 700px.
 
-Note the assertion is over comment-stripped source — the same trap that made
-the `Add another` guard mutation-blind earlier in this cycle. A comment
-repeating the phrase would satisfy a naive `src.contains`.
+`CalendarHeader.svelte`'s filter row is `flex-wrap`, so it only stays on one
+line while its MIN-CONTENT fits the box. That floor was about 1040px - three
+filter selects each with `min-w-[120px]`, plus two action buttons at
+`shrink-0`. So the row wrapped at every viewport, and wrapped into a THIRD
+line precisely when the founder widened the channel rail. That is the reported
+bug, and 5.1 did not touch it.
 
-**Siblings checked, not changed:** the calendar grids are already guarded
-(`WeekView`'s root carries `overflow-x-auto` + a 640px floor, and
-`MonthView`/`ListView` carry it too — v25 F5); the other `w-full` uses in
-`frontend/src/lib/channels/` are in full-width form contexts, not flex rows
-with siblings, so they cannot overflow. `MediaCarousel`'s centred arrows are
-nav chrome, not text overlap.
+The fix gives the flexible parts the ability to flex: the selects take a
+`w-[7.5rem]` basis with `min-w-0`, and the actions carry `min-w-0 truncate`.
+The nav group and the view switcher keep `shrink-0` deliberately - they hold
+"Week of October 31" and "Day/Week/Month", where truncating destroys the
+meaning rather than the overflow. Min-content drops to about 524px, which fits
+beside an expanded rail.
+
+**The trap worth carrying.** A comment in that file already recorded the
+wrap, verbatim: *"the header is 88px over TWO rows at 1440, 1600, 1920 and
+2560 as well ... Two rows is what it is everywhere."* The measurement was
+accurate and the conclusion was wrong. It read "the wrap is aligned, not
+ragged" as "the wrap is fine" and stopped - so a defect was written down as a
+design property, and it survived the pass that produced this plan. **A
+measurement is evidence; only the thing done about it is a judgement.**
+
+That is also why the tests below read comment-STRIPPED source. The comment
+that rationalised the bug contains the very class name the guard forbids, so
+a naive `src.contains` would have been satisfied by the documentation of the
+defect.
+
+### 5.3 Proof, both directions
+
+`tests/channels_grid_multi_account_test.rs`:
+
+| Test | Mutation that reds it |
+|---|---|
+| `the_rails_action_cluster_is_in_flow_not_overlaid` | the cluster back to `absolute end-1…` |
+| `the_calendar_header_fits_beside_an_expanded_channel_rail` | any select back to a 120px floor, or either action back to `shrink-0` |
+
+Both green with the fixes in place.
+
+### 5.4 Siblings checked, not changed
+
+The calendar grids already carry `overflow-x-auto` plus a min-width floor
+(v25 F5 - WeekView root 640px, MonthView/ListView too). The other `w-full`
+uses under `frontend/src/lib/channels/` are in full-width form fields, not
+flex rows with siblings. `MediaCarousel`'s centred arrows are nav chrome, not
+text overlap. `ChannelQuickMenu` is `w-56` in its own layer, so it cannot
+wrap against a flex row.
 
 ---
 

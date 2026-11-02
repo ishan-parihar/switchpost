@@ -7,6 +7,7 @@ pub mod bluesky;
 pub mod browser_cookies;
 pub mod calendar;
 pub mod common;
+pub mod cookie_paste;
 pub mod devto;
 pub mod discord;
 pub mod drive;
@@ -517,6 +518,31 @@ pub trait SocialProvider: Send + Sync {
     /// Custom fields for OAuth config
     async fn custom_fields(&self) -> Vec<CustomField> {
         vec![]
+    }
+
+    /// Does this provider REFUSE an `http://` OAuth redirect_uri?
+    ///
+    /// ─── THE DEFECT THIS CLOSES ────────────────────────────────
+    /// Meta's Threads (and Instagram) reject an `http://` redirect URI
+    /// outright — Google's docs and ours both say so, and
+    /// `.env.example:21-24` documents it — but nothing ENFORCED it. The
+    /// server happily generated
+    ///
+    ///     https://www.threads.net/oauth/authorize?...
+    ///         &redirect_uri=http%3A%2F%2F127.0.0.1%3A6543%2Fapi%2Fauth%2Fcallback
+    ///
+    /// when `APP_URL` was `http://…`, the founder completed the consent
+    /// screen, and Meta answered the callback with
+    /// `?error=invalid_request&error_description=…redirect_uri…`. That came
+    /// back to the OAuth callback page as the single word the founder
+    /// reported: a "login-error" with no indication the fix was to serve the
+    /// app over HTTPS.
+    ///
+    /// The default is `false` because most providers accept http on a
+    /// loopback dev instance. Only the providers that demonstrably refuse it
+    /// override this to `true`.
+    fn requires_https_redirect(&self) -> bool {
+        false
     }
 
     /// Extension cookies needed (for Chrome extension providers like Skool)

@@ -86,18 +86,24 @@ fn map_x_rows(rows: &[CookieRow]) -> Option<(String, String, String)> {
 /// `(auth_token, ct0, cookie_string)` — the tuple shape every caller
 /// (onboard paste flow, CLI, setup tools) destructures positionally.
 pub fn parse_cookie_string(cookie_str: &str) -> Option<(String, String, String)> {
-    let mut auth_token = None;
-    let mut ct0 = None;
-    for part in cookie_str.split(';') {
-        if let Some((k, v)) = part.trim().split_once('=') {
-            match k.trim() {
-                "auth_token" => auth_token = Some(v.trim().to_string()),
-                "ct0" => ct0 = Some(v.trim().to_string()),
-                _ => {}
-            }
-        }
-    }
-    Some((auth_token?, ct0?, cookie_str.to_string()))
+    // THE SHARED PARSER, not a second `split(';')` loop. X's cookie paste is
+    // the same surface as Reddit's and had the same blind spot: a devtools
+    // JSON export or a newline-separated list yielded no `auth_token`, and the
+    // caller answered "missing cookie" with no hint that the paste had
+    // actually arrived in a shape it could have read.
+    use crate::social::cookie_paste::{parse_cookie_paste, rebuild_cookie_header};
+
+    let paste = parse_cookie_paste(cookie_str)?;
+
+    let auth_token = paste.cookies.get("auth_token").cloned()?;
+    let ct0 = paste.cookies.get("ct0").cloned()?;
+
+    // Rebuild from the parsed pair, not the raw paste: the upstream request
+    // carries exactly the two cookies X needs, so a quoted or JSON-wrapped
+    // paste does not send its wrapper to X.
+    let cookie_string = rebuild_cookie_header(&paste.cookies, &["auth_token", "ct0"]);
+
+    Some((auth_token, ct0, cookie_string))
 }
 
 /// Build the JSON token blob stored in the integration row

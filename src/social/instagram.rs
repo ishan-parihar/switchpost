@@ -73,6 +73,12 @@ impl SocialProvider for InstagramProvider {
         2200
     }
 
+    /// Meta refuses an `http://` redirect URI for Instagram too — the same
+    /// gate as Threads, in `api::integrations::connect`.
+    fn requires_https_redirect(&self) -> bool {
+        true
+    }
+
     fn validate_media(&self, post: &PostContent) -> Result<(), String> {
         super::validate_media_limits(self.identifier(), post)
     }

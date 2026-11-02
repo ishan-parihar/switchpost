@@ -172,7 +172,6 @@ pub async fn connect(
         }));
     }
 
-    // Generate PKCE and OAuth URL
     let code_verifier = crate::social::common::generate_code_verifier();
     let oauth_state = crate::social::common::generate_state();
     let redirect_uri = crate::social::common::resolve_redirect_uri(
@@ -180,6 +179,26 @@ pub async fn connect(
         &state.config.app_url,
     )
     .map_err(AppError::BadRequest)?;
+
+    // ─── THE HTTPS GATE ────────────────────────────────────────
+    // Refuse a connect that is KNOWN to fail at the provider's consent
+    // screen, before the founder wastes a round trip. Meta rejects an
+    // `http://` redirect URI, and the rejection arrives as
+    // `?error=invalid_request` on the callback page — one opaque word, with
+    // no way to know the URL scheme was the cause.
+    //
+    // This is the check the Threads login-error report needed: it converts
+    // "Connection failed" into a message that names the exact env var to
+    // change.
+    if provider_obj.requires_https_redirect() && !redirect_uri.starts_with("https://") {
+        return Err(AppError::ConnectFailed(format!(
+            "{provider} needs an HTTPS callback URL, but this instance is configured with \
+             '{redirect_uri}' (from APP_URL). Set APP_URL=https://… — the server then \
+             auto-generates a self-signed certificate — or put the instance behind a \
+             reverse proxy / tunnel with a public HTTPS URL. Meta rejects http:// \
+             redirect URIs even for localhost."
+        )));
+    }
 
     tracing::info!("OAuth connect {provider}: redirect_uri={redirect_uri}");
 
@@ -230,10 +249,31 @@ pub async fn oauth_callback(
             .as_deref()
             .unwrap_or("no description");
         tracing::warn!("OAuth provider returned error: {error} — {desc}");
+
+        // ─── REDIRECT-URI MISMATCH, NAMED ──────────────────────
+        // Meta answers a redirect_uri it does not recognise with
+        // `error=invalid_request` and a description that mentions the URI.
+        // The callback page used to show that verbatim, which reads as a
+        // broken server rather than a configuration mismatch. The provider
+        // compares against the URI REGISTERED in its developer console, so
+        // the actionable fix is to make APP_URL match that registration -
+        // and the message now says so.
+        let lowered = desc.to_ascii_lowercase();
+        let message = if lowered.contains("redirect_uri") || lowered.contains("redirect uri") {
+            format!(
+                "{error}: the callback URL this instance uses ({}/api/auth/callback, set by \
+                 APP_URL) does not match the redirect URI registered in the provider's \
+                 developer console. Add or correct that URI there, or change APP_URL.",
+                state.config.app_url.trim_end_matches('/')
+            )
+        } else {
+            format!("{error}: {desc}")
+        };
+
         return Ok(Redirect::to(&format!(
             "{}/auth/callback?error={}",
             app_url,
-            urlencoding::encode(&format!("{error}: {desc}")),
+            urlencoding::encode(&message),
         )));
     }
 
@@ -697,7 +737,11 @@ pub async fn connect_telegram_bot_token(
         .map_err(|e| AppError::Provider(format!("Invalid response: {e}")))?;
 
     if !json["ok"].as_bool().unwrap_or(false) {
-        return Err(AppError::Provider("Invalid bot token".into()));
+        return Err(AppError::ConnectFailed(
+            "Telegram rejected that bot token. Copy the token @BotFather gave you — it looks \
+             like 123456789:AAH... and must be the whole string."
+                .into(),
+        ));
     }
 
     let bot = &json["result"];
@@ -750,15 +794,23 @@ pub async fn whatsapp_pair(
         .trim()
         .to_string();
     if phone.is_empty() || !phone.starts_with('+') {
-        return Err(AppError::BadRequest(
-            "phone_number required in international format (e.g. +1234567890)".into(),
+        return Err(AppError::ConnectFailed(
+            "Enter the phone number in international format, starting with + and the country \
+             code — for example +14155550123."
+                .into(),
         ));
     }
 
     let wa = state
         .wa_client
         .as_ref()
-        .ok_or_else(|| AppError::Provider("WhatsApp client not configured".into()))?;
+        .ok_or_else(|| {
+            AppError::ConnectFailed(
+                "WhatsApp is not configured on this server. Set WHATSAPP_SESSION_PATH (and the \
+                 wa-rs session) or use the WhatsApp Cloud channel with a token instead."
+                    .into(),
+            )
+        })?;
 
     // Force fresh connection for reliable pair code generation
     {
@@ -766,18 +818,24 @@ pub async fn whatsapp_pair(
         locked
             .reconnect()
             .await
-            .map_err(|e| AppError::Provider(format!("WhatsApp connect failed: {e}")))?;
+            .map_err(|e| AppError::ConnectFailed(format!(
+            "Could not start a WhatsApp connection: {e}. If the server's WhatsApp session is \
+             stale, reconnect it from the Channels screen or check WHATSAPP_SESSION_PATH."
+        )))?;
     }
 
     let code = crate::wa::auth::pair_with_code(
         wa,
         crate::wa::auth::PairOptions {
-            phone_number: phone,
+            phone_number: phone.clone(),
             show_push_notification: true,
         },
     )
     .await
-    .map_err(|e| AppError::Provider(format!("Pair code request failed: {e}")))?;
+    .map_err(|e| AppError::ConnectFailed(format!(
+        "Could not get a pairing code: {e}. Check that {phone} has WhatsApp installed and can \
+         receive an SMS."
+    )))?;
 
     Ok(Json(
         serde_json::json!({ "pair_code": code, "expires_in": 180 }),
@@ -789,10 +847,12 @@ pub async fn whatsapp_status(
     State(state): State<AppState>,
     _auth: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let wa = state
-        .wa_client
-        .as_ref()
-        .ok_or_else(|| AppError::Provider("WhatsApp client not configured".into()))?;
+    let wa = state.wa_client.as_ref().ok_or_else(|| {
+        AppError::ConnectFailed(
+            "WhatsApp is not configured on this server. Set WHATSAPP_SESSION_PATH and restart."
+                .into(),
+        )
+    })?;
 
     let locked = wa.lock().await;
     let authenticated = locked.is_authenticated();
@@ -814,19 +874,27 @@ pub async fn telegram_user_request_code(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let phone = body["phone"].as_str().unwrap_or("").trim().to_string();
     if phone.is_empty() {
-        return Err(AppError::BadRequest("phone number required".into()));
+        return Err(AppError::ConnectFailed(
+            "Enter the phone number for your Telegram account, in international format — \
+             for example +14155550123."
+                .into(),
+        ));
     }
 
     let mgr = state.telegram_client_manager.as_ref().ok_or_else(|| {
-        AppError::Provider(
-            "Telegram user client not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH."
+        AppError::ConnectFailed(
+            "Telegram is not configured on this server. Set TELEGRAM_API_ID and \
+             TELEGRAM_API_HASH (from https://my.telegram.org) and restart."
                 .into(),
         )
     })?;
 
     mgr.request_login_code(&phone)
         .await
-        .map_err(|e| AppError::Provider(format!("Failed to send code: {e}")))?;
+        .map_err(|e| AppError::ConnectFailed(format!(
+            "Telegram would not send a code: {e}. Check that {phone} is the number on the \
+             Telegram account and that it can receive an SMS."
+        )))?;
 
     Ok(Json(serde_json::json!({ "status": "code_sent" })))
 }
@@ -839,23 +907,34 @@ pub async fn telegram_user_sign_in(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let code = body["code"].as_str().unwrap_or("").trim().to_string();
     if code.is_empty() {
-        return Err(AppError::BadRequest("verification code required".into()));
+        return Err(AppError::ConnectFailed(
+            "Enter the verification code Telegram sent you.".into(),
+        ));
     }
 
     let mgr = state
         .telegram_client_manager
         .as_ref()
-        .ok_or_else(|| AppError::Provider("Telegram user client not configured".into()))?;
+        .ok_or_else(|| {
+            AppError::ConnectFailed(
+                "Telegram is not configured on this server. Set TELEGRAM_API_ID and \
+                 TELEGRAM_API_HASH (from https://my.telegram.org) and restart."
+                    .into(),
+            )
+        })?;
 
     mgr.sign_in("", &code)
         .await
-        .map_err(|e| AppError::Provider(format!("Sign in failed: {e}")))?;
+        .map_err(|e| AppError::ConnectFailed(format!(
+            "Could not sign in with that code: {e}. Codes expire after a few minutes — press \
+             'Send code' again for a fresh one."
+        )))?;
 
     // Fetch user info and create integration
     let info = mgr
         .user_info()
         .await
-        .map_err(|e| AppError::Provider(format!("Failed to get user info: {e}")))?;
+        .map_err(|e| AppError::ConnectFailed(format!("Failed to get user info: {e}")))?;
 
     let user_id = info["id"].as_i64().unwrap_or(0).to_string();
     let name = info["name"].as_str().unwrap_or("Telegram User").to_string();
@@ -917,26 +996,50 @@ pub async fn connect_x_cookie(
         .header("Authorization", bearer)
         .send()
         .await
-        .map_err(|e| AppError::Provider(format!("X cookie auth failed: {e}")))?;
+        .map_err(|e| AppError::ConnectFailed(format!("Could not reach X: {e}")))?;
 
-    let list: serde_json::Value = resp
-        .json()
+    // Read as TEXT first, exactly as the Reddit path now does: X answers an
+    // unauthenticated cookie with an HTML page, and the old `.json()` turned
+    // that into "X response parse error: error decoding response body" on a
+    // 502 that a proxy rewrites into HTML — unreadable at both layers.
+    let x_text = resp
+        .text()
         .await
-        .map_err(|e| AppError::Provider(format!("X response parse error: {e}")))?;
+        .map_err(|e| AppError::ConnectFailed(format!("Could not read X's reply: {e}")))?;
+    let list: serde_json::Value =
+        serde_json::from_str(&x_text).map_err(|_| {
+            AppError::ConnectFailed(
+                "X did not accept those cookies and answered with a page instead of data. \
+                 Sign in to x.com in this browser, then copy a FRESH auth_token and ct0 — \
+                 both expire."
+                    .to_string(),
+            )
+        })?;
 
     let users = list["users"]
         .as_array()
-        .ok_or_else(|| AppError::Provider("X cookie auth: no users in response".into()))?;
-    let user = users
-        .first()
-        .ok_or_else(|| AppError::Provider("X cookie auth: empty users list".into()))?;
+        .ok_or_else(|| {
+            AppError::ConnectFailed(
+                "X signed you in but returned no account data. Check that the account is not \
+                 restricted."
+                    .into(),
+            )
+        })?;
+    let user = users.first().ok_or_else(|| {
+        AppError::ConnectFailed(
+            "X returned an empty account list for those cookies. Copy a fresh auth_token and \
+             ct0 from a signed-in x.com session."
+                .into(),
+        )
+    })?;
 
     let screen_name = user["screen_name"].as_str().unwrap_or("");
     let user_id_str = user["user_id"].as_str().unwrap_or("");
 
     if screen_name.is_empty() || user_id_str.is_empty() {
-        return Err(AppError::Provider(
-            "X cookie auth: could not determine user".into(),
+        return Err(AppError::ConnectFailed(
+            "X did not return a username for those cookies. Copy a fresh auth_token and ct0."
+                .into(),
         ));
     }
 
@@ -1016,8 +1119,22 @@ pub async fn connect_reddit_cookie(
 
     let parsed = crate::social::reddit_cookies::parse_cookie_string(&body.cookie_string)
         .ok_or_else(|| {
+            // THE FOUNDER-FACING HALF OF THE PARSE FIX. A refusal here used to
+            // say "Could not parse cookie string. Ensure it contains
+            // reddit_session." — correct but useless, because the paste that
+            // failed had usually already been read by the parser into a shape
+            // that simply did not carry `reddit_session`, and the real advice
+            // is about WHERE to copy from.
+            //
+            // Now the message names the shapes that were actually tried, so
+            // the next action is obvious: copy the whole header, or use
+            // devtools' JSON export.
             AppError::BadRequest(
-                "Could not parse cookie string. Ensure it contains reddit_session.".into(),
+                "Could not find Reddit's session cookie in that paste. \
+                 Copy the full Cookie header for www.reddit.com from your browser's \
+                 developer tools (Application → Cookies), or use 'Copy as JSON'. \
+                 Both a one-per-line list and a single header string work."
+                    .into(),
             )
         })?;
 
@@ -1039,10 +1156,55 @@ pub async fn connect_reddit_cookie(
         .send()
         .await
         .map_err(|e| AppError::Provider(format!("Reddit cookie validation failed: {e}")))?;
-    let me: serde_json::Value = me_resp
-        .json()
+
+    let me_status = me_resp.status();
+    let me_text = me_resp
+        .text()
         .await
-        .map_err(|e| AppError::Provider(format!("Reddit response parse error: {e}")))?;
+        .map_err(|e| AppError::Provider(format!("Reddit response read error: {e}")))?;
+
+    // ─── WHY THE BODY IS READ AS TEXT FIRST ────────────────────
+    // This used to call `.json()` straight away and answer a 502 with
+    // "Reddit response parse error: error decoding response body". That
+    // message is unreadable and the STATUS is the same 502 a real outage
+    // produces, so the founder cannot tell a bad paste from a Reddit outage
+    // — and behind a reverse proxy the 502 body is replaced with an HTML
+    // error page, so "Expected JSON ... received HTML" is all that reaches
+    // the browser.
+    //
+    // Reddit answers an unauthenticated /api/me.json with 200 and the body
+    // `{"message": "Unauthorized", "error": 401}` (NOT a 401 status), so a
+    // status check alone would let a bad paste through to the username check
+    // and surface there as "could not authenticate". Reading the text first
+    // lets both be named explicitly.
+    let me: serde_json::Value = if me_text.trim().is_empty() {
+        return Err(AppError::Provider(
+            "Reddit answered with an empty body. The cookie header is probably truncated — \
+             copy the whole header."
+                .into(),
+        ));
+    } else {
+        serde_json::from_str(&me_text).map_err(|_| {
+            let excerpt: String = me_text.chars().take(80).collect();
+            AppError::BadRequest(format!(
+                "Reddit did not accept that cookie header and answered with non-JSON \
+                 ({}): {excerpt}. Copy the full Cookie header for www.reddit.com, or use \
+                 devtools' 'Copy as JSON'.",
+                me_status.as_u16()
+            ))
+        })?
+    };
+
+    // Reddit's own "you are not logged in" body. This is the bad-paste case
+    // and it is a 400 the founder can act on, not a 502.
+    if me.get("error").is_some() || me.get("message").is_some() && me.get("data").is_none() {
+        let reason = me["message"].as_str().unwrap_or("not logged in");
+        return Err(AppError::BadRequest(format!(
+            "Reddit rejected those cookies ({reason}). Sign in to reddit.com in this \
+             browser first, then copy a fresh Cookie header — both reddit_session and \
+             token_v2 expire."
+        )));
+    }
 
     let username = me["data"]["name"].as_str().unwrap_or("unknown");
     if username == "unknown" || username.is_empty() {
@@ -1107,8 +1269,11 @@ pub async fn connect_github_pat(
         .map_err(|e| AppError::Provider(format!("GitHub API error: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(AppError::BadRequest(
-            "Invalid GitHub PAT or insufficient permissions".into(),
+        return Err(AppError::ConnectFailed(
+            "GitHub rejected that token. Create a new Personal Access Token at \
+             https://github.com/settings/tokens with the `repo` and `user` scopes, and paste \
+             the whole `ghp_...` string."
+                .into(),
         ));
     }
 

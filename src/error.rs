@@ -40,6 +40,34 @@ pub enum AppError {
     #[error("Provider error: {0}")]
     Provider(String),
 
+    /// A channel connect was refused because of something the FOUNDER can
+    /// change: a phone number in the wrong format, a bot token Telegram does
+    /// not recognise, a paste with no session cookie, env vars that were
+    /// never set.
+    ///
+    /// ─── WHY THIS IS NOT `Provider` ─────────────────────────────
+    /// `AppError::Provider` maps to HTTP 502 BAD GATEWAY, which means "this
+    /// server could not reach the upstream". It is the right status for a
+    /// provider outage and the WRONG one for a typo.
+    ///
+    /// The status is not cosmetic. A reverse proxy in front of the app
+    /// (Caddy/nginx, per docs/deployment.md) replaces the BODY of a 502 with
+    /// its own HTML error page — so the actionable message this handler wrote
+    /// never reaches the browser. The founder then sees
+    ///
+    ///   "Expected JSON from /api/integrations/connect/telegram-user/
+    ///    request-code but got 502 (received HTML, not JSON — the route
+    ///    likely does not exist or the server is behind a proxy error page)"
+    ///
+    /// which names a MISSING ROUTE for a route that exists and a phone
+    /// number that is simply invalid. The WhatsApp pair route and the
+    /// Telegram request-code route both produced exactly this report.
+    ///
+    /// 400 (Bad request) survives every proxy unrewritten and reaches the
+    /// dialog the founder is looking at.
+    #[error("{0}")]
+    ConnectFailed(String),
+
     /// The stored OAuth grant no longer carries the scopes this integration
     /// needs (a revoked scope, a downgraded app review, an admin that pulled
     /// the permission). Retrying the same token cannot succeed, so the
@@ -200,6 +228,11 @@ impl IntoResponse for AppError {
                 "hash",
             ),
             AppError::Provider(msg) => (StatusCode::BAD_GATEWAY, msg.clone(), "provider"),
+            // A connect the founder can fix themselves is a 400, not a 502 —
+            // see the variant's doc comment for the proxy-body reason.
+            AppError::ConnectFailed(msg) => {
+                (StatusCode::BAD_REQUEST, msg.clone(), "connect_failed")
+            }
             // `self.to_string()` keeps the Display impl the single source of
             // truth for the human message (provider + integration id + hint).
             AppError::ScopeLost { .. } => (StatusCode::CONFLICT, self.to_string(), "scope_lost"),
