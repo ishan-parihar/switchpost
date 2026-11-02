@@ -5890,3 +5890,44 @@ Stage Summary:
 - My calendar fix intact on the remote: none of `CalendarHeader.svelte`,
   the test, or `OUTLINE_REMOTE_CLI.md` were touched by `764c50a`.
 - Records the collision as a pitfall rather than an incident.
+
+---
+Task ID: google-family-glyphs-intent-audit
+Agent: Jcode
+Task: Re-audit the work above against the founder's actual words, and record
+the interpretation I guessed at so it is not invisible.
+
+WHAT THE FOUNDER ACTUALLY SAID
+"Conflict in tag segregation for connected accounts on google-suite/youtube."
+Ambiguous, and I did not ask. I disambiguated by fixing BOTH readings.
+
+READING A (what I changed this cycle): the connected-account AVATARS collide.
+Three indistinguishable "GO" glyphs, from FOUR independent copies of the
+glyph rule. Closed and measured: 6 of 6 Google-family codes distinct.
+
+READING B (landed earlier this cycle, NOT in the diff above): the google-suite
+connect flow's GROUPING - collapseGoogleSuite over the whole family, one
+heading per provider_identifier. Already shipped and green.
+
+READING C, which I did NOT cover and should be asked about:
+  - the calendar header's channel FILTER chips,
+  - the OAuth scopes the suite connect actually returns,
+  - or the tags feature (posts_toggle_tags / post tags), which is unrelated
+    to provider glyphs entirely and may be what "tags" literally means.
+
+RESIDUAL WEAKNESS, MEASURED AND NOT FIXED (honest, not discovered by a gate)
+google, calendar and google-my-business share the SAME brand fill #4285F4 and
+all three are letter fallbacks (no SVG). They are distinguishable only by
+their letter pairs - GS, CA, GB. Distinct codes, near-identical circles. The
+collapsed rail shows a badge with no name, so the disambiguation is the pair
+of letters plus a `title` tooltip naming the account. Adequate, but not
+strong; giving the calendar its own SVG, or a distinct hue, would be stronger.
+
+WHY THE AUDIT MATTERED
+I verified the badge inks numerically rather than trusting the probe: black on
+5.25:1 - 6.55:1, all above the floor. The probe's FAIL: 0 is corroborated, not
+merely believed. I also caught myself reporting youtube as a letter fallback -
+it has a real SVG play-button path, and only google/gmail/calendar/drive are
+letters. A second check corrected my own first claim, which is the same
+discipline as the earlier glyph() dead-code correction.
+
