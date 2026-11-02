@@ -5722,3 +5722,48 @@ Stage Summary:
 - Final gates: channels_grid 7/7, pnpm build succeeds, built assets carry
   `min-w-0 w-16` and no chunk carries the 7.5rem class. Tree clean on my
   files; the outstanding modified files are the concurrent writer's.
+
+---
+Task ID: calendar-overflow-validation-5
+Agent: Jcode
+Task: Validate the 800px claim, the kanban-vs-calendar reading, and AGENTS.md.
+
+THE 800px CLAIM WAS WRONG, AND THE FIX IS IN THE SAFE DIRECTION.
+Re-verified against the SHIPPED chunk rather than the source: the row
+holds one line to 835px, not 800px. The reported 844px case fits with 9px
+spare. So the row never was 44px short of fitting at the reported width -
+it fits. The fix's behaviour is unchanged; only its prose was wrong.
+
+ONE CONTROL THAT PASSED ON THE WRONG THING
+Reading the action classes out of the built chunk with `class:"..."` matched
+NOTHING - Svelte's minified output uses `class="..."` - so both action
+buttons rendered with no classes at all. The shape control asserted 8
+buttons and PASSED, because an unstyled button still counts as a child.
+Only asserting the controls' own classes and their computed widths (105px,
+82px) exposed it. A control that counts elements can pass on an element
+that is present but is not the thing.
+
+A NUMBER THAT MOVED WHEN THE STEP SIZE CHANGED
+Scanning widths one row at a time, the wrap point drifted with
+`waitForTimeout`: 820, then 835, then 844. Measuring every candidate row in
+ONE layout pass settles it at 835 and it stops moving. A measurement whose
+value depends on how you ask is not a measurement, whatever threshold is
+chosen - which is the same failure as the unconstrained probe earlier in
+this cycle, one layer down.
+
+THE REQUEST WAS PROVED, NOT ASSUMED
+`ChannelRail` and `CalendarHeader` are imported by the calendar route
+ALONE. Kanban's columns are `grid-cols-1 md:grid-cols-2 lg:grid-cols-4`,
+a responsive grid with no channel rail to widen, so there is no
+interaction between channel expansion and its layout. The report is the
+calendar.
+
+AGENTS.md carries no stale figure and asserts no width about this row.
+
+Stage Summary:
+- 7b9c7b0. Tests 7/7, my file clean, no 800px claim left in any live file.
+- Corrected the threshold in three places: the header comment, the test
+  doc, and OUTLINE_REMOTE_CLI.md.
+- The recurring rule for this cycle, in one line: assert the reproduction's
+  element counts AND its classes AND its computed widths before reading any
+  geometry off it, and never scan a layout in a loop with a timeout.
