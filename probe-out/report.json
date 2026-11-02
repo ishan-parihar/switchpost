@@ -1,0 +1,1817 @@
+{
+  "fails": [],
+  "warns": [
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "30x38 < 44x44 — \"←\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "31x38 < 44x44 — \"→\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "56x38 < 44x44 — \"Today\"",
+      "cls": "px-2.5 text-xs text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "42x38 < 44x44 — \"Day\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "52x38 < 44x44 — \"Week\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          bg-accent-fill text-accent-fg",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "57x38 < 44x44 — \"Month\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "40x38 < 44x44 — \"List\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "109x40 < 44x44 — \"Generate Posts\"",
+      "cls": "h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "86x40 < 44x44 — \"+ New Post\"",
+      "cls": "h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "30x38 < 44x44 — \"←\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "31x38 < 44x44 — \"→\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "56x38 < 44x44 — \"Today\"",
+      "cls": "px-2.5 text-xs text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "42x38 < 44x44 — \"Day\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "52x38 < 44x44 — \"Week\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          bg-accent-fill text-accent-fg",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "57x38 < 44x44 — \"Month\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "40x38 < 44x44 — \"List\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "109x40 < 44x44 — \"Generate Posts\"",
+      "cls": "h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "86x40 < 44x44 — \"+ New Post\"",
+      "cls": "h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "30x38 < 44x44 — \"←\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "31x38 < 44x44 — \"→\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "56x38 < 44x44 — \"Today\"",
+      "cls": "px-2.5 text-xs text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "42x38 < 44x44 — \"Day\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "52x38 < 44x44 — \"Week\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          bg-accent-fill text-accent-fg",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "57x38 < 44x44 — \"Month\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "40x38 < 44x44 — \"List\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "109x40 < 44x44 — \"Generate Posts\"",
+      "cls": "h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "86x40 < 44x44 — \"+ New Post\"",
+      "cls": "h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "30x38 < 44x44 — \"←\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "31x38 < 44x44 — \"→\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "56x38 < 44x44 — \"Today\"",
+      "cls": "px-2.5 text-xs text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "42x38 < 44x44 — \"Day\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "52x38 < 44x44 — \"Week\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          bg-accent-fill text-accent-fg",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "57x38 < 44x44 — \"Month\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "40x38 < 44x44 — \"List\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "109x40 < 44x44 — \"Generate Posts\"",
+      "cls": "h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "86x40 < 44x44 — \"+ New Post\"",
+      "cls": "h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/posts/new",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "124x24 < 44x44 — \"Connect a channel\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "202x24 < 44x44 — \"Create some in the Tags page.\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "124x24 < 44x44 — \"Connect a channel\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "202x24 < 44x44 — \"Create some in the Tags page.\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "124x24 < 44x44 — \"Connect a channel\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "202x24 < 44x44 — \"Create some in the Tags page.\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "124x24 < 44x44 — \"Connect a channel\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "202x24 < 44x44 — \"Create some in the Tags page.\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/channels",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "43x44 < 44x44 — \"Drive\"",
+      "cls": "text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors di",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/channels",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "43x44 < 44x44 — \"Drive\"",
+      "cls": "text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors di",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/channels",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "43x44 < 44x44 — \"Drive\"",
+      "cls": "text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors di",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/channels",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "43x44 < 44x44 — \"Drive\"",
+      "cls": "text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors di",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #6366f1\"",
+      "cls": "w-6 h-6 rounded-full border border-line ring-2 ring-accent",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #8b5cf6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #d946ef\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ec4899\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f43f5e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ef4444\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f97316\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #eab308\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #22c55e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #14b8a6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #06b6d4\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #3b82f6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #64748b\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #6366f1\"",
+      "cls": "w-6 h-6 rounded-full border border-line ring-2 ring-accent",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #8b5cf6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #d946ef\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ec4899\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f43f5e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ef4444\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f97316\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #eab308\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #22c55e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #14b8a6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #06b6d4\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #3b82f6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #64748b\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #6366f1\"",
+      "cls": "w-6 h-6 rounded-full border border-line ring-2 ring-accent",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #8b5cf6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #d946ef\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ec4899\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f43f5e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ef4444\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f97316\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #eab308\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #22c55e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #14b8a6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #06b6d4\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #3b82f6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #64748b\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #6366f1\"",
+      "cls": "w-6 h-6 rounded-full border border-line ring-2 ring-accent",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #8b5cf6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #d946ef\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ec4899\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f43f5e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ef4444\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f97316\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #eab308\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #22c55e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #14b8a6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #06b6d4\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #3b82f6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "dark",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #64748b\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "30x38 < 44x44 — \"←\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "31x38 < 44x44 — \"→\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "56x38 < 44x44 — \"Today\"",
+      "cls": "px-2.5 text-xs text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "42x38 < 44x44 — \"Day\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "52x38 < 44x44 — \"Week\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          bg-accent-fill text-accent-fg",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "57x38 < 44x44 — \"Month\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "40x38 < 44x44 — \"List\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "109x40 < 44x44 — \"Generate Posts\"",
+      "cls": "h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "86x40 < 44x44 — \"+ New Post\"",
+      "cls": "h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "30x38 < 44x44 — \"←\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "31x38 < 44x44 — \"→\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "56x38 < 44x44 — \"Today\"",
+      "cls": "px-2.5 text-xs text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "42x38 < 44x44 — \"Day\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "52x38 < 44x44 — \"Week\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          bg-accent-fill text-accent-fg",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "57x38 < 44x44 — \"Month\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "40x38 < 44x44 — \"List\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "109x40 < 44x44 — \"Generate Posts\"",
+      "cls": "h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "86x40 < 44x44 — \"+ New Post\"",
+      "cls": "h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "30x38 < 44x44 — \"←\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "31x38 < 44x44 — \"→\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "56x38 < 44x44 — \"Today\"",
+      "cls": "px-2.5 text-xs text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "42x38 < 44x44 — \"Day\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "52x38 < 44x44 — \"Week\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          bg-accent-fill text-accent-fg",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "57x38 < 44x44 — \"Month\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "40x38 < 44x44 — \"List\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "109x40 < 44x44 — \"Generate Posts\"",
+      "cls": "h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "86x40 < 44x44 — \"+ New Post\"",
+      "cls": "h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "30x38 < 44x44 — \"←\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "31x38 < 44x44 — \"→\"",
+      "cls": "px-2 text-sm text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center justify-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "56x38 < 44x44 — \"Today\"",
+      "cls": "px-2.5 text-xs text-muted hover:text-content hover:bg-surface-hover transition-colors border-l border-line flex items-center",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "42x38 < 44x44 — \"Day\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "52x38 < 44x44 — \"Week\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          bg-accent-fill text-accent-fg",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "57x38 < 44x44 — \"Month\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "40x38 < 44x44 — \"List\"",
+      "cls": "px-2.5 text-xs font-medium transition-colors h-full\n          text-muted hover:text-content hover:bg-surface-hover",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "109x40 < 44x44 — \"Generate Posts\"",
+      "cls": "h-10 px-2.5 text-xs border border-line rounded-lg text-muted hover:text-content hover:bg-surface-hover transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/calendar",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "86x40 < 44x44 — \"+ New Post\"",
+      "cls": "h-10 px-2.5 bg-accent-fill hover:bg-accent-fill-hover text-accent-fg rounded-lg text-xs font-medium transition-colors min-w-0 truncate",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/posts/new",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "124x24 < 44x44 — \"Connect a channel\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "202x24 < 44x44 — \"Create some in the Tags page.\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "124x24 < 44x44 — \"Connect a channel\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "202x24 < 44x44 — \"Create some in the Tags page.\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "124x24 < 44x44 — \"Connect a channel\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "202x24 < 44x44 — \"Create some in the Tags page.\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "124x24 < 44x44 — \"Connect a channel\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/posts/new",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "202x24 < 44x44 — \"Create some in the Tags page.\"",
+      "cls": "text-accent hover:underline inline-flex items-center min-h-6",
+      "tag": "A"
+    },
+    {
+      "route": "/channels",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "43x44 < 44x44 — \"Drive\"",
+      "cls": "text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors di",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/channels",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "43x44 < 44x44 — \"Drive\"",
+      "cls": "text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors di",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/channels",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "43x44 < 44x44 — \"Drive\"",
+      "cls": "text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors di",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/channels",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "43x44 < 44x44 — \"Drive\"",
+      "cls": "text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors di",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #6366f1\"",
+      "cls": "w-6 h-6 rounded-full border border-line ring-2 ring-accent",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #8b5cf6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #d946ef\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ec4899\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f43f5e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ef4444\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f97316\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #eab308\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #22c55e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #14b8a6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #06b6d4\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #3b82f6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 1440,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #64748b\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #6366f1\"",
+      "cls": "w-6 h-6 rounded-full border border-line ring-2 ring-accent",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #8b5cf6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #d946ef\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ec4899\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f43f5e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ef4444\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f97316\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #eab308\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #22c55e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #14b8a6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #06b6d4\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #3b82f6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 768,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #64748b\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #6366f1\"",
+      "cls": "w-6 h-6 rounded-full border border-line ring-2 ring-accent",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #8b5cf6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #d946ef\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ec4899\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f43f5e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ef4444\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f97316\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #eab308\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #22c55e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #14b8a6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #06b6d4\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #3b82f6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 375,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #64748b\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #6366f1\"",
+      "cls": "w-6 h-6 rounded-full border border-line ring-2 ring-accent",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #8b5cf6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #d946ef\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ec4899\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f43f5e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #ef4444\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #f97316\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #eab308\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #22c55e\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #14b8a6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #06b6d4\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #3b82f6\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    },
+    {
+      "route": "/tags",
+      "width": 360,
+      "theme": "light",
+      "check": "tap-target",
+      "detail": "24x24 < 44x44 — \"Select color #64748b\"",
+      "cls": "w-6 h-6 rounded-full border border-line ",
+      "tag": "BUTTON"
+    }
+  ],
+  "skipped": [
+    {
+      "route": "/campaigns/{id}",
+      "check": "unreachable-route",
+      "detail": "no row to open - /api/campaigns returned an empty list"
+    },
+    {
+      "route": "/posts/{id}",
+      "check": "unreachable-route",
+      "detail": "no row to open - /api/posts?limit=50 returned an empty list"
+    }
+  ]
+}

@@ -5324,3 +5324,114 @@ Stage Summary:
   9.53 - the source is not the proof, the served page is).
 - Known gap: not deployed to the VPS. The release binary embeds the
   frontend, so the running instance serves the old assets until rebuilt.
+
+---
+Task ID: v27-connect-failures-as-400s-and-google-suite-collapse
+Agent: Jcode
+Task: Find the bugs behind six founder-reported channel-connect failures and
+fix them: Threads "login-error" from the web dashboard; Reddit cookie import
+answering "Expected JSON ... got 502 (received HTML, not JSON)"; WhatsApp
+pair and Telegram request-code answering the same; purge the redundant
+Gmail/Drive/Calendar options beside the unified google-suite; and the
+conflicting tag segregation for connected accounts on google-suite/youtube.
+
+Work Log:
+- REPRODUCED ALL OF THEM AGAINST A LIVE INSTANCE FIRST. Built the debug
+  binary and served it against a scratch SQLite file. The first
+  reproduction was NOT one of the reported bugs: with FRONTEND_URL=127.0.0.1:18888
+  and the server bound to 6543, even `POST /api/auth/login` answered 403
+  csrf_origin_mismatch. That is the startup warning firing as designed,
+  and it is also the reminder that every state-changing route is behind
+  that gate - so a proxy body rewrite is the only thing that hides it.
+- THE COMMON ROOT, AND IT IS THE STATUS NOT THE MESSAGE. Every connect
+  handler answered `AppError::Provider` for a failure the FOUNDER caused.
+  `Provider` maps to HTTP 502 BAD GATEWAY, and a reverse proxy (Caddy/nginx,
+  per docs/deployment.md) REPLACES the body of a 502 with its own HTML error
+  page. So the actionable text never reached the browser, and the founder's
+  own frontend message ("the route likely does not exist") confirmed the
+  masking from the client side: `Expected JSON from
+  /api/integrations/connect/reddit-cookie but got 502 (received HTML, not
+  JSON)`. That names a missing route for a route that exists and a paste
+  that is merely malformed.
+- THE REDDIT PARSE WAS WORSE THAN A REFUSAL. `reddit_cookies::parse_cookie_string`
+  was a bare `split(';')` + `split_once('=')` loop. A paste that CONTAINED
+  `reddit_session` and arrived as devtools' JSON export, a `Cookie:` prefix,
+  a newline list, quoted or percent-encoded names passed the
+  `reddit_session?` guard with a session value that was really `[{`, then
+  failed validation with "error decoding response body" on a 502. The
+  reported paste is a full Reddit header with `g_state` and `session_tracker`
+  values - long base64 and embedded JSON - which is exactly the shape that
+  broke it.
+- THE FIX SET. (a) `src/social/cookie_paste.rs`: ONE parser for every cookie
+  paste, handling header / newline / JSON-array / cURL-object shapes, a
+  `Cookie:` prefix, stray semicolons, quotes, comma separators and
+  percent-encoded NAMES (never values - a value can legitimately contain `%`).
+  Both `x_cookies` and `reddit_cookies` route through it, so the /setup public
+  surface and the dashboard surface are fixed by the one change. (b) Reddit
+  and X validation read the response body as TEXT before parsing, and detect
+  Reddit's own `{message, error}` not-log-in body explicitly. (c)
+  `AppError::ConnectFailed` -> HTTP 400, which no proxy rewrites, used by
+  every founder-fixable connect refusal. (d) `SocialProvider::requires_https_redirect()`
+  true for threads / instagram / instagram-standalone, with a gate in
+  `api::integrations::connect` that refuses an `http://` redirect_uri BEFORE
+  the consent screen and names APP_URL.
+- THE THREADS BUG IS THE GATE (d) ABOVE. `.env.example:21-24` and
+  docs/deployment.md:81-88 both document that Meta refuses an `http://`
+  redirect URI even for localhost, and NOTHING enforced it. The server
+  generated `redirect_uri=http://127.0.0.1:6543/...` and Meta answered the
+  callback with `?error=invalid_request`. Verified by constructing the URL
+  the server emits and reading its scheme back.
+- THE THREADS BUG HAD A SECOND, SILENT HALF. `OAuthConnect.svelte`'s
+  `watchPopup` matched on the postMessage TYPE only and ignored the
+  `success` flag the callback page actually sends, so a failed OAuth
+  reported "Connected. Threads is ready to post." and called onSuccess.
+  That is the "nothing happened and no error was shown" half of the report,
+  and it would have survived fix (d) alone.
+- THE GOOGLE REDUNDANCY IS TWO SEPARATE THINGS, and both are fixed.
+  (1) The GRID: `collapseGoogleSuite` collapsed only google+gmail, leaving
+  Calendar, Drive, YouTube and Google Biz as their own tiles - six tiles for
+  ONE client id/secret. Now the whole family collapses to one tile with a
+  per-service chooser, so the members stay reachable. The scope-conflict
+  facts that made the group narrow are UNCHANGED and still pinned by
+  `google_scope_conflict`; only the tile count changed, not the consents.
+  (2) The LIST: `groupIntegrations` keyed on `provider_name`, and the Google
+  family names all differ ("Google Suite", "Gmail", "Google Calendar",
+  "Google Drive", "YouTube"), so one login produced three headings each
+  reading (1). Now one heading, keyed on the provider identifier.
+- TWO TRAPS I HIT AND FIXED IN MY OWN WORK. The cookie-paste shape test
+  failed 7/13 on the first run because I decided header-vs-newline by TRY
+  ORDER, and a single-line paste is also a one-line paste - so every
+  classic header was read as the newline shape and left
+  `reddit_session=xyz; csv=2` as one unbroken value. Deciding by CONTENT
+  (multi-line AND no separator in any line) fixed it. Then svelte-check
+  caught a nested `<button>` in my suite chooser, which the browser repairs
+  on parse and which produces a hydration mismatch - restructured to a
+  sibling div. Both were caught by the gates, not by reading.
+- A THIRD SELF-CORRECTION: my new collapse assertion said suiteMemberCount
+  == 6 against a five-Google-provider input list. The test failed and was
+  right. Corrected to 5.
+- VERIFICATION GATES: cargo check --lib --bin switchpost 0 errors;
+  cargo test --lib 558 pass (14 new cookie_paste tests); google_suite_group_test
+  11 pass; connect_flow_redteam_test 22 pass; channels_grid_multi_account_test
+  11 pass; frontend pnpm build succeeds; frontend svelte-check 0 errors
+  0 warnings; probe.mjs full 25-route x 4-width x 2-theme pass FAIL: 0 (200
+  pre-existing tap-target WARNINGs, unchanged by this work).
+- LIVE RE-VERIFICATION on the rebuilt binary: all five reported paste
+  shapes (classic header with g_state, devtools JSON, newline list,
+  `Cookie:` prefix with quotes, comma-separated) parse and answer the same
+  actionable 400; invalid phone numbers answer 400 not 502; Threads over
+  http answers 400 naming APP_URL; a non-Meta provider still connects over
+  http. The five Google service chips are present in the SERVED bundle
+  chunk, and the old "one login for Gmail and Calendar" note is gone from it.
+
+Stage Summary:
+- Six reported bugs fixed, all rooted in two systemic defects: a status code
+  that a proxy rewrites (502 instead of 400), and a paste parser that only
+  read one of the five shapes a browser actually emits.
+- One load-bearing invariant preserved rather than relaxed: Google's
+  scope-pair refusals. The collateral change in the two test files pinned
+  the OLD behavior, and both red assertions still hold.
+- New: src/social/cookie_paste.rs (427 lines, 14 tests),
+  AppError::ConnectFailed, SocialProvider::requires_https_redirect,
+  googleSuiteChoices, groupHeading.
+- Committed 8c319ce and pushed to github/master.
