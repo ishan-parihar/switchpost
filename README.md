@@ -160,13 +160,16 @@ Targeting, the single-writer rule, platform tiers, and the repository layout are
 
 ## Visual proof
 
-| CLI dashboard | REST API docs | MCP tools |
-|:---:|:---:|:---:|
-| ![CLI](https://github.com/ishan-parihar/switchpost/raw/main/assets/readme/cli.png) | ![API](https://github.com/ishan-parihar/switchpost/raw/main/assets/readme/api.png) | ![MCP](https://github.com/ishan-parihar/switchpost/raw/main/assets/readme/mcp.png) |
+The screenshots are not in the repository yet, so they are described rather than shown — better than a link that 404s.
 
-| Content calendar | Analytics | Multi-platform |
-|:---:|:---:|:---:|
-| ![Calendar](https://github.com/ishan-parihar/switchpost/raw/main/assets/readme/calendar.png) | ![Analytics](https://github.com/ishan-parihar/switchpost/raw/main/assets/readme/analytics.png) | ![Multi](https://github.com/ishan-parihar/switchpost/raw/main/assets/readme/multi.png) |
+| Surface | What it shows |
+|:---|:---|
+| CLI dashboard | The terminal client's live queue: what is scheduled, what posted, what failed and why. |
+| REST API docs | The generated OpenAPI surface, browsable at `/docs` while the server runs. |
+| MCP tools | The tool list an agent sees when it connects: every posting action as one callable tool. |
+| Content calendar | The browser dashboard's calendar view: one month of scheduled posts across platforms. |
+| Analytics | Per-post reach and engagement, read back from each platform after publication. |
+| Multi-platform | One post written once, rendered to each platform's format on publish. |
 
 ## Architecture
 

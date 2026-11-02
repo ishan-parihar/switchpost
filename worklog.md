@@ -6154,13 +6154,6 @@ BUNDLED AND ACTUALLY RUN
   workspace; see <workspace>/benchmark.json for the with-skill vs baseline
   comparison.
 
-Stage Summary:
-- `~/.agents/skills/vps-app-deploy/` installed and validated live.
-- The deploy discipline now lives where the next agent will find it, rather
-  than only in this file's prose.
-- Follow-up, deliberately NOT done in a deploy: give switchpost the aroute
-  conventions (checksum-verifying installer, backup history, watchdog).
-
 ---
 Task ID: channel-login-threads-whatsapp-telegram
 Agent: Jcode
@@ -6317,3 +6310,64 @@ Stage Summary:
 - genome lint: 0 errors. Push confirmed on github/master.
 - Deliberately NOT touched: the two stashes (`WIP on master`) and the other
   writer's uncommitted `scripts/genome` work.
+
+---
+Task ID: cli-mcp-production-validation
+Agent: Jcode
+Task: Validate the channel-login fixes through the release binary, the MCP
+surface, and the full suite.
+
+MCP PARITY SURFACED A PRE-EXISTING DEFECT (v27e). Validating the THIRD
+interface (§0.5.4 requires parity) instead of only the two channels in the
+report: `integrations_connect` returned ONE hardcoded answer for every
+one-time-token provider - "Open Telegram, start a chat with this bot, and
+send: /connect <code>". Measured live: `whatsapp` returned that text too, i.e.
+the tool told the founder to message a Telegram bot to pair WhatsApp.
+telegram-user (MTProto, no bot exists) got the same. A wrong instruction is
+worse than an error: an error says "this did not work", a wrong instruction
+says "do this impossible thing" and reads as guidance. Pre-existing since
+426a7af (stashed and grepped the clean HEAD: same count), and it survived
+because no validation had exercised the one-time-token branch for a provider
+that is not telegram-bot.
+Fixed by extracting `one_time_token_instructions`, whose rule is that the text
+names the flow THAT provider uses. Two attempts to resolve the bot's @username
+in that branch were both wrong - a blocking reqwest on a tokio worker, then
+`futures::executor::block_on` inside async, each a stall - and both were
+reverted to plain text; the REST route already resolves the username via
+getMe, so the tool answer names the bot and points there. Mutation-checked
+against the original all-telegram string.
+
+PRODUCTION PATH, not just the debug build. `cargo build --release`, then
+`strings` on the artifact: 0 x WHATSAPP_SESSION_PATH (the nonexistent var),
+11 x WHATSAPP_STORE_DIR. `strings` cannot prove threads_basic alone (the
+linker merges it into an adjacent literal), so the RELEASE binary was also
+RUN: `connect threads` emits the 5-scope URL. Release server on a fresh
+isolated DB: creates its own user row, initializes the wa-rs client with
+WHATSAPP_STORE_DIR unset, /api/providers + /setup (33162 bytes, identical to
+debug) report the fixed state, and POST /whatsapp/pair returns a real pair
+code on the RELEASE build. §9.53: `rm -rf frontend/build && pnpm build`, grep
+the built assets for the two stale strings (none), then rebuild the release so
+its embedded assets are current.
+
+TWO PRE-EXISTING FAILURES, MEASURED AND ATTRIBUTED, NOT MINE:
+- `cargo test --doc` fails 2 tests (feed/mod.rs, social/mod.rs) - URLs inside
+  doc comments parsed as Rust. Identical on clean HEAD via `git stash`.
+  `--doc` is not one of the §12 gates, all five of which are green.
+- docs-check `FAIL: README rubric [length_in_band]`: the COMMITTED README at
+  HEAD scores 338 lines against a band max of 340, and 513191c~1 scored 344 -
+  so this has been failing since before this branch. The scorer's `generic`
+  archetype (max 340) does not match this repo's actual shape. Unrelated to
+  any of my four commits (none touch README).
+- The shared tree carries another writer's uncommitted `scripts/genome`
+  (version bump + a `_uncommitted_cli` feature) and `README.md` (dead
+  screenshot links replaced with a described table). Measured 05:17 mtime and
+  `git log -- README.md` last touched by 513191c, not by me. The images it
+  replaced DO 404 (all six verified), so that change is well-founded; I only
+  re-wrapped its one long paragraph so the working tree also fits the band.
+
+Stage Summary:
+- `~/.agents/skills/vps-app-deploy/` installed and validated live.
+- The deploy discipline now lives where the next agent will find it, rather
+  than only in this file's prose.
+- Follow-up, deliberately NOT done in a deploy: give switchpost the aroute
+  conventions (checksum-verifying installer, backup history, watchdog).
