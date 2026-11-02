@@ -6025,3 +6025,73 @@ Stage Summary:
 - 82dc271 + follow-up on github/master: 1013/845/1020/846 everywhere.
 - Guard 7/7, `cargo test --lib` 558/558, svelte-check clean, build OK.
 - The fix ships and is worth shipping; it does not close the report alone.
+
+---
+Task ID: deploy-2026-11-02-evening
+Agent: Jcode
+Task: Deploy the latest release to production (ssh-racknerd switchpost.ishanparihar.com).
+
+WHAT WAS LIVE, AND IT WAS PRE-FIX. The deployed binary (built 03:00 IST)
+embeds `const we="h-10 min-w-[120px] px-2 ..."` - the 120px FLOOR, with no
+`w-16` basis. A naive `strings | grep -c w-16` returned 7 and looked
+positive; it was a false signal from unrelated Tailwind utilities. The
+verdict has to be on the SELECT's OWN class string, not a substring.
+
+TOPOLOGY (recorded because it cost several wrong turns):
+- `systemctl --user`, NOT the system unit. `systemctl status switchpost`
+  says "Unit could not be found" - the unit is
+  `~/.config/systemd/user/switchpost.service`.
+- `/home/nerd/switchpost` is NOT a source checkout. It holds only `data/`
+  and `.env`; it is the unit's `WorkingDirectory`. Its `.git` is a stray
+  pointing at reddit-httpx, and the process runs from
+  `~/.local/bin/switchpost`. So the build happens locally and the binary
+  is shipped - the VPS has no target/, no pnpm, no zig, 2GB RAM.
+- The VPS is Debian 12 glibc 2.36. A host-target build requires GLIBC_2.39
+  and would fail at load, so the `.2.36` cross-target is mandatory.
+
+THE BUILD BUG, AND ITS FIX, BOTH ALREADY IN THIS FILE. `cargo zigbuild`
+fails at HEAD with `unsupported linker arg: --no-keep-memory` - rustc
+1.98 emits it per-cdylib, zig's bundled LLD rejects it by name, and it is
+NOT a version skew (rejected by 0.11/0.13/0.14.1/0.16 alike; I confirmed
+0.16.0 and 0.17.0 both reject). Recovery: download zig 0.14.1, install a
+drop-in `zig` shim that strips the two rejected forms, clear
+`~/.cache/cargo-zigbuild/0.23.4/wrappers`, and put the shim dir first on
+PATH. Build then completes in 4m20s, matching the previous deploy's time.
+
+ONE MISTAKE WORTH NAMING. My first `~/.jcode/scratch` writes "vanished"
+and `/home/ishan/...` stopped resolving, which read as a disk problem.
+The real cause was path confusion: `$HOME` in this shell is
+`/home/ishanp`, and I had been writing tooling under `/home/ishan` - a
+different, empty directory. Nothing was lost. Scratch tooling now lives at
+`~/.cache/zb/`. Two destructive-gate refusals in this stretch were the
+gate correctly worrying about runtime-computed paths.
+
+SMOKE TEST BEFORE THE SWAP (isolated db in /tmp, never the live data):
+the new binary started, applied migrations, registered all 29 providers,
+started every background task, took over a stale writer lock, answered
+200 on /health /ready / and /login, and its SERVED calendar chunk
+carries 1 x `h-10 min-w-0 w-16` and 0 x the 120px floor.
+
+SWAP: backed up the live binary to `switchpost.prev-*` and took a
+consistent sqlite `.backup` of the production DB first. scp'd the new
+binary as `switchpost.new`, verified sha256 identical on both ends,
+confirmed `ldd` resolves and the glibc ceiling is 2.34, then mv'd it into
+place and `systemctl --user restart switchpost`. `data/` and `.env` were
+never touched.
+
+POST-DEPLOY, over the PUBLIC url: service active (MainPID 474633),
+public /health 200, public / 200 with 5556 bytes, and the public calendar
+chunk carries the fix: 1 x `w-16`, 0 x the 120px floor. Byte-verified.
+`local /health` returning 000 is a localhost restriction, not a fault.
+
+The 83 pre-swap "Token expired" journal lines are YouTube credentials
+expiring and predate this deploy by design - confirmed by reading the
+pre-swap window. Rollback is one command: restore the `switchpost.prev-*`
+backup and restart.
+
+Stage Summary:
+- LIVE: https://switchpost.ishanparihar.com now serves the w-16 fix.
+- Rollback: `cp switchpost.prev-* switchpost` + `systemctl --user restart`.
+- The `.2.36` recipe works but `make deploy` does NOT on this host as
+  written: it needs the zig shim, and it installs to /usr/local/bin with a
+  system unit that does not exist here. Both deviations are recorded above.
