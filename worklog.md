@@ -5625,3 +5625,56 @@ Stage Summary:
   not build (regex `/^.)$/` at line 146). It was reverted to its committed
   state only to take a clean build, then restored untouched; the 2
   svelte-check errors are theirs, not this changeset's.
+
+---
+Task ID: calendar-overflow-validation-3
+Agent: Jcode
+Task: Validate the earlier claims again, after the fixes landed.
+
+WHAT HELD
+- 7.5rem == 120px at this app's 16px root. Still true, still the reason the
+  shipped "fix" was a no-op.
+- w-16 fits one line at 1040 AND 844, and w-[7.5rem] wraps at both AND at
+  960 which the pre-fix row held. Still true.
+- Both mutation arms still RED (`w-[7.5rem]` -> 120px, `w-[7rem]` ->
+  112px), control green, mutations verified absent.
+- The two-pass strip (HTML comments, then `//` lines) removes multi-line
+  comments: after both, `7.5rem` is gone while `w-16`, `shrink-0` and
+  "+ New Post" survive, so a prose mention cannot satisfy the label walk.
+
+WHAT DID NOT HOLD, AND WAS FIXED
+- THE PARSER WAS ANCHORED ON ORDERING. select_basis_in_pixels read
+  `src.split("selectClass").nth(1)`, which was correct only because the
+  declaration happens to precede the three `class={selectClass}` usages in
+  the template. A comment naming the constant first would have made the
+  guard parse prose. Now anchored on `const selectClass`.
+- THE CONTENT FIGURES WERE SHORT BY TWO SELECTS, AGAIN. The corrected
+  measurement rendered `<select ...>...<option ...>`.repeat(3), which
+  leaves the three OPTION lists as SIBLINGS, so one select rendered. From
+  three separate <select> elements: 962px at the 120px floor and 794px at
+  64px, not 953/793. Behaviour claims unchanged; only the prose was wrong.
+- OUTLINE_REMOTE_CLI.md still asserted the 700px box, "wrapped at every
+  viewport" and the w-[7.5rem] basis - the same three stale figures, in
+  the file a reader would use to reintroduce them.
+
+THE FINDING WORTH KEEPING
+`.w-[7.5rem]{width:7.5rem}` is STILL in the built stylesheet although no
+source class uses it. Tailwind's content scanner reads COMMENTS, and this
+file has three comments quoting the class to explain it. So a stale class
+in prose keeps shipping CSS bytes - and, more importantly, "the rule is
+gone" is not a check anyone can run, because the rule is not gone. The
+guard has to be about the CLASS STRING IN THE TEMPLATE, which is what it
+now is.
+
+SELF-DISCLOSURE
+A wrapped edit dropped a `//` prefix and broke the test build for one run
+("expected one of `!` or `::`"). It was caught by that run and fixed
+before staging. The pattern is worth naming: the two-pass stripper removes
+`//` lines from the SOURCE, so a dropped prefix inside a comment is
+invisible to every guard here - only the compiler sees it.
+
+Stage Summary:
+- ab116f7. Tests 7/7, both arms RED with control, no stale figure left in
+  any live .svelte/.rs/.md file, 0 errors in this file.
+- One near-miss of the same shape as the bug being fixed: prose that reads
+  as code, in a file whose tests strip prose but whose compiler does not.
