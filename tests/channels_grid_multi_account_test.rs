@@ -25,6 +25,9 @@
 use std::path::PathBuf;
 
 const PAGE: &str = "frontend/src/routes/channels/+page.svelte";
+/// The channel rail. Its rows hold the buttons that used to overflow the
+/// channel name, so the invariants for that bug live against this file.
+const RAIL: &str = "frontend/src/lib/channels/ChannelRail.svelte";
 
 fn page_source() -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(PAGE);
@@ -45,6 +48,19 @@ fn page_template_without_comments() -> String {
         .lines()
         .map(|l| l.trim_start())
         .filter(|l| !l.starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The rail's CODE, comment-stripped for the same reason as the page's.
+fn rail_source_without_comments() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(RAIL);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {RAIL}: {e}"))
+        .lines()
+        .map(|l| l.trim_start())
+        .filter(|l| !l.starts_with("//"))
+        .map(|l| l.trim_end())
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -257,4 +273,58 @@ fn read_channel_status_source() -> String {
         .canonicalize()
         .unwrap_or_else(|e| panic!("resolve channel-status.ts: {e}"));
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"))
+}
+
+// ── The channel rail's row must reserve room for its action buttons ──
+//
+// The rail's expanded row used to render its action cluster as
+// `absolute end-1 top-1/2 -translate-y-1/2`. An absolutely positioned
+// element does not participate in flex sizing, so the name block's
+// `min-w-0 flex-1` could not be shrunk by it: the buttons were laid out
+// ON TOP of the channel name, and the row read as "buttons overflowing
+// onto a second row".
+//
+// The fix puts the cluster IN FLOW as a flex sibling and changes the
+// select button from `w-full` to `min-w-0 flex-1`, so the cluster takes
+// its width out of the row and the name's `truncate` does its job.
+//
+// WHY SOURCE SHAPE: there is no frontend unit runner (see the header of
+// this file), and the layout is CSS behaviour, so the pin is the shape
+// the fix requires. The mutation that proves it reads as a red: putting
+// `absolute` back on the cluster reintroduces the overlap.
+
+/// The action cluster must be a flex SIBLING of the select button, so it
+/// takes width out of the row instead of floating over the name.
+#[test]
+fn the_rails_action_cluster_is_in_flow_not_overlaid() {
+    let src = rail_source_without_comments();
+    let start = src
+        .find("<nav")
+        .unwrap_or_else(|| panic!("the channel rail's nav is not in ChannelRail.svelte"));
+    let nav = &src[start..];
+    let row_end = nav
+        .find('}')
+        .and_then(|c| c.checked_add(1))
+        .and_then(|e| nav[e..].find("</div>").map(|o| o + e))
+        .unwrap_or_else(|| panic!("the rail's first row never closes"));
+    let row = &nav[..row_end];
+
+    assert!(
+        row.contains("min-w-0 flex-1"),
+        "the rail's row button is not `min-w-0 flex-1` - a `w-full` button \
+         fills the row and the action cluster has nowhere to sit, which is \
+         how the buttons ended up overflowing: {row}"
+    );
+
+    let cluster_start = row
+        .find("<div class=\"flex items-center gap-1\">")
+        .unwrap_or_else(|| panic!("the rail's action cluster is not in flow"));
+    let cluster = &row[cluster_start..];
+    assert!(
+        !cluster.contains("absolute end-1"),
+        "the action cluster is absolutely positioned again: an absolute \
+         element does not participate in flex sizing, so it does not shrink \
+         the name block and it sits ON TOP of the channel name - the \
+         overflow this test was written to pin: {cluster}"
+    );
 }

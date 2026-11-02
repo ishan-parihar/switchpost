@@ -258,11 +258,18 @@
     <nav class="flex-1 overflow-y-auto p-2 space-y-1" aria-label="Channel list">
       {#each live as int (int.id)}
         {@const status = channelStatus(int)}
-        <div class="relative">
+        <!-- One flex row: the select button, then the actions. The actions are
+             IN FLOW, not absolutely positioned. An absolute cluster does not
+             participate in flex sizing, so `min-w-0 flex-1` on the name block
+             could never be shrunk by it, and the buttons sat ON TOP of the
+             channel name - the two-rows-of-buttons distortion the founder
+             reported. In flow, the cluster takes its 92px and the name's
+             `truncate` does its job. -->
+        <div class="flex items-center gap-1">
           <button
             type="button"
             onclick={() => select(int.id)}
-            class="w-full min-h-11 rounded-lg flex items-center gap-2 px-1.5 transition-colors
+            class="min-w-0 flex-1 min-h-11 rounded-lg flex items-center gap-2 px-1.5 transition-colors
               {selected === int.id ? 'bg-accent-fill/15 ring-1 ring-accent/40' : 'hover:bg-surface-hover'}
               {expanded ? '' : 'justify-center'}"
             aria-pressed={selected === int.id}
@@ -299,7 +306,7 @@
           </button>
 
           {#if expanded}
-            <div class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            <div class="flex items-center gap-1">
               <!-- Reconnect is one call and it is the action the ! badge promises. -->
               {#if status.actionable}
                 <button
