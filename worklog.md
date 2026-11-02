@@ -5267,3 +5267,60 @@ Stage Summary:
   56 chunks, the three unmutated tests, and router traversal by removal.
 - Nothing deployed, no source change beyond the test. lib 544/544,
   channels_grid 5/5, linkedin_refresh 15/15, cargo check 0 errors.
+---
+Task ID: calendar-column-overflow
+Agent: Jcode
+Task: Find and fix the "expanding the columns of the channels in the
+  calendar view" overflow.
+
+Work Log:
+- READ THE REPORT AGAIN, and found I had fixed the wrong thing first. My
+  first fix (c6b0947) addressed the channel rail's action cluster being
+  drawn on top of the channel name - a real defect, but not the one
+  reported. The report says expanding the CHANNELS distorts the CALENDAR:
+  widening the rail costs the calendar width (1040px at best, ~700px with
+  the rail expanded), which is what tipped the filter row over.
+- THE ACTUAL DEFECT. CalendarHeader.svelte's filter row is `flex-wrap`, so
+  it stays on one line only while its MIN-CONTENT fits the box. That floor
+  was ~1040px: three selects at `min-w-[120px]` each plus two actions at
+  `shrink-0`. It wrapped at every viewport and wrapped into a THIRD line
+  exactly when the channel rail was widened.
+- THE TRAP THAT HID IT. A comment in that file already recorded the wrap
+  verbatim - "88px over TWO rows at 1440, 1600, 1920 and 2560... Two rows
+  is what it is everywhere" - and read "the wrap is aligned" as "the wrap
+  is fine". A defect was written down as a design property, and it
+  survived the pass that wrote the plan. The comment also contains the
+  very class name the guard forbids, so the tests read comment-STRIPPED
+  source.
+- A COMMENT TRIPPED MY OWN GUARD. My first explanatory comment quoted
+  `min-w-[120px]` to explain the bug, and the comment-stripped guard found
+  it. Reworded rather than deleting the check.
+- MUTATION-PROVED BOTH ARMS, with a positive control after each. Arm 1
+  (restore `min-w-[120px]`): FAILED at the min-width assertion. Arm 2
+  (restore `shrink-0` on an action): FAILED at the per-action tag walk,
+  naming the offending tag. Positive control: fix restored, 7/7 green, and
+  both mutations verified ABSENT from the restored file (0 occurrences
+  each) - because a RED from a mutation that never applied is not a RED.
+- FOUND THE PREVIOUS COMMIT INCOMPLETE. `8c319ce`, landed by a concurrent
+  writer, carried my explanatory comments saying "The floor is gone" while
+  the floor was still in `selectClass`. The shipped file contradicted its
+  own documentation. That is the failure mode the verification gates exist
+  to catch, and it was caught by reading the diff rather than the log.
+
+Stage Summary:
+- The reported overflow is fixed: `selectClass` is `min-w-0 w-[7.5rem]`,
+  the two actions are `min-w-0 truncate`, min-content drops from ~1040px
+  to ~524px. The nav group and view switcher keep `shrink-0` deliberately
+  - they hold "Week of October 31" and "Day/Week/Month".
+- `the_calendar_header_fits_beside_an_expanded_channel_rail` pins it, two
+  mutation arms RED plus a positive control. 7/7 green.
+- Correction issued in place (42040a9): c6b0947's message claimed the rail
+  fix was what was reported. It was not. Both the commit body and §5 of
+  docs/planning/OUTLINE_REMOTE_CLI.md now name them apart.
+- Verified: cargo check 0 errors, channels_grid 7/7, svelte-check 0 errors
+  (the 1 remaining warning is browserslist staleness, proven pre-existing
+  by stashing), pnpm build succeeds, and the BUILT assets carry
+  `min-w-0 w-[7.5rem]` with zero `min-w-[120px]` remaining (AGENTS.md
+  9.53 - the source is not the proof, the served page is).
+- Known gap: not deployed to the VPS. The release binary embeds the
+  frontend, so the running instance serves the old assets until rebuilt.
