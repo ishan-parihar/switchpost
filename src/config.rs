@@ -39,6 +39,29 @@ pub const DEFAULT_DATABASE_URL: &str = "sqlite://data/switchpost.db";
 /// place that decides it and the gate that reads the config sees a real path.
 pub const DEFAULT_WHATSAPP_STORE_DIR: &str = "./data/whatsapp";
 
+/// Where the Telegram USER session (Grammers/MTProto) lives when
+/// TELEGRAM_SESSION_DIR is unset. Relative to the process CWD.
+///
+/// The same dead-default shape as the WhatsApp one above, on the same channel:
+/// `main.rs` and `cli::run.rs` both fall back to `./data/telegram` when they
+/// build the client manager, while the config loader left the field `None` -
+/// so the CLI's own connect gate (`connect telegram-user`) demanded a THIRD
+/// variable the server had never needed, and answered `not_configured` on an
+/// instance that would have worked. Resolved once, here, so every reader agrees.
+pub const DEFAULT_TELEGRAM_SESSION_DIR: &str = "./data/telegram";
+
+/// Resolve the Telegram user session dir from an env value.
+///
+/// Blank means "unset" (dotenvy returns the empty string for a cleared line),
+/// and falls through to the default - the same rule as the WhatsApp store dir,
+/// because it is the same failure: a config field that is `None` on a default
+/// install turns a working channel into "not configured".
+fn resolve_telegram_session_dir(provided: Option<String>) -> String {
+    provided
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_TELEGRAM_SESSION_DIR.into())
+}
+
 /// Resolve the WhatsApp store dir from an env value.
 ///
 /// A blank or whitespace-only value means "unset" (dotenvy hands back the
@@ -357,7 +380,7 @@ impl Config {
             telegram_bot_tokens: opt("TELEGRAM_BOT_TOKENS"),
             telegram_api_id: opt("TELEGRAM_API_ID"),
             telegram_api_hash: opt("TELEGRAM_API_HASH"),
-            telegram_session_dir: opt("TELEGRAM_SESSION_DIR"),
+            telegram_session_dir: Some(resolve_telegram_session_dir(opt("TELEGRAM_SESSION_DIR"))),
             pinterest_client_id: opt("PINTEREST_CLIENT_ID"),
             pinterest_client_secret: opt("PINTEREST_CLIENT_SECRET"),
             instagram_app_id: opt("INSTAGRAM_APP_ID"),
@@ -568,7 +591,10 @@ pub fn frontend_origins_cover_port(frontend_url: &str, bind_port: u16) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_sqlite_url, frontend_origins_cover_port, Config, DEFAULT_WHATSAPP_STORE_DIR};
+    use super::{
+        ensure_sqlite_url, frontend_origins_cover_port, Config, DEFAULT_TELEGRAM_SESSION_DIR,
+        DEFAULT_WHATSAPP_STORE_DIR,
+    };
 
     #[test]
     fn accepts_sqlite_urls_and_bare_paths() {
@@ -687,6 +713,51 @@ mod tests {
 
         // And the constant the two log sites print is the same default.
         assert_eq!(DEFAULT_WHATSAPP_STORE_DIR, "./data/whatsapp");
+    }
+
+    /// The Telegram USER session has the same dead default, on the same
+    /// reported channel. The server and the CLI both fell back to `./data/telegram`
+    /// when building the client manager while the config field stayed `None` - so
+    /// the CLI's own `connect telegram-user` gate demanded a THIRD variable the
+    /// server had never needed and answered `not_configured` on an instance that
+    /// would have connected. One default, resolved once.
+    #[test]
+    fn telegram_session_dir_defaults_so_the_channel_is_reachable() {
+        use super::resolve_telegram_session_dir;
+
+        assert_eq!(
+            resolve_telegram_session_dir(None),
+            "./data/telegram",
+            "an unset TELEGRAM_SESSION_DIR must still yield a usable path, or the \
+             CLI's connect gate reports not_configured on a working instance"
+        );
+        assert_eq!(
+            resolve_telegram_session_dir(Some("".into())),
+            "./data/telegram"
+        );
+        assert_eq!(
+            resolve_telegram_session_dir(Some("  ".into())),
+            "./data/telegram"
+        );
+        assert_eq!(
+            resolve_telegram_session_dir(Some("/var/lib/tg".into())),
+            "/var/lib/tg"
+        );
+        assert_eq!(DEFAULT_TELEGRAM_SESSION_DIR, "./data/telegram");
+
+        // The field is always `Some`, which is the invariant every reader relies
+        // on - so no reader has to invent a default. The actual VALUE comes from
+        // the environment (this repo's .env sets a different one, which is
+        // honoured), so this asserts the SHAPE, not a specific path.
+        let config = Config::from_env().expect("config");
+        let resolved = config
+            .telegram_session_dir
+            .as_deref()
+            .expect("telegram_session_dir must always resolve to a usable path");
+        assert!(
+            !resolved.trim().is_empty(),
+            "the resolved session dir must not be blank, got {resolved:?}"
+        );
     }
 
     /// telegram-user is MTProto: without the id/hash the client manager is

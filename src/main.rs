@@ -199,10 +199,12 @@ async fn main() -> anyhow::Result<()> {
         let api_id: i32 = api_id_str.parse().map_err(|e| {
             anyhow::anyhow!("Invalid TELEGRAM_API_ID: expected numeric, got {api_id_str}: {e}")
         })?;
+        // Config resolves the default (config::DEFAULT_TELEGRAM_SESSION_DIR),
+        // so there is ONE place that decides where the session lives.
         let session_dir = config
             .telegram_session_dir
             .clone()
-            .unwrap_or_else(|| "./data/telegram".into());
+            .unwrap_or_else(|| config::DEFAULT_TELEGRAM_SESSION_DIR.into());
         Some(Arc::new(TelegramClientManager::new(
             api_id,
             api_hash.clone(),

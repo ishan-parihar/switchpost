@@ -273,7 +273,9 @@ async fn init_state() -> anyhow::Result<AppState> {
                     let session_dir = config
                         .telegram_session_dir
                         .clone()
-                        .unwrap_or_else(|| "./data/telegram".into());
+                        .unwrap_or_else(|| {
+                            crate::config::DEFAULT_TELEGRAM_SESSION_DIR.into()
+                        });
                     Some(std::sync::Arc::new(
                         crate::services::telegram_client::TelegramClientManager::new(
                             api_id,

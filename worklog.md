@@ -6214,3 +6214,80 @@ Stage Summary:
   are unchanged (3 on clean HEAD, 3 with these changes) and not mine.
 - Known open: `scripts/genome` and ~50 unrelated files show as modified from a
   stray `cargo fmt`; I stashed the unrelated churn and kept only my four files.
+
+---
+Task ID: channel-login-cli-validation
+Agent: Jcode
+Task: Validate the v27c channel-login fixes through the real CLI and server.
+
+Work Log:
+Ran the built binary against an ISOLATED scratch sqlite DB (never the operator's
+data) on port 6599, with the local user row seeded as 16 RAW BYTES under
+DEFAULT_USER_ID (0x2222...) - the TEXT-uuid shape fails decode, which is the
+repo's own §9.44 trap and cost two attempts before it was seeded right.
+
+CLI, `connect <provider> --json --pretty`:
+- threads: authorize URL carries client_id, response_type=code, a 64-hex state,
+  and EXACTLY the five implemented scopes. redirect_uri is not JSON-quoted,
+  which confirms the founder's %22...%5C%2F%5C%2F%22 was Meta's echo, not ours.
+- telegram-user with no creds: not_configured, names TELEGRAM_API_ID/HASH/
+  SESSION_DIR. With all three: qr_login_required. NOTE the CLI gate wants all
+  three (the session dir has no default) while the server builds the manager
+  with only ID+HASH - a divergence the CLI reports honestly rather than
+  pretending; the SERVER path, which is what the WebUI uses, is the one that
+  matters and it is correct.
+- whatsapp with WHATSAPP_STORE_DIR unset: `native_client` - reachable, was
+  previously an error.
+- telegram-bot with no token: not_configured, names TELEGRAM_BOT_TOKENS.
+
+SERVER, over HTTPS on the isolated DB:
+- startup: "WhatsApp Web client (wa-rs): initialized" with the env var UNSET.
+  The session store was actually created at ./data/whatsapp/wa-store.db.
+  Previously the startup gate refused to build the client at all.
+- /api/providers: whatsapp configured=True (was False), telegram-user False
+  (was a lying True), threads reports its real callback URI.
+- /setup renders 33KB. Per-card: telegram-user shows "Not Available" with the
+  REAL env hint (was "Requires: TELEGRAM_CLI_PATH" - a variable that does not
+  exist), telegram-bot offers "Enter Bot Token", threads and whatsapp both
+  offer Connect.
+- POST /whatsapp/pair returns a REAL pair code (4FAPZC7M) and HTTP 200. This
+  is the endpoint that produced the founder's error. It now works with no
+  configuration at all.
+- GET /whatsapp/status returns authenticated:false, HTTP 200.
+- GET /integrations/connect/whatsapp returns the one-time-token instruction,
+  HTTP 200.
+- /integrations/connect/{telegram-user,telegram-bot} now fail at the CONNECT
+  step with a clean 400 naming the variables, instead of offering a button
+  that 502s at request-code time.
+- /api/auth/callback?error=...&error_description=error_code%3D1349003...
+  redirects with the full Meta consent explanation. The other shape (URL
+  Blocked / redirect_uri not whitelisted) still produces the redirect_uri
+  guidance, and the two recognisers do not collide - consent wins, correctly.
+- oauth_states row for threads is packed "<user_id>:<redirect_uri>", so the
+  callback can unpack it.
+
+Two NOTES on the environment, not the app: a 500 on /setup was my own fixture
+(a hand-seeded user row with the wrong id), and the HTTPS gate correctly
+refused a Threads connect while APP_URL was http (Meta rejects http redirects).
+Neither is a defect in the shipped code.
+
+Stage Summary:
+- All three fixes confirmed working through the real binary, both CLI and HTTP.
+- `cargo test --lib` still 562/562 after validation.
+- One divergence found during validation and now FIXED (v27d): the CLI
+  telegram-user gate wants TELEGRAM_SESSION_DIR too, the server does not -
+  the same dead-default shape as WhatsApp, on the SAME reported channel. The
+  config field stayed None while main.rs/cli run.rs both defaulted to
+  ./data/telegram when building the manager, so the CLI demanded a third
+  variable the server had never needed. Resolved once at config load.
+  Reported honestly in the first pass, then corrected when re-reading the
+  evidence: it was the same bug class, not a separate decision.
+- A self-inflicted false alarm worth recording: my first "no creds" CLI run
+  reported qr_login_required because TELEGRAM_API_ID was exported in the
+  shell from the previous test. The gate is correct under a clean env
+  (verified with `unset`). A shell variable is not a hermetic test.
+- Also self-inflicted: the new telegram test first asserted a literal
+  ./data/telegram, which failed because from_env() honours the repo's own
+  TELEGRAM_SESSION_DIR=./data/telegram-sessions. Rewritten to assert the
+  invariant (always Some, never blank) rather than an environment-dependent
+  value. The failure was the test's fault and it caught my own sloppiness.
