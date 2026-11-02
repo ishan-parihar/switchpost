@@ -81,6 +81,39 @@ fn cal_header_without_comments() -> String {
         .join("\n")
 }
 
+/// The calendar header's MARKUP, with BOTH comment forms removed. The
+/// `//`-only form above is not enough here: this file's measurements are
+/// recorded in HTML comments, and a prose mention of an element or a class
+/// inside one is a false positive for any `find`/`contains` over the looser
+/// view. Removing both forms is what makes "the label is inside a button"
+/// mean the BUTTON rather than a sentence about the button.
+fn cal_header_template_without_comments() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(CAL_HEADER);
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {CAL_HEADER}: {e}"));
+    // HTML comments are non-nesting and may span lines, so this is a single
+    // non-greedy sweep rather than a per-line filter.
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src.as_str();
+    while let Some(start) = rest.find("<!--") {
+        out.push_str(&rest[..start]);
+        match rest[start..].find("-->") {
+            Some(end) => rest = &rest[start + end + 3..],
+            None => {
+                // Unterminated: drop the remainder rather than propagate it.
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// A provider already present in `integrations` must still render a tile,
 /// because that tile is now the only way to add a SECOND account.
 #[test]
@@ -368,6 +401,88 @@ fn the_rails_action_cluster_is_in_flow_not_overlaid() {
 // would destroy the meaning rather than the overflow. Min-content drops to
 // about 524px, which fits beside an expanded rail.
 
+/// THE SELECTS' BASIS IN PIXELS. A class-string test cannot tell 120px
+/// from 120px-renamed, which is how a no-op shipped as a fix: the row
+/// carries `w-[7.5rem]`, app.css declares no `:root` font-size, `rem`
+/// therefore resolves against the browser's 16px default, and the class
+/// computes to exactly the 120px floor it replaced - while every assertion
+/// about the CLASS STRINGS stayed green.
+///
+/// This is a pure string-to-number read of the classes the source actually
+/// carries, not a re-implementation of the browser. It parses `selectClass`
+/// out of the comment-stripped source and resolves the width utility the
+/// way Tailwind's JIT does, so the assertion is on pixels.
+fn select_basis_in_pixels(src: &str) -> u32 {
+    // `const selectClass = "...";` is the one definition the three selects share.
+    let decl = src
+        .split("selectClass")
+        .nth(1)
+        .unwrap_or_else(|| panic!("the header no longer defines selectClass"));
+    let quote = decl.find('"').unwrap_or_else(|| panic!("selectClass has no quoted value"));
+    let rest = &decl[quote + 1..];
+    let end = rest.find('"').unwrap_or_else(|| panic!("selectClass is unterminated"));
+    let class_list = &rest[..end];
+
+    // Tailwind's default root font-size. app.css sets NO `font-size` on
+    // `:root`, and neither does the html shell, so a `rem` in a utility class
+    // resolves against this - which is the whole reason 7.5rem == 120px.
+    const REM_PX: u32 = 16;
+
+    let mut basis: Option<u32> = None;
+    for token in class_list.split_whitespace() {
+        // `w-16` is the scale step: width * 0.25rem in Tailwind's default scale.
+        let scale = token.strip_prefix("w-").and_then(|v| v.parse::<u32>().ok());
+        if let Some(n) = scale {
+            // w-{n} -> n * 4px in the default scale.
+            basis = Some(n * 4);
+            continue;
+        }
+        // `w-[<len>]` is an arbitrary value, which may be px, rem or vw.
+        if let Some(len) = token
+            .strip_prefix("w-[")
+            .and_then(|v| v.strip_suffix(']'))
+        {
+            let px = if let Some(raw) = len.strip_suffix("rem") {
+                let mult: f32 = raw.parse().unwrap_or_else(|e| {
+                    panic!("selectClass carries unparseable rem `{len}`: {e}")
+                });
+                (mult * REM_PX as f32).round() as u32
+            } else if let Some(raw) = len.strip_suffix("px") {
+                raw.parse().unwrap_or_else(|e| {
+                    panic!("selectClass carries unparseable px `{len}`: {e}")
+                })
+            } else {
+                panic!(
+                    "selectClass carries a width utility `w-[{len}]` this test \
+                     cannot resolve: use px, rem, or a scale step"
+                );
+            };
+            basis = Some(px);
+            continue;
+        }
+        // A min-width floor is a floor, and the caller asked for a basis.
+        // Treat it as the basis so a reintroduced floor fails loudly rather
+        // than being skipped as an unrelated class.
+        if token.starts_with("min-w-[") || token.starts_with("min-w-") {
+            let f = token
+                .strip_prefix("min-w-[")
+                .and_then(|v| v.strip_suffix(']'))
+                .and_then(|v| v.strip_suffix("px"))
+                .and_then(|v| v.parse::<u32>().ok());
+            if let Some(px) = f {
+                basis = Some(px);
+            }
+        }
+    }
+    assert!(
+        basis.is_some(),
+        "selectClass `{class_list}` carries no width utility at all, so the \
+         selects fall back to their intrinsic width and this test cannot say \
+         whether the row fits"
+    );
+    basis.expect("checked above")
+}
+
 /// Every control in the header's filter row must be able to give way, so the
 /// row keeps one line at the calendar's real width.
 #[test]
@@ -398,16 +513,38 @@ fn the_calendar_header_fits_beside_an_expanded_channel_rail() {
          row can only overflow"
     );
 
-    // The two actions must shrink, not sit at full size on a second line.
+    // ...and above all, the class strings must compute to PIXELS small enough.
+    // Until this assertion existed, a `w-[7.5rem]` "fix" shipped: rem resolves
+    // against app.css's default 16px root, so 7.5rem == 120px == the floor it
+    // replaced, and the class-string assertions above were all satisfied by a
+    // change that preserved the exact width of the bug. (Measured 2026-11-02.)
+    // The row is a 7-element flex-wrap: nav 267 + 3*select + views 147 +
+    // Generate 105 + NewPost 82 + 6 gaps at 8px must be <= the 844px box the
+    // channel rail leaves (max-w-6xl 1104, rail expanded 260).
+    let sel_basis_px = select_basis_in_pixels(&src);
+    assert!(
+        sel_basis_px <= 80,
+        "the filter selects' basis is {sel_basis_px}px: three of them plus the \
+         nav group, the view switcher and the two actions exceed the 844px box \
+         beside an expanded channel rail, so the row wraps"
+    );
+
+    // The two actions must shrink, not sit at full size on a second line. Search
+    // the TEMPLATE, not the whole stripped source: a prose mention of the label
+    // inside a measurement comment is not the control, and the stripper here
+    // only removes `//` lines - HTML comments survive, which is itself a trap
+    // worth keeping in mind (a comment repeating a class satisfies a naive
+    // contains).
+    let template = cal_header_template_without_comments();
     for label in ["Generate Posts", "+ New Post"] {
-        let at = src
+        let at = template
             .find(label)
             .unwrap_or_else(|| panic!("the header lost its {label} action"));
         // Walk back to the opening tag of the button that holds this label.
-        let open = src[..at]
+        let open = template[..at]
             .rfind("<button")
             .unwrap_or_else(|| panic!("{label} is not inside a button"));
-        let tag = &src[open..at + label.len()];
+        let tag = &template[open..at + label.len()];
         assert!(
             !tag.contains("shrink-0"),
             "the {label} button is `shrink-0` again - it cannot give way, so it \

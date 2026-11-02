@@ -70,7 +70,7 @@
   // and stopping there; the one before that claimed the row was one line tall
   // on the strength of the heights matching, and the rendered app contradicted
   // it at every width tested.
-  const selectClass = "h-10 min-w-0 w-[7.5rem] px-2 bg-background-input border border-line rounded-lg text-xs text-content focus:outline-none focus:border-accent";
+  const selectClass = "h-10 min-w-0 w-16 px-2 bg-background-input border border-line rounded-lg text-xs text-content focus:outline-none focus:border-accent";
 </script>
 
 <!-- C-2: ONE row, in postiz's order. The three rows this replaces were
@@ -91,26 +91,43 @@
      view switcher, and the two actions - on ONE line, at the calendar's real
      width.
 
-     A comment sat here saying the row "is 88px over TWO rows at 1440, 1600,
-     1920 and 2560 as well" and calling that what the design is. That was a
-     defect recorded as a fact. The header's minimum content width was about
-     1040px - three filter selects that each refused to shrink below a fixed
-     120px floor, plus two action buttons pinned at full size - while this
-     box is `max-w-6xl` capped at 1040px at its widest,
-     and about 700px when the channel rail beside it is expanded. So it
-     wrapped everywhere, and it wrapped into a THIRD line precisely when the
-     founder widened the channel rail - the "expanding the columns distorts
-     the calendar" bug this row was fixed for. The number was true and the
-     conclusion drawn from it was wrong: two rows was never the design, it
-     was the bug.
+     MEASURED 2026-11-02, IN A REAL BROWSER AGAINST THIS APP'S OWN COMPILED
+     STYLESHEET - because the numbers that used to sit here were wrong, and
+     wrong by enough to ship a fix that did nothing.
 
-     The fix lets the flexible parts flex: the three selects take a
-     `w-[7.5rem]` basis with `min-w-0` instead of a 120px floor, and the two
-     action buttons carry `min-w-0 truncate` instead of `shrink-0`. The nav
-     group and the view switcher keep `shrink-0` deliberately: they hold
-     "Week of October 31" and "Day/Week/Month", where truncating destroys
-     the meaning rather than the overflow. Min-content drops to about 524px,
-     which fits beside an expanded rail.
+     THE BOX. `max-w-6xl` (1104px) lives inside `<main>`, which is a SIBLING
+     of the `<aside>` in the layout's `flex h-dvh` row - so the rails consume
+     viewport width, and the calendar's box is 1104 minus them:
+       1040px with the channel rail collapsed   (the measured figure)
+        844px with the channel rail expanded     (the reported bug)
+     An earlier revision of this comment said "about 700px", and "wraps at
+     every viewport". Neither was true: the pre-fix row held one line down to
+     900px and only wrapped below that.
+
+     THE ROW'S MIN-CONTENT, measured part by part: nav 267 + views 147 +
+     three selects 120 + Generate 105 + New Post 82 + gaps = 961px. With the
+     selects at the 64px basis below it is 793px.
+
+     THE TRAP THAT SHIPPED A NO-OP. A previous fix replaced the 120px FLOOR
+     with `w-[7.5rem]` and called it fixed. `app.css` declares no font-size on
+     `:root`, so `rem` resolves against the browser default of 16px and
+     7.5rem computes to 120px - the exact value it replaced. The test guarding
+     this row asserts on CLASS STRINGS, never on rendered geometry, so a
+     change that preserves the width cannot be detected: it was green while
+     shipped broken, and a small REGRESSION at 960px besides.
+
+     THE BASIS IS NOW `w-16` (64px), MEASURED, NOT CHOSEN TO LOOK PRECISE.
+     One line at 1040 and 844; the row only wraps below 800px, which no
+     single control reaches because the nav group (267px) and the view
+     switcher (147px) are `shrink-0` with their content setting the floor -
+     the date is `whitespace-nowrap`. Releasing THAT is a design decision
+     about what the founder loses, so it is named here rather than guessed.
+
+     The three selects take a 64px basis with `min-w-0` instead of a 120px
+     floor, and the two action buttons carry `min-w-0 truncate` instead of
+     `shrink-0`. The nav group and the view switcher keep `shrink-0`
+     deliberately: they hold "Week of October 31" and "Day/Week/Month", where
+     truncating destroys the meaning rather than the overflow.
 
      Nothing here reaches for `new Date(...)`: the range still resolves
      through `wallClockToUtc` in the page (AGENTS.md 9.17). -->
