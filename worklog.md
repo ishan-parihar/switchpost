@@ -5678,3 +5678,47 @@ Stage Summary:
   any live .svelte/.rs/.md file, 0 errors in this file.
 - One near-miss of the same shape as the bug being fixed: prose that reads
   as code, in a file whose tests strip prose but whose compiler does not.
+
+---
+Task ID: calendar-overflow-validation-4
+Agent: Jcode
+Task: Re-read the request, correct what is stale, continue.
+
+WHAT THIS PASS DID NOT NEED TO CHANGE
+The one claim that had not yet been re-measured after the comment edits was
+"the row holds one line to 800px". Re-measured against the CURRENT source,
+with a shape control first: the row really is 3 selects / 8 buttons / 2
+groups (2 arrows + Today + 3 view options + 2 actions = 8 buttons), and the
+first wrap is at 800px exclusive. The claim holds. No change.
+
+A SHAPE CONTROL IS WHAT MADE THAT NUMBER TRUSTWORTHY. The first run of this
+same probe reported "first wrap at 1040px" - which would have been a fourth
+false measurement in this cycle. Its cause was the probe mapping BOTH action
+class lists onto BOTH labels, so four action buttons rendered instead of two.
+The control (assert the reproduction's element counts before reading any
+width off it) turned that from a confident wrong number into an abort.
+
+THE REQUEST WAS RE-READ, AND IT IS STILL THE CALENDAR.
+The words in the original report were "expanding the columns of the channels
+in the calendar view" (and an earlier "distorting the calendar preview").
+Checked the alternative: the KANBAN page is the app's other surface with
+literal columns, and it has NO channel rail and NO expanding channel column -
+so there is no interaction between channel expansion and its layout. The
+calendar is the only surface where the expansion changes a width. The work
+has been on the right surface.
+
+AGENTS.md carries no stale overflow figure. Its only related line is the
+doc-map row for OUTLINE_REMOTE_CLI.md, which summarises the remote-CLI plan
+and does not assert any width.
+
+Stage Summary:
+- No new defect. "One line to 800px" re-verified against the current source
+  with a shape control; the box widths (1040 / 844) and the `7.5rem == 120px`
+  mechanism were verified in the two prior passes.
+- One near-miss of the cycle's recurring shape caught by adding a control:
+  a reproduction that is not faithful produced a confident wrong number.
+  It is now the standing rule for this work - assert the reproduction's
+  element counts before reading a width off it.
+- Final gates: channels_grid 7/7, pnpm build succeeds, built assets carry
+  `min-w-0 w-16` and no chunk carries the 7.5rem class. Tree clean on my
+  files; the outstanding modified files are the concurrent writer's.
