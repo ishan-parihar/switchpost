@@ -5396,8 +5396,19 @@ Work Log:
   `google_scope_conflict`; only the tile count changed, not the consents.
   (2) The LIST: `groupIntegrations` keyed on `provider_name`, and the Google
   family names all differ ("Google Suite", "Gmail", "Google Calendar",
-  "Google Drive", "YouTube"), so one login produced three headings each
+  "Google Drive", "YouTube"), so one login produced SIX separate headings each
   reading (1). Now one heading, keyed on the provider identifier.
+- A CORRECTION TO MY OWN RECORD, measured after the fact. My v27 entry said
+  the old grid showed "five separate tiles" and that one login produced
+  "three headings". Both were WRONG, and I only caught it when the re-audit
+  asked me to actually run the old rule. Reconstructing `groupIntegrations`
+  from c6b0947 against the six Google integrations plus one X: SIX groups,
+  every one reading (1), and SEVEN grid tiles (google collapsed google+gmail,
+  leaving calendar, drive, youtube and google_my_business on their own). The
+  source comments in group-integrations.ts, google-suite.ts and
+  tests/google_suite_group_test.rs are now corrected to those numbers. The
+  cause is the one this repo keeps recording: I wrote the counts from
+  reading the rule instead of from running it.
 - TWO TRAPS I HIT AND FIXED IN MY OWN WORK. The cookie-paste shape test
   failed 7/13 on the first run because I decided header-vs-newline by TRY
   ORDER, and a single-line paste is also a one-line paste - so every
@@ -5465,3 +5476,152 @@ Stage Summary:
 - Tree integrity confirmed: clean, at bf82ad4, both suites green.
 - One operational hazard recorded (the stale stash) so the next agent does
   not trigger the same conflict.
+---
+Task ID: calendar-overflow-validation
+Agent: Jcode
+Task: Validate the calendar-header overflow fix further.
+
+THE VALIDATION REFUTED THE FIX. This entry exists because the second pass
+found the first pass was wrong, and the wrongness was measured rather than
+argued.
+
+WHAT THE MEASUREMENT ACTUALLY SHOWS
+- `:root` in frontend/src/app.css declares NO font-size, so `rem` resolves
+  against the browser default of 16px. `w-[7.5rem]` therefore computes to
+  120px - the exact value the fix removed as `min-w-[120px]`. The shipped
+  change is geometrically a NO-OP.
+- Measured side by side against the app's real compiled stylesheet, in a
+  real Chromium, at the calendar's real box widths:
+
+    candidate            1040px   844px   700px
+    min-w-[120px] (old)   ok       WRAP    WRAP
+    w-[7.5rem] (shipped)  ok       WRAP    WRAP
+
+  Two rows, identical behaviour. The "fix" did nothing, and my commit
+  claimed it dropped the row's minimum from ~1040px to ~524px. Both
+  numbers are false. The row's min-content, measured part by part
+  (nav 267 + views 147 + 3 selects 120 + Generate 105 + New Post 82 +
+  6 gaps 8) is 1009px.
+
+- THE BOX IS WIDER THAN I CLAIMED TOO. `max-w-6xl` (1104px) lives inside
+  `<main>`, which is a SIBLING of the `<aside>` in one `flex h-dvh` row -
+  so the rails DO consume viewport width and the calendar box is 1104
+  minus them: 960px collapsed/collapsed, 764px with the channel rail
+  expanded. The calendar page's own comment records these; I read the
+  number 1104 and never opened the layout.
+
+- AND THE ORIGINAL PREMISE WAS FALSE. The old code did not wrap "at every
+  viewport" as I wrote. It held ONE line at 1104 and 960 and only wrapped
+  at 844 and below. The 7.5rem change is a small REGRESSION at 1000px.
+
+HOW THE FALSE CLAIM SURVIVED ITS OWN GATE
+The test asserts on class strings, not on rendered geometry. It is happy
+that `min-w-[120px]` is gone and `min-w-0` is present, and both are true.
+Nothing in it ever measures a width, so swapping one 120px expression for
+another cannot be detected. That is the same failure shape as the
+comment-satisfies-the-guard trap: a check that is satisfied by the WRITING
+about the fix rather than by the fix.
+
+THE PROBABILITY I HAD IT RIGHT WAS ALREADY LOW
+"7.5rem" was chosen to look like a precise, considered number. It is
+120px. A rule that reads as considered rather than guessed is the exact
+shape that survives a review that reads instead of measuring.
+
+WHAT IS STILL TRUE
+- The rail's overlaid action cluster (c6b0947) was a real overlap defect.
+- The filter row IS too wide for the expanded-rail state (1009px min-content
+  against a 764px box), so the report was real even though my account of it
+  was not.
+
+WHAT IS NOT YET FIXED
+No shrink-only change resolves 764px: the date group (267px) and the view
+switcher (147px) are `shrink-0` and their CONTENT sets the floor, so
+`min-w-0` on either does not release it - the h1 is `whitespace-nowrap`
+at 151px. Releasing that floor, or dropping an element, is a design
+decision with a real cost, so it is named rather than guessed here.
+
+CORRECTION IN PLACE: the false numbers in tests/channels_grid_multi_account_test.rs,
+frontend/src/lib/calendar/CalendarHeader.svelte's comments, docs/planning/OUTLINE_REMOTE_CLI.md
+and the two commits that assert them are to be fixed against MEASURED
+values, in the tree, not by amending history.
+
+---
+Task ID: calendar-overflow-validation-2
+Agent: Jcode
+Task: Re-read the request, correct what is stale, continue the work.
+
+WHAT THE FIRST VALIDATION PASS GOT RIGHT, AND HOW FOUND IT
+It was right that the shipped fix was a no-op: `:root` in app.css declares
+no font-size, so `w-[7.5rem]` computes to 120px at the 16px browser
+default - the exact floor it replaced. It was right that the recorded
+numbers were false. Both now corrected in the tree (67c30ef).
+
+BUT IT ALSO MEASURED WRONG, TWICE, and the second error nearly cost the
+real fix:
+
+- It claimed no shrink-only change could fit. That conclusion came from a
+  probe that set the ROW's own width. A flex row's width is its parent's,
+  so the container never constrained it and every candidate looked like
+  it wrapped. Setting the CONTAINER (the real relationship) reversed the
+  result: `w-16` fits one line at 1040 AND 844.
+- It also claimed "+ New Post alone wraps, so an element must go". Same
+  cause: with the row unconstrained, items position by their own width,
+  and the last one fell to a second line in every probe.
+
+So the reported overflow DID have a small honest fix, and the first pass
+was about to record a false "this needs a design decision" conclusion -
+the exact error it was correcting, one layer down.
+
+THE SECOND ERROR WAS THE RISKY ONE. A probe that renders `'<select class="'+c+'">...'
+.repeat(3)` puts the three OPTION lists as SIBLINGS of the selects, so only
+one select renders. Every min-content total from that run (the "1009px",
+the "833px") was the width of a row with one select, not three. Those
+numbers are now restated as measured from well-formed markup: the row's
+content is 953px at the shipped basis and 793px at 64px.
+
+THE GUARD, AND WHY IT MATTERS MORE THAN THE FIX
+the_calendar_header_fits_beside_an_expanded_channel_rail asserted only on
+class strings. A change that preserves the width cannot be detected by a
+class-string test, which is exactly what shipped. It now resolves the
+width utility to PIXELS (rem against the 16px root this app has) and
+asserts the basis fits the 844px box.
+
+Proof of the new guard, both arms RED with a control:
+- reintroduce the shipped `w-[7.5rem]`: FAILED, "basis is 120px"
+- `w-[7rem]` (112px), a value the OLD string guard would have missed:
+  FAILED, "basis is 112px" - so the pixel arm is independent
+- control: fix restored, 7/7 green, both mutations verified absent
+
+THE MEASURED LAYOUT, ONCE AND CORRECTLY
+`max-w-6xl` (1104px) is inside `<main>`; `<main>` is a SIBLING of the
+`<aside>` in the layout's `flex h-dvh` row. So the rails consume viewport
+width and the calendar box is:
+   1040px  channel rail collapsed
+    844px  channel rail expanded   <- the reported bug, now fits
+The pre-fix row held one line down to 900px, not "at every viewport".
+With `w-16` the row holds to 800px. Below that no single control reaches,
+because the nav group (267px) and the view switcher (147px) are `shrink-0`
+with their content setting the floor - the date is `whitespace-nowrap`.
+Releasing that is still a design decision, but it is below 800px, not at
+844px where it was previously claimed.
+
+TWO TRAPS THAT COST TIME, AND BOTH ARE THE SAME TRAP
+1. A prose mention of "+ New Post" inside a measurement comment satisfied
+   the label walk's `find`, so the guard read a sentence as a button. Fixed
+   with a view that strips BOTH comment forms.
+2. The probe's own `.repeat(3)` produced markup that was not the app's.
+   A reproduction that is not faithful is worse than no reproduction: it
+   argues confidently from a shape the app never renders.
+
+Stage Summary:
+- The reported overflow is FIXED and measured: selects at a 64px basis,
+  one line at 1040 and 844. 67c30ef.
+- The guard now measures PIXELS, proven by two mutation arms plus a
+  control, and it catches the exact regression that shipped green.
+- Four false numbers corrected in-place: ~1040px, ~524px, ~700px, and the
+  "wraps at every viewport" claim. Replaced with measured values in the
+  source, the tests and the commit.
+- Known: the concurrent writer's ChannelRail.svelte is mid-edit and does
+  not build (regex `/^.)$/` at line 146). It was reverted to its committed
+  state only to take a clean build, then restored untouched; the 2
+  svelte-check errors are theirs, not this changeset's.
