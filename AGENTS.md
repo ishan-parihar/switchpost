@@ -1193,6 +1193,19 @@ stylesheet. It is in `make check`, beside the hex gate (both need the
 BUILT frontend) and `scripts/check_status_contrast.py` (which reads the
 SOURCE app.css and needs no build).
 
+**Do not check that by hand with an unescaped grep.** Tailwind escapes
+the colon in a modifier class, so `hover:bg-accent-fill-hover` is
+written in the built stylesheet as `.hover\:bg-accent-fill-hover:hover`
+and an unescaped search for `.bg-accent-fill-hover` returns ZERO. That
+reads exactly like the truncation bug above - a missing rule - and it is
+not one. I measured that zero, read it as a §9.46 defect, and the rule
+was generated all along; the gate script had been passing correctly the
+whole time because it handles the escaping.
+
+So: a missing Tailwind rule is checked by the script, and the script's
+verdict is the measurement. The escaped form is `.hover\:` for `hover:`,
+`.md\:` for `md:`, and so on.
+
 ### 9.47 A NUMBER computed from a CLIPPED PAGE is a wrong number
 
 The dashboard fetched `limit: 100` of everything and computed every
