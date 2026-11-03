@@ -6527,3 +6527,78 @@ Stage Summary:
   not work to do.
 - V1b missed the real location by naming a file with no send path.
 - cargo check 0 errors, cargo test --lib 565/565, clippy clean.
+
+---
+Task ID: v28-deploy-20261103-0820
+Agent: Jcode
+Task: Deploy the latest release so the founder can test the channel-login fixes.
+
+## The finding that made this deploy necessary
+
+SKILL §3 says assume the live binary is not what you think, so the LIVE
+artifact was inspected before building. It carried `WHATSAPP_SESSION_PATH`
+twice - the variable name that does not exist, removed by `1f16f12` back on
+2026-11-02. So the founder's reported error was still live in production, not
+merely reported. The deployed binary was three builds behind HEAD.
+
+## Topology, established per the skill rather than assumed
+
+- `systemctl --user` unit (`active`), NOT a system unit
+- `ExecStart=/home/nerd/.local/bin/switchpost serve`, `WorkingDirectory=/home/nerd/switchpost`
+- binds `127.0.0.1:6543` for cloudflared (`switchpost-config.yml`), public
+  `https://switchpost.ishanparihar.com` → 200
+- `make deploy` was NOT used: it targets `/usr/local/bin` and a system unit,
+  neither of which exists here
+
+## What was shipped, and the gates each step passed
+
+1. `cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.36` with the
+   Zig shim on PATH - 2m53s. **GLIBC ceiling GLIBC_2.34**, under the VPS's 2.36.
+2. Artifact signature before shipping: `WHATSAPP_SESSION_PATH` **0**,
+   `TELEGRAM_CLI_PATH` **0**, `WHATSAPP_STORE_DIR` 11.
+3. Backup into the same dir: `switchpost.bak-20261103-0820`.
+4. Copied under a NEW name (`switchpost.new-20261103-0820`), sha256 verified
+   on the VPS identical to local, `ldd` resolves - all while the old binary
+   still served.
+5. Moved into place, 755, `systemctl --user restart switchpost`.
+6. Public verification: `/health` 200, `/` 200.
+7. live sha256 == local sha256: `88449a83…c323c0` (byte-identical).
+
+## Smoke test before shipping, and one mistake it caught
+
+The release binary was RUN against an isolated scratch DB: `/health` 200,
+WhatsApp `/pair` returned a real code `G127A474`, telegram-user gave the honest
+`not_configured`, `/setup` rendered 32922 bytes.
+
+The first smoke run took over the repo's real `data/switchpost.writer.lock`
+because the run dir still fell through to the repo's `.env`. It was stopped
+immediately and the repo DB checked: `PRAGMA integrity_check` → `ok`, post
+counts unchanged, no data disturbed. The second run used a real isolated cwd.
+The lesson is the skill's own §6 rule and it cost a scare to learn it properly:
+a scratch DB means a scratch **working directory**, not just a scratch URL.
+
+## The founder's three channels, re-tested ON PRODUCTION after the swap
+
+- **WhatsApp pair** → `{"pair_code":"TNYBLH3R","expires_in":180}` HTTP 200. The
+  `WHATSAPP_SESSION_PATH` error is gone, and the env var is still unset.
+- **Telegram-user** → the honest 400 naming my.telegram.org + the @BotFather
+  alternative. No request for a variable that does not exist.
+- **Threads** → a 200 whose URL carries exactly **5 scopes**
+  (`threads_basic, threads_content_publish, threads_manage_replies,
+  threads_read_replies, threads_manage_insights`) and a clean, unquoted
+  `redirect_uri` - the narrowed set from `1f16f12`, live.
+
+## Rollback
+
+    ssh racknerd 'cp /home/nerd/.local/bin/switchpost.bak-20261103-0820 \
+      /home/nerd/.local/bin/switchpost && systemctl --user restart switchpost'
+
+No DB `.backup` was taken: this release changes no schema and no data.
+
+Stage Summary:
+- Deployed HEAD (f4c5200) to production at 08:20 IST; live sha256 matches local.
+- The stale-binary finding is the substance: the founder's WhatsApp error was
+  live in production for ~a day because the deployed build predated the fix.
+- Pre-existing WARN lines in the journal (Instagram "No Instagram Business
+  account found", LinkedIn/YouTube token expiry) are credential/config state,
+  not this deploy - compared against the pre-restart window.
