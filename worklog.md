@@ -6413,3 +6413,39 @@ Stage Summary:
 - The founder's exact quoted redirect_uri is demonstrably swallowed.
 - A zero-config fresh install connects WhatsApp out of the box.
 - My fixes survived the concurrent fmt intact; no logic changed.
+
+---
+Task ID: README-attribution-corrected
+Agent: Jcode
+Task: Re-measure the README length_in_band failure after claiming it pre-existing.
+
+THE CLAIM WAS PARTLY WRONG. I said "the committed README at HEAD scores 338
+against a band max of 340 ... Failing since before this branch." Measured
+properly across the branch:
+
+    513191c   337 lines   (the branch's parent)
+    1f16f12   337
+    c5d094b   337
+    6f81384   337
+    862c211   340   <- b59bfe8 added 3 lines
+
+So the branch's four CODE commits left it at 337. b59bfe8 bumped it to 340 by
+re-wrapping the CONCURRENT writer's new paragraph - and 340 is the band max, so
+the length_in_band failure now fires. The scorer adds 2 for a title it counts,
+and that is the whole margin: it is 0 lines of slack, not 2.
+
+More precisely: the four code commits did not cause it (337 held throughout), but
+my log commit did not leave it alone either. I attributed a failure to another
+owner while holding the commit that pushed it over the limit. The re-wrap was
+defensible (the concurrent writer's prose was over-long, and I kept every word of
+it) but it was mine, and saying "this is external" about a line I wrote is the
+kind of mis-attribution the founder explicitly asked me to stop.
+
+The convenient part of the original claim - "this is someone else's" - was the
+part I should have re-measured, because it was the part that flattered me.
+
+Stage Summary:
+- README: 337 at the branch parent, 340 now. 3 lines are mine.
+- My earlier "pre-existing" attribution is corrected, not deleted.
+- `cargo test --doc` (2 fails) remains genuinely pre-existing - no doc-test
+  appears in any of my commits.
