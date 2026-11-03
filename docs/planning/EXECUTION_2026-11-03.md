@@ -62,9 +62,10 @@ conditional seam debt, not a defect. Measured:
 
 - Both `split_content` callers (`src/cli/run.rs:3896`, `:4650`) **already** fetch
   the limit from the provider and pass it in. There is no duplicated rule.
-- `db::types::EpochUtc` exists and is the repo's convention; the analytics cutoff
-  at `src/api/analytics.rs:199` filters an **already-parsed in-memory JSON array**,
-  so there is no epoch bind for the newtype to wrap. Both halves are satisfied.
+- `db::types::EpochUtc` exists and is the repo's convention. **The reason originally written here was wrong** and is corrected rather than defended: it claimed "the analytics cutoff at `src/api/analytics.rs:199` filters an already-parsed in-memory JSON array, so there is no epoch bind for the newtype to wrap". That describes only ONE of seven `cutoff` sites in that file. Measured properly:
+  - Six sites (`.bind(cutoff)` at lines 377, 397, 430, 473, 894, 955) bind an `i64`, because `cutoff` there is declared `(chrono::Utc::now() - Duration::days(days)).timestamp()`. They are correct **by type**, not by the reason I gave.
+  - The `DateTime<Utc>` cutoff at line 692 is handed to `queries::own_post_engagement_totals`, which binds `EpochUtc::from(cutoff)` and `EpochUtc::from(until)` at `src/db/queries.rs:4762-4763` against `p.published_at`.
+  So both halves of the row are satisfied, but the evidence is "every DateTime cutoff crosses the boundary through `EpochUtc`, and every raw bind is already an integer" — not "there are no binds to wrap".
 - Seven call sites of `max_content_length()` exist across `src/`, and no reason
   arose in this cycle to touch them.
 
