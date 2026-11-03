@@ -160,9 +160,10 @@ fingerprint. Measured against the current local build's chunk names:
 | `13.DASFFk_r` | **3** |
 
 Those names are content-hashed by SvelteKit, so a stale byte-set cannot carry
-them. Two more facts close it: `frontend/build/index.html` (08:01) is newer than
-every file in `frontend/src` (newest 11:29 — that is a *later clock reading on
-the wall clock but an earlier local time*, verified as earlier by the build
-predating the commit's own source), and `git log` shows **no frontend file
-changed on `github/master` since the build**. So the deployed release embeds the
-current frontend and §9.53 holds at fingerprint strength, not presence strength.
+them. Two more facts close it, and they are the simple ones rather than the
+confusing ones: the newest edit under `frontend/src` is **2026-11-02 11:29 IST**
+and `frontend/build/index.html` is **2026-11-03 08:01 IST**, so the build is
+newer than every source edit; and `git log` shows **no frontend file changed on
+`github/master` since that build**, so there is nothing newer for the build to be
+missing. So the deployed release embeds the current frontend and §9.53 holds at
+fingerprint strength, not presence strength.
