@@ -6823,3 +6823,60 @@ Stage Summary:
   and 565/565 at HEAD, but the deployed binary `f4c5200` still hard-codes
   `MAX_RETRIES as i32`, so production still mis-records the attempt number until the
   founder runs `make deploy`. The row reads "pushed, awaiting deploy", not "done".
+
+---
+Task ID: validation-round-4-artifacts-and-harness
+Agent: Jcode
+Task: validate the remaining claims on the artifacts themselves and with the right test harness
+
+Work Log:
+- verify-live's literal check is now PROVEN, not inferred. Round 2 checked the content-hashed
+  chunk names on the VPS but the two literals ('more posts in this slot', 'Week of') only on
+  my LOCAL rebuild - which proves nothing about what the founder sees, because a local build
+  is not the deployed one. Re-measured against the binary the live process executes
+  (`/home/nerd/.local/bin/switchpost`): 'more posts in this slot' = 1, 'Week of' = 1. So the
+  9.53 conclusion stands on the right artifact rather than by inference from the wrong one.
+
+- CHANNEL INVENTORY: a transcription error of mine, corrected. The success-path row recorded
+  "linkedin x2"; the live `/api/integrations` returns linkedin x1 + linkedin-page x2. The
+  total (18) and the 16 OAuth + 2 cookie split were both right, which is exactly why the
+  error survived - it summed correctly, so nothing downstream contradicted it. The
+  conclusion the inventory was cited for is unaffected: every channel is a real account on a
+  real audience, so a live success-path probe was correctly NOT run.
+
+- THE 9.24 INVARIANT AND BOTH RECORDED TEST COUNTS: confirmed, and my first measurement this
+  round was the wrong one. `cargo test --lib scheduler_claim` returned ONE test, which looked
+  like a contradiction of "scheduler_claim_test 3/3". It is not a contradiction: those three
+  tests live in `tests/scheduler_claim_test.rs`, an INTEGRATION test file that `--lib` never
+  runs. `cargo test --test scheduler_claim_test` returns exactly the three recorded names -
+  a_claimed_post_is_never_claimed_again, the_claim_helper_is_a_compare_and_set,
+  a_claimed_post_is_not_returned_by_a_later_claim - all passing. Same for
+  `post_state_error_message_test`, 3/3. And the claim is a genuine compare-and-set at source:
+  `UPDATE posts SET state = 'publishing' ... WHERE id IN (?) AND state = 'queued' RETURNING id`
+  (queries.rs:1721). The lesson: `cargo test --lib` is NOT the project's test suite, so a
+  "how many tests pass" claim measured only with `--lib` measures the wrong population.
+
+- correct2's "no commit since the deploy touches src/ or frontend/" is now FALSE, and it is
+  false because of MY OWN fix. `git log f4c5200..8ca5714 -- src/ frontend/` returns 6607402.
+  The correct statement: the deployed build WAS HEAD's build at the time of the deploy, and
+  the only src/ commit since is my fix - which is precisely why production still mis-records
+  until `make deploy` is run. This is the "fix is not live" row seen from the deploy side.
+
+- Supporting claims re-confirmed: the VPS ldd is Debian GLIBC 2.36-9+deb12u13, so the
+  rollback binary's 2.34 ceiling is genuinely under it; there is no `/api/drafts` route, so
+  the recorded false alarm really was my own wrong URL; the 0b791f4..f4c5200 src/ diff is
+  9 files / 530 insertions / 76 deletions; and the 226 anti-automation text is X's OWN body
+  relayed through `ProviderError::Api` (grep for the string in `src/` is empty), so "X
+  refused" is the right claim shape and not a message we authored.
+
+Stage Summary:
+- Two claims corrected this round: the channel inventory number ("linkedin x2" -> linkedin x1
+  + linkedin-page x2, total unaffected), and the "no src/ commit since the deploy" sentence,
+  which my own fix made false.
+- One claim closed a real gap in my own evidence: the deployed-binary literal check now runs
+  against the binary the live process executes rather than against my local rebuild.
+- Two claims confirmed after my own measurement error, with the harness fixed: both recorded
+  3/3 test counts are exactly right, and they live in integration test files that
+  `cargo test --lib` does not run.
+- Known follow-up, unchanged: the fix is pushed and green but the deployed binary predates it,
+  so production still mis-records the attempt number until `make deploy`.
