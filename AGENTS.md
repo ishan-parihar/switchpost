@@ -1410,6 +1410,42 @@ edited, append your entry as its own commit against the current base the
 moment it is written, and expect to re-apply it - twice was the count
 here.
 
+### 9.59 A broken pre-commit hook makes `git commit` fail in SILENCE
+
+`.git/hooks/pre-commit` calls `~/.agents/skills/doc/scripts/docs-check.sh`,
+which is a machine-local script, not a repo file. When it is absent the hook
+exits 127 and **`git commit -q` reports nothing** - no error, no diff, no
+"nothing to commit". HEAD stays where it was and the work stays uncommitted
+in the tree.
+
+The trap: `git add -A` then `git commit -q` then `git push` then
+`git log --oneline -1` showed ANOTHER writer's commit. The push said
+"Everything up-to-date" and was true - my commit had never been created.
+
+So the check is the ref, not the command: after committing,
+`git log --oneline -1` must show YOUR message. If it does not, run the hook
+by hand (`bash -c '. .git/hooks/pre-commit'`) and read its exit status.
+
+`--no-verify` is then correct, but SAY SO in the commit body and name WHAT
+the hook would have checked. That hook checks staged docs; a commit that
+changes only `src/` has nothing for it to examine.
+
+### 9.60 `git add -A` takes the whole shared tree, not just your files
+
+In a tree another writer is mid-edit in, `git add -A` staged **58 files**,
+56 of which were theirs and not mine. Committing that would have published
+their unverified work under my message - a worse version of 9.58, because
+the loss is not "my work vanished" but "someone else's work was shipped as
+finished".
+
+`git status --porcelain` after `git add -A` is the check, and it takes one
+second. `git reset -q` empties the index without touching the tree, so a
+mis-staged set costs nothing.
+
+In a shared tree, stage by path: `git add -- <file> <file>`. This repo's §12
+checklist says `git add -A`, and in a single-writer tree that is right; in a
+shared one it is the bug.
+
 ---
 
 ## 10. Environment Variables
