@@ -6691,3 +6691,69 @@ Stage Summary:
   - `git add -A` in this shared tree swept 58 files, 56 of them another
     writer's uncommitted work. I reset the index and added only my two
     files. In a shared tree, stage explicitly, never `-A`.
+
+---
+Task ID: validation-round-2-deep
+Agent: Jcode
+Task: validate the previous round's claims at depth, especially the two jumped-confidence items
+
+Work Log:
+- PROVED A FALSE CLAIM RECORDED AS CONFIRMED, and it is the most important finding of
+  this round. The `scheduler-live` todo said the live "attempt 3" was "the retry
+  exhaustion ... by design, not an early bail". Measured both ways and it is wrong:
+  (a) the journal holds EXACTLY ONE `Publish error for post 9c1f3796-...` line, at
+  09:25:59Z, and ZERO rate-limited / backing-off / connect-error lines for that post,
+  so one call was made; (b) `Err(ProviderError::Api(_))` has no retry arm - the match
+  arms are TokenExpired, RateLimited, Network(is_connect), Network, then a catch-all
+  `Err(e)` that breaks at attempt 1. `Api` appears at mod.rs:51 only inside
+  `is_platform_outage`, the circuit-breaker classifier, which is not a retry path.
+  So the row said "attempt 3" because `MAX_RETRIES as i32` was hard-coded at line 1712
+  of the deployed build - the exact defect fixed by 6607402. The `success-path` todo
+  carried the same false sentence and is corrected identically.
+
+- VALIDATED, and the corrections are recorded, not hidden:
+  - `correct-success`: the file has 58 test functions, not "exactly four". The four
+    publish-related ones I named were right; the file-wide count was an undercount.
+    The three `is_ok()` sites (700/766/836) are in the `*_mcp_tool_handler_full_chain`
+    tests and assert `generate_auth_url` - AUTH, not publish. Confirmed by reading the
+    body at 692-707.
+  - `correct-overcorrection`: FakeAsyncProvider is real and I now know WHY it is a real
+    link rather than a parallel test. `finalize_post` is a TRAIT DEFAULT (mod.rs:621)
+    whose body calls the free fn `poll_until_terminal` (mod.rs:627), the scheduler calls
+    `.finalize_post` at mod.rs:1362, and the tests call `.finalize_post` directly at
+    2692 and 2770. So the tests run the SAME code the scheduler runs - not a
+    reimplementation. All five names exist; the earlier "only 3 ran" was because two sit
+    in `mod tests` and three in `mod insights_tests`, and my filter matched one module.
+  - `correct2` (9.53 frontend freshness): the cited chunk hashes are in the DEPLOYED
+    binary at exactly the claimed multiplicities - 8.BFX_ehWg x3, 0.B5szLyWM x4,
+    13.DASFFk_r x3 (re-verified live against /home/nerd/.local/bin/switchpost). A local
+    rebuild produced DIFFERENT hashes (8.uN54nx-M), which is the point: content hashes
+    are per-build, so a stale binary cannot carry them.
+  - `doublecheck` / C2: at HEAD 59dc161 the six `.bind(cutoff)` sites (377, 397, 430,
+    473, 894, 955) each take `cutoff` from a `let ... = (...).timestamp()` declaration
+    - lines 371, 876, 939 - so they bind i64 against INTEGER-declared columns
+    (created_at / published_at in migrations/0001_init.sql). Integer-vs-integer, so no
+    latent 9.34 bug. Line 199 is the in-memory filter and line 692 is the DateTime path
+    into `own_post_engagement_totals`, which binds `EpochUtc::from(cutoff)` and
+    `EpochUtc::from(until)` at queries.rs:4762-4763.
+  - `fix-baseline`: the 0b791f4..f4c5200 diff leaves src/social/x.rs, src/scheduler/mod.rs
+    and src/services/posts.rs byte-identical (empty `git diff --stat`), so the 226 cannot
+    be a deploy regression. The recorded "only 5 changed src/ files" was an undercount -
+    it is 9. None of the 9 is the X publish path, so the conclusion holds on the stronger
+    basis.
+  - `doublecheck-deploy`: re-verified live at the strongest basis available. The binary
+    the RUNNING process executes (`readlink /proc/1323611/exe` ->
+    /home/nerd/.local/bin/switchpost) hashes to 88449a837213b158..., identical to the
+    artifact, and MainPID 1323611 has been up continuously since the 08:20:48 IST deploy,
+    so there has been no silent restart into a different binary.
+
+Stage Summary:
+- One previously-confirmed claim is false and is now corrected (the retry-by-design
+  reading of "attempt 3"). Three other claims are corrected for undercounts or stale
+  wording, and five are validated deeper with stronger bases than before.
+- The corrected and validated statements are in the todo register; nothing was left as a
+  bare assertion.
+- Known follow-up, recorded as its own register row: the fix 6607402 is pushed to
+  github/master and is 565/565 at HEAD, but the DEPLOYED binary f4c5200 still hard-codes
+  MAX_RETRIES as i32, so production still mis-records the attempt number until the
+  founder runs `make deploy`. The row reads "pushed, awaiting deploy", not "done".
