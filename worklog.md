@@ -6371,3 +6371,45 @@ Stage Summary:
   than only in this file's prose.
 - Follow-up, deliberately NOT done in a deploy: give switchpost the aroute
   conventions (checksum-verifying installer, backup history, watchdog).
+
+---
+Task ID: fresh-install-and-concurrent-fmt-validation
+Agent: Jcode
+Task: Validate the fixes on a zero-config fresh install, on the founder's exact
+input, and against the concurrent `cargo fmt` another writer ran mid-session.
+
+THE FOUNDER'S EXACT INPUT, REPLAYED. The reported Threads URL carried
+`params[redirect_uri]=%22https%3A%5C%2F%5C%2F...%22`. That EXACT string was
+sent to `?redirect_uri=` on a live server: `resolve_redirect_uri` swallowed the
+JSON quoting and Meta was handed the clean
+`https://fresh.local:6544/api/auth/callback`, with no `%22` and the 5-scope set
+intact. That is the proof the quoting was never ours to send, and the diagnosis
+that the consent gate (not the URL) was the real failure.
+
+ZERO-CONFIG FRESH INSTALL, which is what the founder's server was. Fresh DB, no
+credentials at all, `WHATSAPP_STORE_DIR`/`TELEGRAM_*` unset:
+- /api/providers: whatsapp configured=True, telegram-user False (honest now,
+  was a lying True).
+- POST /whatsapp/pair -> a REAL pair code (5JFVHM32), HTTP 200. The founder's
+  error message is gone and the channel works with nothing configured.
+- telegram-user request-code -> a 400 that names my.telegram.org AND the
+  @BotFather alternative, instead of a raw 502.
+- threads connect -> a clean 400 (not configured), not a crash.
+
+EDGE CASES: `WHATSAPP_STORE_DIR=` (empty) still resolves to the default and the
+channel is reachable; `TELEGRAM_SESSION_DIR=` empty plus no id/hash reports
+not_configured. A cleared env line means "unset", not "use the empty string".
+
+CONCURRENT `cargo fmt` SURVIVED. Another writer reformatted 51 files mid-session
+(this is the shared-tree §9.58 mode). Verified it was formatting only - the diff
+in my files is rustfmt reflow of test assertions, `git diff -w` shows the same
+churn, and all 8 of my fix hunks are still present (both default constants, both
+resolvers, the narrowed scope list with the four removed scopes absent, the MCP
+extracted function, WHATSAPP_STORE_DIR, the single-default source). `cargo test
+--lib` 565/565 after the reformat.
+
+Stage Summary:
+- All five §12 gates green; github/master == HEAD at b59bfe8.
+- The founder's exact quoted redirect_uri is demonstrably swallowed.
+- A zero-config fresh install connects WhatsApp out of the box.
+- My fixes survived the concurrent fmt intact; no logic changed.
