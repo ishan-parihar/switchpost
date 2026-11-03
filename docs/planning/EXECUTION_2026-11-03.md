@@ -322,7 +322,37 @@ it was "proven only by unit test and by the founder's own accounts" and that was
   `cli/platforms/{bluesky,linkedin,x}.rs` and `mcp/tools_bluesky.rs` — and the
   only one exercised live was the scheduler, which hit a 226.
 
-So the correct statement is: **a provider publish success is covered by no test,
-no mock, and no live success in this cycle.** The failure path is well covered.
-The success path is not covered at all. The founder posting one real piece of
-content closes it, and that is the single gap this validation leaves open.
+So the correct statement — and this section has been corrected TWICE, so the
+sequence is recorded rather than the latest claim alone:
+
+1. **First version (wrong):** the success call is "proven only by unit test and by
+   the founder's own accounts".
+2. **Second version (over-corrected):** "no mock or stub; not covered at all".
+   This was **false**. `grep -c 'mock|stub|fake'` missed it because the test
+   provider is named **`Fake`**, not mock.
+3. **Third, measured version (correct):**
+
+- `src/social/mod.rs:2564` defines **`FakeAsyncProvider`**, a full `SocialProvider`
+  impl whose `publish()` returns `Ok(result("published"))` (line 2611) and whose
+  `post_pending` delegates to `publish` when `pending_times == 0` (line 2619).
+- Lib tests drive it to a **published** outcome: `poll_until_terminal_keeps_polling_until_the_post_goes_live`,
+  `poll_until_terminal_surfaces_a_platform_failure_as_terminal`,
+  `poll_until_terminal_gives_up_rather_than_reporting_a_pending_post_as_published`,
+  `finalize_post_polls_a_pending_publish_to_terminal` and
+  `synchronous_providers_keep_defaulting_to_a_single_publish` — the last asserts
+  `accepted.is_published()`.
+- **The link that makes it real:** `src/scheduler/mod.rs:1351` calls
+  `.finalize_post(`, the same engine those tests drive. So the scheduler's success
+  path **is** covered by unit test at the engine level: claim → publish → poll →
+  `published`.
+- `cargo test --lib` → **565/565 pass**.
+
+So the accurate split is: **the engine's success path is covered by unit test
+with a fake provider. The provider's own network call is not** — the detailed
+providers (`x.rs`, `threads.rs`) carry no fakes, and the only live provider call
+in this cycle hit a 226. That half of version 2 was right.
+
+What remains genuinely open: **no live successful publish has been observed on
+this deployment.** The unit test proves the engine; it cannot prove the founder's
+credentials still work. One real post from the founder closes that, and it is a
+human action on a real audience, which is not an agent's to take.
