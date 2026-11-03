@@ -208,3 +208,28 @@ no such path — drafts are a **state** of `/api/posts`, queried as
 Production workflows re-verified over the public URL: `/setup` 200 (58259 bytes),
 `/api/posts?state=draft` 200 with the correct empty shape, and `/api/events`
 streaming `: keepalive`.
+
+## 8. The publish path on production, which the deploy rested on but had never walked
+
+The deploy todo's purpose is "so the founder can test", and every earlier check
+proved the binary was alive. None of them created a post. So the real path was
+walked on production, one endpoint at a time:
+
+| step | result | what it proves |
+|---|---|---|
+| `POST /api/posts/validate` with YouTube | 200, `valid:false`, `kind:media_count` | the server-side validator runs and rejects what §9.20/§9.27 says it must |
+| `POST /api/posts/validate` with X | 200, `valid:true`, `errors:[]` | the SAME validator accepts a valid case — it discriminates, it does not just refuse |
+| `POST /api/posts` (a real X draft) | 200, created with `state:"draft"` | the deployed release WRITES to the founder's DB |
+| `DELETE /api/posts/{id}` | 200, `{"deleted":true}` | and the row was removed |
+| `GET /api/posts?limit=5` after | `total: 0` | production is back to the state I found it in |
+
+Two 422s were mine, not the server's: `integration_ids` (plural) is the field, and
+`integrations` was the singular I sent first. Recorded because a 422 read as a
+defect for one step, and checking the field name first is the difference between
+reporting a bug and reporting my own typo.
+
+The C2 core-check got its last angle: `own_post_engagement_totals` — the function
+carrying the `EpochUtc` binds at `queries.rs:4762-4763` that my correction rests
+on — uses `metric_value_expr` / `metric_label_matches` at lines 4755-4757, which
+is the ONE implementation §9.9 requires. So the query I cited is the shared-path
+query, not an outlier with its own label list.
