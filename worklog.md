@@ -6880,3 +6880,48 @@ Stage Summary:
   `cargo test --lib` does not run.
 - Known follow-up, unchanged: the fix is pushed and green but the deployed binary predates it,
   so production still mis-records the attempt number until `make deploy`.
+
+---
+Task ID: validation-round-5-ui-rows
+Agent: Jcode
+Task: validate the register's eight "done" UI rows against the source, on what each verdict asserts
+
+Work Log:
+- THE EIGHT UI ROWS, each on its own assertion. Exact citations: UI-C0 (`min-height:24px`
+  on `.event-chip.compact`, CalendarEvent.svelte:225, with the arithmetic at :241),
+  UI-C1 (CellMoreButton.svelte:63 aria-label + :65 '+{hidden} more'), UI-R2 (ChannelRail
+  imported calendar/+page.svelte:27, rendered :628), UI-V1 (probe.mjs:784-788 `--state`
+  and STATE_CONTROLS, screenshot suffix :1121-1122). Two off-by-one line drifts corrected:
+  UI-M2's channelSchedule is at :145 not :144, UI-M1's showPreviewMobile class is at :1781
+  not :1782.
+
+- UI-R1's ITEM COUNT WAS WRONG, and it is corrected in the register. The verdict said "80px
+  (w-20) with 19 nav items". `navSections` (+layout.svelte:48-100) holds 16 items in 6 groups
+  - Dashboard 1, Publish 5, Engage 4, Insights 4, Channels 1, Settings 1 - measured two ways,
+  a programmatic count of `href:` entries and reading the array directly. The "19" was never
+  right; the item text's "16 items in 7 groups" is the pre-fix state. The verdict's
+  conclusion rests on the 80px rail and the `sidebarExpanded` default, both exact, so the
+  row's substance holds and only the number moved.
+
+- FOUND AND THEN DISMISSED MY OWN FALSE ALARM, which is the part of this round worth
+  keeping. I measured `.bg-accent-fill-hover` at 0 definitions in the built CSS and briefly
+  read it as a §9.46 truncated-class bug. It is not: Tailwind ESCAPES the colon, so the rule
+  is `.hover\:bg-accent-fill-hover:hover{...}`, which an unescaped grep cannot match. The
+  escaped form appears twice and resolves to `--brand-hover-rgb`, so the Schedule button's
+  hover state really is generated. The repo's `check-tailwind-classes.mjs` passed
+  throughout - and passed CORRECTLY, because it handles the escaping my grep did not.
+
+- UI-M1's precise shape, after the near-miss: TWO buttons carry `bg-accent-fill` - the
+  Schedule submit (:1926) and the thread-part switcher (:1471, a conditional chip inside the
+  group editor). The register's "Schedule is the ONE bg-accent-fill primary" is right about
+  the FOOTER: Post Now (:1920) is `border border-line`, a transparent secondary, and Schedule
+  (:1926) is the filled one, with the comment at :1900-1915 documenting exactly that choice.
+
+Stage Summary:
+- One register number corrected in place (UI-R1: 19 -> 16 items in 6 groups), two line
+  citations corrected (UI-M2, UI-M1), and five rows confirmed with exact line numbers.
+- No substantive UI claim was contradicted.
+- The false alarm is recorded deliberately: an unescaped colon in a grep reads as a missing
+  CSS rule, and the repo's own gate was right where my ad-hoc grep was wrong.
+- Known follow-up, unchanged: the fix is pushed and green but the deployed binary predates
+  it, so production still mis-records the attempt number until `make deploy`.
