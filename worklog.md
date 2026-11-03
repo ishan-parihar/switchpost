@@ -6925,3 +6925,48 @@ Stage Summary:
   CSS rule, and the repo's own gate was right where my ad-hoc grep was wrong.
 - Known follow-up, unchanged: the fix is pushed and green but the deployed binary predates
   it, so production still mis-records the attempt number until `make deploy`.
+
+---
+Task ID: validation-round-6-epochutc
+Agent: Jcode
+Task: validate the EpochUtc newtype and the 9.34 epoch fix - the two claims cited most often across earlier rounds but never verified directly
+
+Work Log:
+- EpochUtc VALIDATED AT THE IMPLEMENTATION LEVEL, which is stronger than the call-site checks earlier
+  rounds relied on. src/db/types.rs:96-104 - `impl Type<Sqlite> for EpochUtc` delegates BOTH
+  `type_info()` and `compatible()` to `<i64 as Type<Sqlite>>`, so sqlx sees the type AS an integer
+  column. :106-112 - `Encode` writes `<i64 as Encode<Sqlite>>::encode_by_ref(&self.0.timestamp(),
+  args)`, a genuine integer bind rather than a string that happens to look like one. :115-121 -
+  `Decode` reads `<i64 as Decode<Sqlite>>` and rejects out-of-range epochs with a named error.
+  So the claim behind 9.34 was not merely "the call sites pass i64"; the newtype itself IS an i64
+  at the sqlx layer, which is why it cannot reintroduce the TEXT-vs-INTEGER bug.
+
+- AND IT IS TESTED, not merely conventional. `round_trips_through_the_inner_datetime`
+  (src/db/types.rs:129-135) passes, and two INTEGRATION suites bind `EpochUtc::from(...)` against
+  the real schema - tests/streak_unification_test.rs:89-93 (3/3) and
+  tests/feed_analytics_window_test.rs (2/2). The 9.61 harness lesson applies again: neither is
+  visible to `cargo test --lib`; both need `--test <name>`.
+
+- THE 9.34 FIX IS LANDED IN TWO VERIFIABLE PLACES, not merely asserted.
+  migrations/0007_external_posts_epoch.sql:18 repairs the rows an operator already has -
+  `SET created_at = CAST(strftime('%s', created_at) AS INTEGER)` - so pre-existing TEXT data is
+  rewritten rather than left comparing wrong. And the reader is fixed at source:
+  queries.rs::get_engagement_summary (:3202, taking `cutoff: Option<DateTime<Utc>>`) binds
+  `.bind(cutoff.map(EpochUtc::from))` at FOUR sites - :3242, :3243, :3265, :3266 - so every
+  binding is wrapped and no unwrapped DateTime bind remains in that function.
+
+- INDEPENDENT CORROBORATION, which is worth more than my own re-measurement:
+  tests/feed_analytics_window_test.rs:1-20 is a header comment recording the same defect from when
+  it was fixed - external_posts.created_at was INTEGER epoch while the writer bound a raw
+  `Option<DateTime<Utc>>`, sqlx encoded it as RFC 3339 TEXT, SQLite orders every INTEGER before
+  every TEXT, so the predicate was false for every row and the feed half of every analytics
+  headline was structurally zero.
+
+Stage Summary:
+- No claim was contradicted this round. Both of the most-cited structural claims are now verified
+  at their implementations rather than at their call sites, and both are test-enforced.
+- Citations confirmed: FakeAsyncProvider's struct declaration is at src/social/mod.rs:2568 with the
+  doc-comment block at 2564-2567, so the earlier 2564 citation points at the block; mod.rs is
+  2774 lines.
+- Known follow-up, unchanged: the fix is pushed and green but the deployed binary predates it, so
+  production still mis-records the attempt number until `make deploy`.
