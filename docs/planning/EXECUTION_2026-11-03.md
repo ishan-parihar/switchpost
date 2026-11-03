@@ -275,3 +275,31 @@ file held 2 stale rows and the live rows existed only in the WAL. A direct
 API is, because it goes through the pool. For a future claim about production
 data, read it through the API or `sqlite3` with an explicit WAL-aware open, and
 never conclude "the row is gone" from a bare file read.
+
+## 10. The one claim this validation does NOT make, and what covers it instead
+
+A 226 failure proves the scheduler *claims, attempts, stores and reports*. It
+does not prove a **successful** publish works on this deployment, and that gap
+was chased rather than papered over.
+
+Measured: the founder's server has **16 OAuth + 2 cookie channels** (youtube ×4,
+instagram ×5, google ×2, linkedin ×2, linkedin-page ×2, reddit, x, facebook,
+instagram-standalone). Every one is a real account on a real audience, so a
+success-path probe would put content on the founder's actual social media. **That
+was not done.** An agent does not get to publish to a human's real audience as a
+test, and the probe cost would not have been recoverable by a delete.
+
+What does cover it:
+
+| behaviour | evidence |
+|---|---|
+| the claim is atomic and exclusive | `tests/scheduler_claim_test.rs` **3/3** — a claimed post is never claimed again, is not returned by a later claim, and the helper is a compare-and-set (the §9.24 invariant) |
+| the error reaches `error_message` | `tests/post_state_error_message_test.rs` **3/3** — the exact storage path the live probe exercised |
+| retries are exhausted by design | the live activity feed recorded **"Publish attempt 3 failed"**, matching `for attempt in 1..=MAX_RETRIES` (`MAX_RETRIES = 3`) and `record_publish_attempt(MAX_RETRIES as i32, …)`. It is the final attempt, not an early bail |
+| failure fans out | the same feed carries the `post.failed` event row and the `publish` row — the audit trail and the webhook/event path both fired |
+
+So the *lifecycle* is proven live: claim → attempt → retry-exhaustion → error
+storage → audit row → event. The **provider-side success call** is proven only by
+unit test and by the founder's own accounts, and the honest statement is that a
+real successful publish on this deployment has not been observed in this cycle.
+The founder posting one real piece of content closes it.
