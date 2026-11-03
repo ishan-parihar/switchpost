@@ -1106,12 +1106,13 @@ probe never renders them.
 
 `make audit` drives the real app and measures the rendered box.
 
-### 9.42 The 45 test binaries must not share one SQLite file
+### 9.42 The 67 test binaries must not share one SQLite file
 
 `cargo test` runs every integration test binary as its own PROCESS, in
-parallel. They used to share one scratch file, so 45 processes
+parallel. They used to share one scratch file, so the processes
 serialised on one write lock and "database is locked" appeared in about
-one run in three.
+one run in three. (This entry said 45 for a while; `ls tests/*.rs | wc -l`
+measured 67 on 2026-11-03. Re-measure it rather than quoting this number.)
 
 `config::test_database_url()` gives each binary its own file, named
 from its own `current_exe`. The file is still under `target/`, so it is
@@ -1445,6 +1446,28 @@ mis-staged set costs nothing.
 In a shared tree, stage by path: `git add -- <file> <file>`. This repo's §12
 checklist says `git add -A`, and in a single-writer tree that is right; in a
 shared one it is the bug.
+
+### 9.61 `cargo test --lib` is NOT the project's test suite
+
+§12's checklist says `cargo test --lib` → all pass, and §3.2 repeats it. That
+gate passes at 565 tests while `tests/` holds **67 more binaries** (9.42 says
+45, which is now stale) that it never runs.
+
+The trap is not that the gate is wrong; it is what a claim MEASURED with it
+means. A register row reading "scheduler_claim_test 3/3 pass" is not
+contradicted by `cargo test --lib scheduler_claim` returning ONE test - that
+test lives in `tests/scheduler_claim_test.rs`, an integration binary. Run it
+with `cargo test --test scheduler_claim_test` and the three tests are there.
+
+So: a "how many tests pass" claim measured only with `--lib` is measuring the
+wrong population, and a claim about an integration test must be run with
+`--test <name>`. `--lib` remains the FAST gate; it is not the SUITE.
+
+Two corollaries this entry exists to stop. `cargo test` (no filter) is the
+whole suite, and it is slow enough that §12's narrow gate exists precisely so
+an agent does not pay it on every iteration - so the rule is not "always run
+everything", it is: **state which harness you measured with**, and run the
+integration binary when the claim is about one.
 
 ---
 
