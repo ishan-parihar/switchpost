@@ -810,9 +810,12 @@ mod tests {
             post.error_message
         );
 
-        // Audit trail: one failed attempt, so this is not invisible.
-        // (Unified engine: the final failed attempt is recorded once, with
-        // the engine's MAX_RETRIES attempt number — audit §4.1.)
+        // Audit trail: the failure is visible, and the attempt number it
+        // carries is the number of calls that were actually MADE. The empty-id
+        // guard breaks on the FIRST attempt without retrying — a non-retryable
+        // failure — so this is attempt 1, not MAX_RETRIES. The row used to
+        // hard-code MAX_RETRIES, which told the operator "we tried 3 times" for
+        // a post that was called once.
         let attempts: Vec<(i32, String, Option<String>)> = sqlx::query_as(
             "SELECT attempt_number, status, error_message FROM publish_attempts WHERE post_id = ?",
         )
@@ -825,7 +828,11 @@ mod tests {
             1,
             "expected one attempt row, got {attempts:?}"
         );
-        assert_eq!(attempts[0].0, crate::scheduler::MAX_RETRIES as i32);
+        assert_eq!(
+            attempts[0].0, 1,
+            "a single non-retryable call must record attempt 1, got {}",
+            attempts[0].0
+        );
         assert_eq!(attempts[0].1, "failed");
         assert!(attempts[0]
             .2

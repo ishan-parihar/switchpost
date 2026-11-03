@@ -1324,10 +1324,21 @@ pub(crate) async fn publish_post(
 
     // Publish with retry
     let mut last_error: Option<String> = None;
+    // The attempt the loop actually TERMINATED on. `attempt` is scoped to the
+    // loop, so the post-loop failure write cannot read it — it used to
+    // hard-code MAX_RETRIES, which recorded "attempt 3" for a post that failed
+    // once on a non-retryable error (Api/Auth/scope-loss/empty-id) and never
+    // retried. The audit trail exists to tell the operator how many calls were
+    // made, so it must carry the real number.
+    let mut final_attempt: u32 = MAX_RETRIES;
     let mut did_refresh = false; // guard against token refresh recursion
 
     for attempt in 1..=MAX_RETRIES {
         let attempt_start = Utc::now();
+        // The attempt in flight. Every failure exit either `break`s (leaving
+        // this at the attempt that failed) or `continue`s to the next one, so
+        // natural exhaustion ends on MAX_RETRIES — the true call count either way.
+        final_attempt = attempt;
         match provider.post_pending(&access_token, &content).await {
             Ok(result) => {
                 // A provider that only *accepted* the post (Instagram reel
@@ -1709,7 +1720,7 @@ pub(crate) async fn publish_post(
     let _ = queries::record_publish_attempt(
         db,
         post.id,
-        MAX_RETRIES as i32,
+        final_attempt as i32,
         "failed",
         last_error.as_deref(),
         Utc::now(),
