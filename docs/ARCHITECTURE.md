@@ -1,4 +1,4 @@
-# Architecture
+# How switchpost is put together
 
 **What this document is.** How switchpost fits together, written for someone who
 wants to know whether they can run it and what happens when something fails,

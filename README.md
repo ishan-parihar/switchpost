@@ -184,6 +184,10 @@ CLI (clap)  |  REST API (axum :6543)  |  MCP stdio (rmcp, 389 tools)
                     SQLite (single .db file)
 ```
 
+One binary, three interfaces, and one file. The shape part by part, and what a
+failure looks like on one platform without touching the other twenty-five:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## How it compares
 
 | Capability | **Switchpost** | Buffer / Hootsuite | n8n / Make | Postiz |

@@ -66,7 +66,7 @@ zones = {}
 # The `runbook` and `state` roles above are `native:` forms, so the card's
 # operate class would otherwise be empty. These point at the sections that
 # hold the answer; the `native:` roles stay the owner.
-architecture = "AGENTS.md#2. Repository Layout"
+architecture = "docs/ARCHITECTURE.md#The parts"
 operate = "AGENTS.md#3. Build & Test Workflow"
 # The `state` role above is a `native:` form, so the card's status class would
 # otherwise be empty. This points at the planning index, which is the stable
