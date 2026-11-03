@@ -6757,3 +6757,69 @@ Stage Summary:
   github/master and is 565/565 at HEAD, but the DEPLOYED binary f4c5200 still hard-codes
   MAX_RETRIES as i32, so production still mis-records the attempt number until the
   founder runs `make deploy`. The row reads "pushed, awaiting deploy", not "done".
+
+---
+Task ID: validation-round-3-live
+Agent: Jcode
+Task: validate the claims the previous rounds had not yet re-measured
+
+Work Log:
+- ROLLBACK, validated at execution strength rather than presence strength. The backup
+  `switchpost.bak-20261103-0820` (71371304 bytes) is present, hashes to the recorded
+  `66731fee168d76c2`, is a valid ELF 64-bit LSB pie executable, resolves under `ldd`,
+  has a glibc ceiling of exactly GLIBC_2.32/2.33/2.34 (under the VPS's 2.36), and it
+  actually RUNS: `--version` answers `switchpost 0.7.0` with exit 0. So a rollback
+  would load, not merely be present.
+
+- THE "THREE CHANNELS" PHRASE WAS A MISLABEL, corrected. The deploy todo said "the three
+  channels verified on production"; no record supports that wording. The execution doc
+  (EXECUTION_2026-11-03.md:208-210) and what I re-verified live is three WORKFLOWS:
+  `/setup` 200 at a byte-exact 58259 bytes, `/api/posts?state=draft` 200 with
+  `posts 0` / `total 0`, and `/api/events` (held open 45s) returning HTTP/2 200 with
+  `content-type: text/event-stream` and two `: keepalive` frames. There are NO
+  channel-level verifications in this record, so the row must not say there are.
+
+- THE WHATSAPP PAIR CLAIM, and it holds - now two-sided. My first attempt hit 404
+  `/api/whatsapp/pair` and my second hit 400 "Failed to parse the request body as JSON".
+  BOTH were mine, not the server's, and both are the same shape as the `/api/drafts`
+  false alarm already recorded - so I checked the router and the handler signature
+  first: the route is `/api/integrations/connect/whatsapp/pair`
+  (`src/api/mod.rs:334` -> `src/api/integrations.rs:820`), which requires a JSON body
+  with `phone_number`. On the correct route: a malformed `12345` is refused 400 with the
+  handler's OWN message (`code: connect_failed`, "Enter the phone number in international
+  format..."), and a well-formed SYNTHETIC `+14155550123` returns 200 in 2.3s with a real
+  8-char `pair_code: 8YF6KD2N` and `expires_in: 180`. So the endpoint both discriminates
+  and issues a real code. I used WhatsApp's own documented test-range number because I had
+  no right to invent the founder's. The recorded `P35GGF76` is from 05:24 and pair codes
+  are single-use with 180s expiry, so that exact value is unrepeatable by construction -
+  the row should assert "the endpoint issues a fresh valid code", not a specific one.
+
+- R1 "comment-only" HELD, but I found why the earlier method was fragile.
+  `git show 78a39a0 -- '*.rs'` filtered to non-comment added lines returns EMPTY, and
+  reading the 36 added lines confirms they are all `///` doc-comment prose on
+  `WriteQueue`. My first attempt at this test counted 50 "non-comment" lines because I
+  filtered ALL paths and 47 of them were the markdown in AGENTS.md and worklog.md - not
+  code, and never what the claim was about. Right answer, mis-scoped test: the §9.18
+  hazard where the check and the thing it checks drift. Scope a code-neutrality test to
+  `-- '*.rs'` or it counts prose as code.
+
+- C1 VALIDATED: `uploadType=resumable` occurs exactly once in all of `src/`
+  (`youtube.rs:565`), the definition is at `youtube.rs:556`, and there are exactly two
+  call sites (`youtube.rs:1110`, `google.rs:279`). One implementation serves every
+  YouTube publisher.
+
+- correct2 TIMESTAMP VALIDATED on the authoritative basis (git, not mtime): the newest
+  commit touching a `frontend/src` FILE is `acb7ab2` at 2026-11-02 11:32, and `--stat`
+  confirms it really changed `frontend/src/lib/calendar/CalendarHeader.svelte` - so this
+  is not `git log -1` picking a nearby commit. The deployed build commit `f4c5200` is
+  2026-11-03 08:02, newer than the source.
+
+Stage Summary:
+- Every claim in the register is now either validated on a stated basis or corrected.
+  The corrections this round were two WORDINGS ("three channels" -> three workflows; a
+  wrong route and an unrepeatable single-use code) and one METHOD (the unscoped
+  comment-only test). No substantive claim was contradicted this round.
+- Known follow-up, carried from the last round and still open: my fix `6607402` is pushed
+  and 565/565 at HEAD, but the deployed binary `f4c5200` still hard-codes
+  `MAX_RETRIES as i32`, so production still mis-records the attempt number until the
+  founder runs `make deploy`. The row reads "pushed, awaiting deploy", not "done".
