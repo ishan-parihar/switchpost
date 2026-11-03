@@ -86,3 +86,40 @@ The repo's `.git/hooks/pre-commit` execs
 in this tree**. Every commit therefore fails at the hook for a reason unrelated
 to the staged content. The R1 commit used `--no-verify` and says so in its body.
 The gate was already measured non-gating (`warn mode`) and identical on clean HEAD.
+
+## 5. Re-measured after the deploy: C1 landed, my §9.53 check was wrong
+
+### C1 — LANDED (closed in the register)
+
+The row asks for **one** resumable-upload implementation that both the Google
+Suite provider and the YouTube publisher call. Measured:
+
+- One implementation: `src/social/youtube.rs:556`, `pub(crate) async fn resumable_upload`,
+  with a header comment naming the exact reason it exists.
+- Called by both sites the row names: `google.rs:279` and `youtube.rs:1110`.
+- `uploadType=resumable` occurs **exactly once** in `src/` — no second flow.
+- `google.rs` carries 0 occurrences of the flow's own markers
+  (`Location header`, the videos URL), i.e. the duplication the row describes is
+  gone.
+
+The "shrink google.rs" half of the note is a size preference, not a defect, and
+is not evidence of the debt the row describes.
+
+### §9.53 — my check reported 0 and that was my error
+
+I grepped the deployed binary for `Week of November`. That string is **composed
+at runtime** by `CalendarHeader.svelte:45`
+(`` `Week of ${m} ${d.getDate()}` ``), so it only ever exists as the literal
+`Week of` plus a template hole. Grepping for the composed value measures the
+runtime's output, not the artifact — the same class of error as §9.36's "a
+measurement that depends on how you asked".
+
+Re-measured against the correct literals:
+
+- `Week of` in the deployed binary: **1** (present)
+- `more posts in this slot` (the `+N more` control's aria-label, from
+  `CellMoreButton.svelte`): **1** (present)
+
+Both are in `frontend/build/_app/immutable/nodes/8.BFX_ehWg.js` locally, so the
+release binary that shipped embeds the **current** frontend and §9.53 holds. The
+deploy was not a stale-asset deploy.
