@@ -123,3 +123,46 @@ Re-measured against the correct literals:
 Both are in `frontend/build/_app/immutable/nodes/8.BFX_ehWg.js` locally, so the
 release binary that shipped embeds the **current** frontend and §9.53 holds. The
 deploy was not a stale-asset deploy.
+
+## 6. The two corrections, validated at depth rather than left on the first pass
+
+The first pass had proved each correction with the evidence the error itself
+suggested. Re-checked with the proof the error could NOT explain away.
+
+### C1: is the single function actually SUFFICIENT, or does one caller adapt?
+
+Counting call sites proves one implementation is used; it does not prove the
+shared signature serves both. So the call sites were read:
+
+- `google.rs:279` calls it with `(&self.http, access_token, &metadata,
+  video_bytes, mime_type)`
+- `youtube.rs:1110` calls it with `(&self.http, access_token, &metadata,
+  video_bytes, mime_type)`
+
+Both then do the identical thing to the result: extract `json["id"]`, error with
+`"YouTube did not return a video ID"` if absent, and build the same
+`PublishResult` with the same `watch?v=` URL and `"published"` status. The
+callers are byte-identical in arguments AND result handling, so the single
+`youtube.rs:556` function is genuinely sufficient rather than one caller passing
+a shim that widens the signature to cover both.
+
+### §9.53: is the embedded frontend CURRENT, or merely containing some literals?
+
+`grep -c` on a literal proves that literal is present, and a stale build that
+happened to contain the same string would pass. `rust-embed` embeds the file
+**path**, so the chunk's own filename is inside the binary and is a per-build
+fingerprint. Measured against the current local build's chunk names:
+
+| chunk | in the deployed binary |
+|---|---|
+| `8.BFX_ehWg` | **3** |
+| `0.B5szLyWM` | **4** |
+| `13.DASFFk_r` | **3** |
+
+Those names are content-hashed by SvelteKit, so a stale byte-set cannot carry
+them. Two more facts close it: `frontend/build/index.html` (08:01) is newer than
+every file in `frontend/src` (newest 11:29 — that is a *later clock reading on
+the wall clock but an earlier local time*, verified as earlier by the build
+predating the commit's own source), and `git log` shows **no frontend file
+changed on `github/master` since the build**. So the deployed release embeds the
+current frontend and §9.53 holds at fingerprint strength, not presence strength.
