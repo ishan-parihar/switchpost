@@ -618,6 +618,25 @@ When the scheduler publishes a post with `group_id` and `sequence > 1`, it looks
 
 Every publish attempt (success or failure) is recorded in the `publish_attempts` table via `record_publish_attempt()`. The operator can query this to see the full retry history.
 
+### 7.8 The Telegram-user write queue is in-memory, and that is the ceiling
+
+The `queue_send` path (`src/services/telegram_client.rs`) defers sends behind
+a rate gate. The queue holding those deferred sends is a `VecDeque` **in this
+process's heap**, not a table.
+
+What that means at the boundary: `queued: true` means "accepted **for this
+process's lifetime**". If the process exits while a job is still waiting in
+the queue, the job is gone - neither delivered nor reported as failed. The
+window is bounded by the rate gate (a job is only at risk while it is waiting),
+so it is narrow, and it is not a lost *send*: a send that runs is reported
+(Ok pops it, a transient error retries up to 3 times, a permanent error drops
+it and logs at ERROR). The loss is the queue never reaching the send.
+
+**Do not persist a `telegram_queue` table without the evidence for it.** The
+register (R1) makes that conditional on V1b's live roundtrip showing real
+payloads lost, and V1b is deferred pending credentials. The full reasoning and
+a `ponytail:` marker are at the definition; read it before touching the queue.
+
 ---
 
 ## 8. Multi-Agent Worklog Protocol

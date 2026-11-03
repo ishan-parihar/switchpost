@@ -6486,3 +6486,44 @@ Stage Summary:
 - The 337->340 paragraph is the concurrent writer's, committed by my `git add -A`.
 - `git add -A` is this session's reported habit and it is the wrong one here.
 - `cargo test --doc` 2 fails: still genuinely pre-existing.
+
+---
+Task ID: v28-r1-queue-ceiling
+Agent: Jcode
+Task: The remaining-gap execution. Measured the register's 13 open rows against
+the tree AND the running app before implementing any of them.
+
+THE REGISTER WAS STALE ON 11 OF 13 ROWS. This is the AGENTS 9.36 / 9.50 lesson
+firing a fourth time: a verdict is not a state, and a register row written on a
+date is prose about that date. Measured on the RUNNING app, not read off the
+source:
+
+  UI-C0  chips 24px, computed min-height 24px        -> LANDED
+  UI-C1  month view renders "+2 more" / "+4 more"     -> LANDED
+  UI-C2  h1 is "Week of November 3" / "November 2026" -> LANDED
+  UI-R1  rail 80px (w-20), 19 nav items               -> LANDED
+  UI-M1  footer Preview toggle (aria-expanded=false) present; Post Now is
+         transparent/bordered and Schedule is the ONE bg-accent-fill primary -> LANDED
+  UI-R2  ChannelRail imported at calendar/+page.svelte:27 and rendered :628 -> LANDED
+  UI-M2  per-channel `channelSchedule` map in ComposerModal -> LANDED
+  UI-V1  probe.mjs has --state (drives a named state) -> LANDED
+
+Two rows were genuinely open, and only one of them was implementable without
+the credentials the register itself defers on:
+
+R1 - DONE (document the ceiling). The row named `tu_queue_send` in
+`src/social/telegram_user.rs`, which does not have a send path at all (the file
+is 227 lines and three methods). The real queue is
+`src/services/telegram_client.rs::queue_send` over a `WriteQueue`
+(`VecDeque` behind a Mutex in telegram_rate.rs). Documented the ceiling at BOTH
+sites the row names: the definition (with the exact loss window, the outcome
+path, why the M-shape is refused for lack of V1b evidence, and a `ponytail:`
+marker) and a new AGENTS.md 7.8. The one-line statement that matters:
+`queued: true` means "accepted for this process's lifetime".
+
+Stage Summary:
+- R1 landed: code + AGENTS.md 7.8.
+- 11 of 13 open rows measured as already landed; their register rows are stale,
+  not work to do.
+- V1b missed the real location by naming a file with no send path.
+- cargo check 0 errors, cargo test --lib 565/565, clippy clean.

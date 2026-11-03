@@ -477,6 +477,42 @@ impl TelegramClientManager {
     /// Enqueue a send through the rate-limited write queue. The worker
     /// drains jobs as the limiter allows; send_message stays available for
     /// direct calls that want an immediate result.
+    ///
+    /// # The ceiling this queue has (R1, measured not assumed)
+    ///
+    /// `WriteQueue` is an in-memory `VecDeque` behind a `Mutex`, so an
+    /// undelivered job exists only in this process's heap. If the process
+    /// exits - a restart, a panic, a `kill`, a crash - every job still in the
+    /// queue is gone, and the caller's "queued: true" response has already
+    /// told them it was accepted. The message is neither sent nor reported
+    /// failed: it is silently lost.
+    ///
+    /// The window is narrow but real. A job is at risk only while it waits in
+    /// the queue, so the loss is bounded by whatever the rate gate is holding,
+    /// which is the limiter's decision, not the founder's message. Once the
+    /// worker moves a job to the head and the send returns, the job is out of
+    /// the queue and into the outcome path (`Ok` pops it, a transient error
+    /// keeps it for a retry with `MAX_HEAD_RETRIES`, a permanent error drops
+    /// it and logs at ERROR). The risk is not a failed send - those are
+    /// reported - it is the queue never reaching the send.
+    ///
+    /// # What was chosen, and what was not
+    ///
+    /// The register offers two shapes (R1): document this ceiling (S), or
+    /// persist a `telegram_queue` table (M). Persisting is deliberately NOT
+    /// done, on the register's own condition - persist only if V1b (a live
+    /// `live_telegram_test` roundtrip) shows real payloads being lost. V1b is
+    /// DEFERRED by the user pending credentials, so the evidence for the M
+    /// shape does not exist. An M-shaped fix built before that evidence is a
+    /// table whose only reader is a path nobody has observed failing.
+    ///
+    /// # ponytail: the deliberate shortcut
+    ///
+    /// The queue is not persisted, so an undelivered job dies with the process
+    /// and its "queued: true" reply is the last anyone hears of it. Revisit
+    /// with a `telegram_queue` table when V1b produces a real loss, and until
+    /// then treat `queued` as "accepted for this process's lifetime", which
+    /// is what it means.
     pub async fn queue_send(self: &Arc<Self>, peer: &str, text: &str) -> Result<Value, String> {
         // Fail fast when unauthenticated — the queue is not an error sink.
         if !self.is_authenticated().await? {
