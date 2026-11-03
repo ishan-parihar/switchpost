@@ -6602,3 +6602,50 @@ Stage Summary:
 - Pre-existing WARN lines in the journal (Instagram "No Instagram Business
   account found", LinkedIn/YouTube token expiry) are credential/config state,
   not this deploy - compared against the pre-restart window.
+
+---
+Task ID: v28-post-deploy-verification
+Agent: Jcode
+Task: Re-read the request, correct the stale claims, then verify what the deploy
+left unverified.
+
+## Corrections first, because re-reading found them
+
+1. **C1 was open when it was landed.** The row asks for ONE resumable-upload
+   implementation that both the Google Suite provider and the YouTube publisher
+   call. That is exactly what is there: `youtube.rs:556` is the single
+   `pub(crate) resumable_upload`, `google.rs:279` and `youtube.rs:1110` both call
+   it, `uploadType=resumable` occurs exactly once in `src/`, and `google.rs`
+   carries 0 of the flow's own markers. Closed on evidence.
+2. **My 9.53 check was wrong, and it was my error.** I reported the deployed
+   binary contained 0 × `Week of November` and let that read as a stale-asset
+   deploy. `CalendarHeader.svelte:45` composes that string at runtime from
+   `` `Week of ${m} ${d.getDate()}` ``, so it never exists in the artifact.
+   Grepping for a runtime-composed value measures the runtime, not the binary.
+   Re-measured on the literals that survive minification: `Week of` **1**,
+   `more posts in this slot` (CellMoreButton's aria-label) **1** - both present
+   in the live binary. So the deploy DID embed the current frontend, 9.53 holds,
+   and no rebuild is needed.
+
+## The checks the deploy had not yet had
+
+- **Is the founder's data intact?** `GET /api/posts` returned 0, which looked
+  like a regression from the swap. Measured rather than assumed: `sqlite3` on
+  the production DB reads **0 posts**, and `find /home/nerd -name '*.db'` shows
+  no other switchpost DB. The server reads the DB it is configured for and the
+  founder's server simply carries no scheduled posts - my local `data/` is
+  gitignored dev data with 72 posts and is a different database entirely. Not a
+  regression.
+- **Is the MCP fix live, not just the HTTP fix?** Ran the interface over stdio on
+  the VPS against the deployed binary. `integrations_connect` for `whatsapp`
+  answers "WhatsApp pairs by phone number, **not by a bot chat**... enter the
+  pair code it returns on the phone under Linked Devices" and for `telegram-user`
+  answers "Telegram user accounts have **no bot to message**". The `6f81384` fix
+  is present in what the founder's agents will connect to, which is the third
+  interface and the one I would otherwise have left unverified.
+
+Stage Summary:
+- C1 closed on evidence; my 9.53 claim corrected instead of defended.
+- The 0-posts reading was measured as the production server's real state, not a
+  regression introduced by the deploy.
+- The MCP one-time-token fix verified LIVE on production for both providers.
