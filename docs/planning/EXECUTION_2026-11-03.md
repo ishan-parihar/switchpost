@@ -168,3 +168,43 @@ newer than every source edit; and `git log` shows **no frontend file changed on
 `github/master` since that build**, so there is nothing newer for the build to be
 missing. So the deployed release embeds the current frontend and §9.53 holds at
 fingerprint strength, not presence strength.
+
+## 7. The two double-checks, validated on the dimension each was weakest on
+
+### C2's corrected reason, tested for the latent bug it *could* have hidden
+
+The corrected claim is "every `DateTime` cutoff crosses the boundary through
+`EpochUtc`, and every raw bind is already an integer". The second half is the one
+that could hide a §9.34 bug, so the columns were read rather than the bind types:
+
+- All six `.bind(cutoff)` sites are `published_at >= ?` (or `created_at >= ?`).
+- `migrations/0001_init.sql` declares `created_at INTEGER NOT NULL DEFAULT
+  (unixepoch())` (lines 38 and 61) and `published_at INTEGER` (line 81).
+
+So the comparison is integer-vs-integer with an `i64` bind. That is the *correct*
+outcome, and it is not the §9.34 shape, which requires a `TEXT` value bound
+against an INTEGER-affinity column. The three sites not inspected the first time
+(397, 430, 473) were checked and are the same shape. There is no latent bug here,
+and the corrected evidence now rests on the column affinity rather than on the
+Rust type alone.
+
+### The deploy claim's untested half: the rollback
+
+The deploy todo claimed a rollback command. A backup that is merely *present* is
+not a rollback, so it was run:
+
+- `switchpost.bak-20261103-0820` is a valid ELF (71371304 bytes, sha256
+  `66731fee…fc0c4` — **different from live**, so it is not a duplicate of what is
+  serving now).
+- `--version` on it answers `switchpost 0.7.0` — it **executes**.
+- Its glibc ceiling is `GLIBC_2.34`, under the VPS's 2.36, so a rollback would
+  actually load rather than fail at `ld.so`.
+
+One false alarm of mine, recorded because reporting it would have been a defect:
+`/api/drafts` answered 404 on production. The route table (`src/api/mod.rs`) has
+no such path — drafts are a **state** of `/api/posts`, queried as
+`/api/posts?state=draft`, which answers 200. The 404 was my wrong URL, not a gap.
+
+Production workflows re-verified over the public URL: `/setup` 200 (58259 bytes),
+`/api/posts?state=draft` 200 with the correct empty shape, and `/api/events`
+streaming `: keepalive`.
