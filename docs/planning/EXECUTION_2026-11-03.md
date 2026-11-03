@@ -233,3 +233,45 @@ carrying the `EpochUtc` binds at `queries.rs:4762-4763` that my correction rests
 on — uses `metric_value_expr` / `metric_label_matches` at lines 4755-4757, which
 is the ONE implementation §9.9 requires. So the query I cited is the shared-path
 query, not an outlier with its own label list.
+
+## 9. The scheduler was proven, not assumed
+
+Every deploy check so far exercised endpoints. None had ever watched the
+scheduler do the one thing the app exists for. So a real X post was scheduled
+two minutes ahead on production and the deployed release was left to handle it.
+
+It went `queued → error`, with `error_message`:
+
+> API error: Authorization: This request looks like it might be automated. To
+> protect our users from spam and other malicious activity, we can't complete
+> this action right now. Please try again later. (226)
+
+That is the *correct* outcome. X refused the cookie session with its
+anti-automation response. What it proves about the app: the scheduler **claimed
+the post at its due time**, attempted the publish, stored the platform's own
+reason in `error_message`, and took the failure path. A dormant or broken
+scheduler leaves the post `queued` forever and says nothing.
+
+Checked that this is not a deploy regression, by measurement rather than
+reasoning:
+
+- **No commit in this session touched `src/social/x.rs` or `src/scheduler/`.**
+  The only commit that touched `src/` at all was `78a39a0`, and it is
+  comment-only — the one line a naive `grep -v '^\+.*//'` flagged as
+  non-comment was the diff's own `+++ b/…` header, not code.
+- `ProviderError::Api` falls to the **terminal `Err(e)` arm** with no retry
+  (`src/scheduler/mod.rs:1694-1702`), which is exactly what §7.4 mandates for
+  `Auth`/`Api`/`InvalidRequest`: retrying a 226 would only hit the same refusal.
+
+The probe post was deleted through the API and production is back to `total: 0`
+— the exact state it was found in.
+
+### One measurement trap, worth recording
+
+`sqlite3 <db> "SELECT ... FROM posts"` returned **nothing** while the API
+returned the posts. The database had a 4.7 MB un-checkpointed **WAL**: the main
+file held 2 stale rows and the live rows existed only in the WAL. A direct
+`sqlite3` read of a running app's SQLite is not the authoritative reader — the
+API is, because it goes through the pool. For a future claim about production
+data, read it through the API or `sqlite3` with an explicit WAL-aware open, and
+never conclude "the row is gone" from a bare file read.
