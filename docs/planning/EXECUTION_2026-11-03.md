@@ -298,8 +298,31 @@ What does cover it:
 | retries are exhausted by design | the live activity feed recorded **"Publish attempt 3 failed"**, matching `for attempt in 1..=MAX_RETRIES` (`MAX_RETRIES = 3`) and `record_publish_attempt(MAX_RETRIES as i32, …)`. It is the final attempt, not an early bail |
 | failure fans out | the same feed carries the `post.failed` event row and the `publish` row — the audit trail and the webhook/event path both fired |
 
-So the *lifecycle* is proven live: claim → attempt → retry-exhaustion → error
-storage → audit row → event. The **provider-side success call** is proven only by
-unit test and by the founder's own accounts, and the honest statement is that a
-real successful publish on this deployment has not been observed in this cycle.
-The founder posting one real piece of content closes it.
+So the *failure lifecycle* is proven live: claim → attempt → retry-exhaustion →
+error storage → audit row → event.
+
+The **provider-side success call** is **not covered at all** — not by a unit test,
+not by a mock, and not by a live success. The earlier version of this section said
+it was "proven only by unit test and by the founder's own accounts" and that was
+**false on the unit-test half**. Measured:
+
+- `tests/provider_methods_test.rs` holds exactly four provider publish tests —
+  `test_ias_publish_container_with_bad_token`,
+  `test_ias_social_provider_publish_with_bad_token`,
+  `test_threads_social_provider_publish_with_bad_token` and
+  `test_linkedin_publish_with_bad_token` — **all four are failure paths**.
+- That file's only `is_ok()` assertions (lines 700, 766, 836) are for **auth**, not
+  publish.
+- The providers carry **no mock or stub** (`grep -c mock\|stub\|fake` in `x.rs`
+  and `threads.rs` = 0).
+- The other tests that mention publish (`activity_feed_test`,
+  `analytics_engagement_test`, `calendar_range_test`, `composer_contract_test`)
+  **seed post rows into the DB** rather than driving `provider.publish()`.
+- The only non-test callers of `.publish(` are the real paths — the scheduler,
+  `cli/platforms/{bluesky,linkedin,x}.rs` and `mcp/tools_bluesky.rs` — and the
+  only one exercised live was the scheduler, which hit a 226.
+
+So the correct statement is: **a provider publish success is covered by no test,
+no mock, and no live success in this cycle.** The failure path is well covered.
+The success path is not covered at all. The founder posting one real piece of
+content closes it, and that is the single gap this validation leaves open.
