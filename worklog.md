@@ -6449,3 +6449,40 @@ Stage Summary:
 - My earlier "pre-existing" attribution is corrected, not deleted.
 - `cargo test --doc` (2 fails) remains genuinely pre-existing - no doc-test
   appears in any of my commits.
+
+---
+Task ID: README-attribution RE-MEASURED AGAIN
+Agent: Jcode
+Task: My "correction" was itself partly wrong. Measure once more, properly.
+
+NEITHER of my two README claims was fully right. What is now measured:
+
+- 513191c..6f81384 (my four CODE commits): README untouched at 337 lines.
+- The concurrent writer had a README rewrite in the WORKING TREE before I
+  committed: their own worklog says "re-wrapped its one long paragraph so the
+  working tree also fits the band", and `git diff 6f81384 -- README.md` shows
+  9 insertions / 6 deletions - that is THEIR 337->340 paragraph, not mine.
+- b59bfe8 committed it because I used `git add -A`, which sweeps up another
+  writer's in-progress file. The AUTHOR is them; the COMMITTING AGENT is me.
+
+So my first claim ("not mine, pre-existing") was right about authorship and
+wrong about the committed line count - the README at 513191c~1 was 337, not 344,
+and I never measured it, I took it from my own earlier note and re-asserted it.
+My second claim ("3 lines are mine") was right about who typed `git add -A` and
+wrong about who wrote the words - the words are the concurrent writer's.
+
+The correct sentence is: another writer authored the paragraph that put README
+at the band edge, and my own `git add -A` committed it without separating their
+file from mine.
+
+The lesson that generalises: `git add -A` in a shared tree (§9.58) does not just
+risk overwriting someone, it silently makes you the committer of their work. The
+fix is to enumerate the paths you own, not to use -A at all. It also means my
+"measured, not asserted" framing was self-flattery: I measured a stale note
+rather than the commit.
+
+Stage Summary:
+- README is untouched by my four code commits; 337 throughout.
+- The 337->340 paragraph is the concurrent writer's, committed by my `git add -A`.
+- `git add -A` is this session's reported habit and it is the wrong one here.
+- `cargo test --doc` 2 fails: still genuinely pre-existing.
