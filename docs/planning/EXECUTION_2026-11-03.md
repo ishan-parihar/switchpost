@@ -356,3 +356,53 @@ What remains genuinely open: **no live successful publish has been observed on
 this deployment.** The unit test proves the engine; it cannot prove the founder's
 credentials still work. One real post from the founder closes that, and it is a
 human action on a real audience, which is not an agent's to take.
+
+## 11. Two claims re-based, one of them on a baseline that was too narrow
+
+### "No commit touched the X publish path" was true on the WRONG baseline
+
+I had proved it by listing *my* commits. But the deployed binary is `f4c5200`,
+which also carries the concurrent writer's commits — so the comparison that
+answers the question is **what the Nov-2 binary contained vs what the deployed
+binary contains**, not what I authored. Measured that instead:
+
+`git diff --stat 0b791f4..f4c5200` over the publish core
+(`src/social/x.rs`, `src/scheduler/mod.rs`, `src/services/posts.rs`) returns
+**empty** — byte-identical. The only five `src/` files that changed across that
+range are:
+
+| file | commit | why |
+|---|---|---|
+| `src/services/telegram_client.rs` | `78a39a0` | my R1 doc — comment-only |
+| `src/api/integrations.rs` | `1f16f12` | channel-login fixes |
+| `src/social/threads.rs` | `1f16f12` | scope narrowing |
+| `src/social/tier.rs` | `1f16f12` | tier registration |
+| `src/social/whatsapp.rs` | `1f16f12` | store-dir default |
+
+None of them is the X publish path. So the conclusion holds — the 226 cannot be a
+deploy regression — but now on the correct baseline, which is `0b791f4..f4c5200`
+rather than "the four commits I remember writing".
+
+### "No live successful publish" — measured with the right log line, and it reframes the gap
+
+The success line is `"Post {} published on {}"` (`scheduler/mod.rs:1508`), not
+the phrasing I first grepped for. With the correct pattern over the journal's real
+window — **Nov 01 20:00 → now, 79 893 lines** (retention ends there; a `--since
+-14 days` window silently returns the same 2 days, which is why the window was
+measured before the count was believed):
+
+- `published on` matches: **0**
+- `Publish error` / `ended in terminal state` matches: **1** — my probe
+
+The activity feed's audit trail holds exactly **one** `publish` row: mine,
+failed. So the honest framing is not *"the success path is broken"* and not
+*"the success path is untested"*. It is:
+
+> **Nothing has ever been published from this deployment.** Not once, by anyone,
+> ever.
+
+That is a materially different statement, and a more useful one: it means there is
+no regression to find, and no accumulated evidence to interpret. The engine is
+covered by unit test with `FakeAsyncProvider`; the founder's credentials have
+simply never been exercised against a real publish. The first real post closes
+both questions at once.
