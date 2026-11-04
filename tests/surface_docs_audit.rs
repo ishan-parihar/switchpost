@@ -132,6 +132,71 @@ fn d1_documented_tool_counts_match_registry() {
 }
 
 #[test]
+fn d1_documented_provider_count_matches_the_registry() {
+    // The provider count drifted in the PROSE for a month while
+    // `src/social/tier.rs` ASSERTED the true numbers. An assertion on the
+    // code cannot catch a sentence that describes it, so the doc needs its
+    // own gate - and this is the gate that was missing.
+    //
+    // The count is the REGISTRY's, not the tier constants': Tier-3
+    // (farcaster) is only registered when ENABLE_ARCHIVE_PROVIDERS is set,
+    // so "registered by default" is Tier-1 + Tier-2.
+    switchpost::config::load_dotenv_for_tests();
+    let config = switchpost::config::Config::from_env().expect("config");
+    let registry =
+        switchpost::social::registry::ProviderRegistry::new(&config, None, None);
+    let count = registry.list().len();
+    assert!(count > 0, "the registry registered no providers");
+
+    let tier_1 = switchpost::social::tier::TIER_1.len();
+    let tier_2 = switchpost::social::tier::TIER_2.len();
+    assert_eq!(
+        count,
+        tier_1 + tier_2,
+        "the registry registers Tier-1 + Tier-2 by default; a mismatch means \
+         the default set and the tier constants have drifted apart"
+    );
+
+    // Every doc that states the count must state the TRUE one, and must
+    // not carry the stale figure that was there until 2026-11-04.
+    let agents = std::fs::read_to_string(repo_path("AGENTS.md")).unwrap();
+    assert!(
+        agents.contains(&format!("**{count} providers registered by default**")),
+        "AGENTS.md must state the true registered-provider count \
+         ({count} providers registered by default)"
+    );
+    assert!(
+        !agents.contains("26 providers registered by default"),
+        "AGENTS.md still states the stale 26-provider count"
+    );
+
+    let readme = std::fs::read_to_string(repo_path("README.md")).unwrap();
+    assert!(
+        readme.contains(&format!("**{count} social platforms**")),
+        "README.md must state the true platform count ({count} social platforms)"
+    );
+    for stale in ["26 social platforms", "26 platforms", "14 Tier-2", "14 T2"] {
+        assert!(
+            !readme.contains(stale),
+            "README.md still states the stale provider count ({stale})"
+        );
+    }
+
+    // The agent skill is what an AI agent actually reads, so a stale count
+    // there is worse than one in a README.
+    let skill = std::fs::read_to_string(repo_path("skills/switchpost-agent/SKILL.md")).unwrap();
+    assert!(
+        skill.contains(&format!("{count} social platforms")),
+        "the agent skill must state the true platform count \
+         ({count} social platforms)"
+    );
+    assert!(
+        !skill.contains("26 social platforms"),
+        "the agent skill still states the stale 26-platform count"
+    );
+}
+
+#[test]
 fn d1_documented_cli_command_count_matches_clap() {
     use clap::CommandFactory;
     let commands = switchpost::cli::Cli::command()
@@ -336,7 +401,10 @@ fn d3_documented_per_platform_counts_match_registry() {
         // numbers for one prefix, is REJECTED here rather than silently summing
         // to a figure that happens to reconcile.
         let group_start = lines[idx].find('(').unwrap_or_else(|| {
-            panic!("mcp-catalogue.md: heading `{}` has no count parens", lines[idx])
+            panic!(
+                "mcp-catalogue.md: heading `{}` has no count parens",
+                lines[idx]
+            )
         });
         let group_end = lines[idx]
             .rfind(')')

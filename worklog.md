@@ -7144,3 +7144,38 @@ Stage Summary:
   journal entries since the restart.
 - Still open and credential-gated, unchanged: the Reddit network-policy block, the expired YouTube
   credentials, and the 7 register rows needing credentials or a founder decision.
+
+---
+Task ID: doc-count-gate
+Agent: Jcode
+Task: make the provider-count drift a BUILD failure instead of something only live measurement finds
+
+Work Log:
+- THE GAP. tests/surface_docs_audit.rs already gates the documented TOOL count and the documented CLI
+  COMMAND count against their sources, because AUD-10 recorded doc drift as a defect class. It has
+  never gated the documented PROVIDER count - which is exactly the count that drifted for a month
+  while tier.rs asserted the truth. The existing gate covers two of the three counts the docs carry.
+
+- THE NEW TEST, d1_documented_provider_count_matches_the_registry. It builds the REAL registry via
+  `ProviderRegistry::new(&config, None, None)` and asserts three things: the registry's `list()`
+  equals `TIER_1.len() + TIER_2.len()` (so "registered by default" and the tier constants cannot
+  drift apart); AGENTS.md, README.md and the agent skill each carry the TRUE count; and none of
+  them carries the stale figure. Tier-3 (farcaster) is excluded deliberately - it registers only
+  when ENABLE_ARCHIVE_PROVIDERS is set, so counting it would make the gate assert something the
+  running system never does.
+
+- MUTATION-TESTED IN ALL THREE DIRECTIONS, which is the part that makes it a gate rather than a
+  comment. Reintroducing 26 in README.md fails with 'README.md still states the stale provider
+  count'; reintroducing it in AGENTS.md fails with 'AGENTS.md must state the true
+  registered-provider count (29 providers registered by default)'; reintroducing it in the skill
+  fails with 'the agent skill must state the true platform count (29 social platforms)'. Each
+  mutation was restored from a /tmp copy and then verified byte-identical to HEAD with
+  `git diff --quiet` on each path, so a mutated file cannot survive as an uncommitted regression.
+
+- Full suite for this binary: 5 passed / 0 failed.
+
+Stage Summary:
+- The defect class is now build-enforced, not merely documented. 9.62 explains the mechanism; this
+  test is the mechanism's remedy.
+- The two remaining textual matches for the stale numbers are inside the 9.62 pitfall entry that
+  DESCRIBES the drift, which is correct by construction.
