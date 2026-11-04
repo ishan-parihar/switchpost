@@ -7057,3 +7057,90 @@ Stage Summary:
   AGENTS.md §0.6 already states for docs ("append, do not overwrite"); the mechanism that makes it
   true here is that `write` is a whole-file write, so appending to a 7000-line accumulated file
   requires `cat >>` and nothing else.
+
+---
+Task ID: validation-round-7
+Agent: Jcode
+Task: re-validate the session's claims against the tree and the NEW live binary, and fix what the measurements found
+
+Work Log:
+- THE HEADLINE RESULT: the deploy's purpose is now OBSERVED on the running system, not just asserted.
+  Created a post against the X channel via the public API, scheduled 2 minutes out. The scheduler
+  claimed it, called X once, and X refused with its own non-retryable response - a DAILY LIMIT
+  (344), 'You have reached your daily limit for sending Tweets and messages', not the 226 from the
+  Nov-3 probe, so the error envelope is independently exercised. publish_attempts records
+  `attempt_number = 1` for that post. The historic Nov-3 row still reads 3 and is untouched -
+  publish_attempts is append-only, so the fix corrects FUTURE rows and does not rewrite history.
+  That contrast is the proof: same table, same failure class, two binaries.
+
+  The founder's own Activity feed now reads 'Publish attempt 1 failed: API error: Authorization: You
+  have reached your daily limit for sending Tweets and messages. Please try again later. (344)'.
+  That is the exact string that used to read 'attempt 3'.
+
+  Corroborating counts, all independent of the row itself: exactly 1 publish_attempts row for the
+  probe post, exactly 1 'Publish error for post 46146eef' journal line, 0 rate-limited / backoff /
+  connect-error lines. One call, one row, correctly numbered.
+
+- FOUR STALE DOCUMENTATION COUNTS FOUND AND FIXED - and the mechanism is the interesting part.
+  src/social/tier.rs ASSERTS `TIER_1.len() == 12` and `TIER_2.len() == 17` in a test, so the BUILD
+  fails if those move. That guarantee produced FALSE CONFIDENCE: AGENTS.md, README.md (3 places),
+  docs/ARCHITECTURE.md, docs/platforms-and-cli.md, docs/agent-integration.md and both installed
+  agent-skill files all said 26 platforms / 14 Tier-2. That number was CORRECT when written in
+  574de89 and became false in ee2ab25, when the Google consent split made gmail, calendar and
+  drive their own connectable providers (14 Tier-2, 26 registered). Nothing broke, because the
+  assertion is on the CODE, not on the sentence describing it. The live truth is 29, measured from
+  the startup log line 'Provider registry initialized with: ...'.
+
+  Three more of the same shape, each measured at its source rather than by grepping the prose:
+  16 routes register a realtime handler (`realtime.on(`), not the documented 9 - +layout.svelte
+  owns the single realtime.connect(); ~101,700 LOC of Rust and ~32,400 LOC of Svelte/TS, not
+  ~94,200 / ~29,200; and the repo-layout line describing gmail/calendar/drive as 'capability
+  modules reached through the google provider' stated the OPPOSITE of what the code does.
+
+  Recorded as AGENTS.md 9.62, because the generalisable lesson is that an ASSERTED count is a
+  reason to distrust the prose, not trust it: an assertion guarantees the constant moved, and the
+  doc travelled with it only if someone remembered.
+
+- A FALSE ALARM OF MINE, caught and corrected before it reached the record. My byte-identical check
+  on the served index.html FAILED (local ca48d3dd vs served ecdbf5dc, 4441 vs 5555 bytes) and my
+  first reading was that the served page was a stale build. It was the opposite. Both builds come
+  from IDENTICAL source (0 modified files under frontend/src) and every chunk present in both trees
+  is BYTE-IDENTICAL; the only differences are the two ENTRY chunk names and one SvelteKit
+  per-build random id, `__sveltekit_70tjzo` vs `__sveltekit_rscenr`, which changes the entry
+  chunk's content and therefore its hash. The deployed build is the FRESH one (Nov 5 03:26 from
+  the clean tree; the working tree's was Nov 4 04:03, stale), the live binary references
+  app.J4sHZOgk.js three times and app.BonJeeXR.js zero times, and the served page and its assets
+  are one consistent build. The register's claim holds on the new binary.
+
+- THE READER TRAP, RE-IDENTIFIED IN A NEW FORM. The API reports total 0 posts while a raw sqlite3
+  read shows 3 rows. The register already warned that the API is authoritative, but attributed that
+  to the WAL holding un-checkpointed writes. The REAL mechanism here is different: posts are
+  SOFT-deleted (deleted_at is set) and every list query filters `deleted_at IS NULL`. Same trap,
+  different cause - a raw table read that disagrees with the API's filtered view, where the API is
+  right. This also corrects a register detail: 'the probe post was deleted via the API' was TRUE,
+  but the record did not say deletion is SOFT, so a future reader running sqlite3 sees 3 rows and
+  could wrongly conclude the cleanup failed.
+
+- A CONTROL-CHARACTER HAZARD that makes rows APPEAR to vanish. Raw uuid BLOBs selected from sqlite3
+  made terminal output disappear entirely: the first probe post's blob is 9c 1f 37 96 41 17 42 58
+  b5 02 35 12 72 c7 fb d8, and byte 0x1f is the ASCII Unit Separator, which truncates output. The
+  row was never lost - quote() and hex() render it fine and COUNT(*) is stable. This is also
+  independent confirmation of 9.33/9.44: the id columns really are BLOB(16) (typeof() = blob,
+  length 16), not TEXT. The app is not exposed - the activity feed models ids as Uuid, so serde
+  renders hyphenated hex - so it is a shell-inspection hazard, not a product defect.
+
+- Measurement errors of mine, recorded because each nearly produced a false conclusion: the column
+  is `attempt_number`, not `attempt`; the VPS sqlite3 has no `unhex()` and `x"..."` is not valid
+  SQL, so the hex-literal filter needed the `hex(col)="..."` form; and a sha256 comparison failed
+  only because I mistyped `-o BatchTimeout` for `-o BatchMode`, so the remote command never ran.
+
+Stage Summary:
+- The deploy's purpose is proven on the running system: a single-call failure now records
+  'attempt 1' where it used to record 'attempt 3'.
+- Four stale documentation counts corrected across 8 files, with AGENTS.md 9.62 added to explain
+  the class of defect.
+- The deployed frontend is confirmed current, and the apparent mismatch was my own bad probe.
+- Nothing was broken by the deploy: DB integrity ok, 18 integrations intact, no error-level
+  journal entries since the restart.
+- Still open and credential-gated, unchanged: the Reddit network-policy block, the expired YouTube
+  credentials, and the 7 register rows needing credentials or a founder decision.

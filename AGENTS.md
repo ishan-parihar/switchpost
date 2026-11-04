@@ -119,7 +119,7 @@ These are the core design decisions that define switchpost's identity. They were
 - If a competitor stores tokens in plaintext (postiz-app does), switchpost does NOT copy that pattern. Its encryption-at-rest is a security advantage, not a drawback.
 
 ### 6. Realtime-first frontend
-- The frontend uses SSE (`/api/events`) for live updates. 9 routes subscribe to realtime events. This is a UX advantage over polling-based competitors (postiz-app uses SWR polling).
+- The frontend uses SSE (`/api/events`) for live updates. **16 routes register a realtime handler** (`realtime.on(...)`, measured 2026-11-04: activity, analytics, automation, calendar, campaigns, campaigns/[id], channels, comments, dms, feed, kanban, dashboard, posts, posts/[id], search, tags), and `+layout.svelte` owns the single `realtime.connect()`/`disconnect()` for the whole app. It said 9 routes until 2026-11-04. This is a UX advantage over polling-based competitors (postiz-app uses SWR polling).
 - When adding new pages, wire them to the realtime store. Do NOT add polling as a substitute.
 
 ### What this means for feature parity work
@@ -188,15 +188,15 @@ Superseded docs move to `docs/archive/` with a tombstone at the original path �
 
 Load the `rust-best-practices` skill (the Apollo handbook, 10 chapters) before writing or reviewing Rust: `&T` over `.clone()`, `Result` + `?` over `unwrap` (never `unwrap`/`expect` outside tests), `thiserror` for libs / `anyhow` for the binary, `cargo clippy --all-targets --all-features --locked -- -D warnings` clean, descriptive test names with one assertion each.
 
-Switchpost is a **single-user, self-hosted social media management platform** designed for AI agents. It provides a triple interface — CLI, REST API, and MCP server — over 26 social platforms (X, Reddit, LinkedIn, Facebook, Instagram, YouTube, Threads, TikTok, Bluesky, Pinterest, Discord, Slack, Telegram, WhatsApp, WordPress, Medium, Dev.to, Hashnode, GitHub, etc.).
+Switchpost is a **single-user, self-hosted social media management platform** designed for AI agents. It provides a triple interface — CLI, REST API, and MCP server — over 29 social platforms (X, Reddit, LinkedIn, Facebook, Instagram, YouTube, Threads, TikTok, Bluesky, Pinterest, Discord, Slack, Telegram, WhatsApp, WordPress, Medium, Dev.to, Hashnode, GitHub, etc.).
 
 **Architecture in one paragraph:** A single Rust binary (`switchpost`) runs an axum HTTP server (REST API + embedded SvelteKit frontend), an rmcp MCP server (stdio, for AI agents like Claude/Cursor), an in-process scheduler (polls for due posts every 30s), an SSE broadcaster (realtime updates to the frontend), and background tasks (RSS poller, feed refresher, analytics cache refresher). All state lives in a local SQLite file. OAuth tokens are AES-256-GCM encrypted at rest when `TOKEN_ENCRYPTION_KEY` is set.
 
 **Key numbers (measured 2026-10-20 against this commit; each line names where to re-measure it):**
 - **389 MCP tools** (`grep -rh --include='*.rs' 'tool(' src/mcp/ | wc -l` = 389), all declared in the one `SwitchpostMcpServer` impl in `src/mcp/mod.rs`; the 44 sibling `src/mcp/tools_*.rs` files plus `src/mcp/auth.rs` and `src/mcp/rest_bridge.rs` are handler modules with no `tool(` attributes of their own — do not grep them for the tool count. That is 47 Rust files under `src/mcp/` in total.
-- **26 providers registered by default** in `src/social/registry.rs` — 12 Tier-1 (depth) + 14 Tier-2 (publish-maintained). `linkedin-page` and `instagram-standalone` are Tier-1 members in their own right, not extras bolted onto a parent count. One more, Farcaster, is registered only when `ENABLE_ARCHIVE_PROVIDERS` is set (Tier-3, code in `src/social/archive/`). Tier membership lives in `src/social/tier.rs` (plan §1); the counts are asserted there and in `registry.rs`'s own tests, so a drift breaks the build rather than the doc. `kick`/`vk`/`whop`/`lemmy` were removed outright.
+- **29 providers registered by default** in `src/social/registry.rs` — 12 Tier-1 (depth) + 17 Tier-2 (publish-maintained). Tier-2 grew from 14 to 17 on 2026-10-30 when the Google Suite was split: `gmail`, `calendar` and `drive` became their own connectable providers, because Google refuses `auth/youtube*` and `auth/drive*` in one consent, so a single `google` integration can never carry every grant the MCP Google tools need. `linkedin-page` and `instagram-standalone` are Tier-1 members in their own right, not extras bolted onto a parent count. One more, Farcaster, is registered only when `ENABLE_ARCHIVE_PROVIDERS` is set (Tier-3, code in `src/social/archive/`). Tier membership lives in `src/social/tier.rs` (plan §1); the counts are asserted there and in `registry.rs`'s own tests, so a drift breaks the build rather than the doc. `kick`/`vk`/`whop`/`lemmy` were removed outright. **Re-measure rather than trust this line** — it said 26 (12 + 14) until 2026-11-04, because the count is asserted in the code and only the prose went stale. `tier.rs` asserts `TIER_1.len() == 12`, `TIER_2.len() == 17`, `TIER_3.len() == 1`, `all_known_identifiers().len() == 30`.
 - **8 SQL migrations** in `migrations/` (`0001_init` … `0008_posts_media_array`), additive-only, no destructive ops.
-- **~94,200 LOC of Rust** (`find src -name '*.rs' | xargs wc -l`) + **~29,200 LOC of Svelte/TS frontend** (`find frontend/src`).
+- **~101,700 LOC of Rust** (`find src -name '*.rs' | xargs wc -l`) + **~32,400 LOC of Svelte/TS frontend** (`find frontend/src -type f \( -name '*.svelte' -o -name '*.ts' -o -name '*.js' \) | xargs wc -l`). Measured 2026-11-04; the previous line said ~94,200 / ~29,200 and had drifted by roughly 7,500 and 3,100 lines.
 
 ---
 
@@ -232,7 +232,7 @@ switchpost/
 │   │   ├── tools_x.rs       # X-specific tools (create_tweet, reply, like, retweet, search, timeline)
 │   │   ├── tools_{platform}.rs  # Per-platform tool modules
 │   │   └── auth.rs          # MCP auth (stdio = trusted local)
-│   ├── social/              # Provider trait (in mod.rs) + 29 sibling files that `impl SocialProvider` — 26 registered as providers, plus calendar, drive and gmail, which are capability modules reached through the `google` provider. Nine further files are support, not providers: registry, tier, common, browser_cookies, reddit_cookies, x_cookies, x_queryids, google_oauth, whatsapp_cloud. `src/social/archive/` holds Farcaster (Tier-3, opt-in).
+│   ├── social/              # Provider trait (in mod.rs) + 30 sibling files that `impl SocialProvider` — 29 registered as providers by default (12 Tier-1 + 17 Tier-2), plus mod.rs itself, which holds the trait and FakeAsyncProvider. `gmail`, `calendar` and `drive` are their own connectable providers, NOT capability modules reached through `google` (Google refuses the video and drive scopes in one consent). `src/social/archive/` holds Farcaster (Tier-3, opt-in). The 43 `.rs` files under `src/social/` include support files that are not providers: registry, tier, common, browser_cookies, reddit_cookies, x_cookies, x_queryids, google_oauth, whatsapp_cloud, cookie_paste.
 │   │   ├── mod.rs           # SocialProvider trait, ProviderError enum, PostContent, MediaAttachment
 │   │   ├── registry.rs      # ProviderRegistry (provider lookup + per-provider Semaphore)
 │   │   ├── x.rs             # X/Twitter (wreq + GraphQL cookie auth, ~3455 LOC)
@@ -1481,6 +1481,46 @@ whole suite, and it is slow enough that §12's narrow gate exists precisely so
 an agent does not pay it on every iteration - so the rule is not "always run
 everything", it is: **state which harness you measured with**, and run the
 integration binary when the claim is about one.
+
+### 9.62 An ASSERTED count is not a MEASURED one, and the doc carrying it drifts in silence
+
+`src/social/tier.rs` asserts `TIER_1.len() == 12` and `TIER_2.len() == 17`
+in a test, so the BUILD fails if those counts change. That is a strong
+guarantee, and it produced a false confidence: AGENTS.md, README.md,
+`docs/ARCHITECTURE.md`, `docs/platforms-and-cli.md`, `docs/agent-integration.md`
+and the installed agent skill all said **26 platforms / 14 Tier-2** - a number
+that was correct in `574de89` when it was written and became false in
+`ee2ab25`, when the Google consent split made `gmail`, `calendar` and `drive`
+their own connectable providers (14 Tier-2, 26 registered).
+
+Nothing broke. No test read the docs. The prose drifted by three providers for
+a month and only a live measurement found it, because the code's own assertion
+is on ITSELF, not on the sentence describing it. The guarantee an assertion
+gives is "the code still agrees with the code", which is not the same as "the
+doc still agrees with the code".
+
+Found by measuring the running system rather than the tree: the startup log
+line `Provider registry initialized with: ...` names every registered
+provider, and counting them gives 29 - bluesky, calendar, devto, discord,
+drive, facebook, github, gmail, google, google_my_business, hashnode,
+instagram, instagram-standalone, linkedin, linkedin-page, mastodon, medium,
+pinterest, reddit, skool, slack, telegram-bot, telegram-user, threads, tiktok,
+whatsapp, wordpress, x, youtube. The same round found three more of the same
+shape, each with its own authoritative measurement rather than another grep
+of the prose: **16 routes register a realtime handler** (`realtime.on(` in
+`frontend/src/routes/`), not the documented 9 - `+layout.svelte` owns the one
+`realtime.connect()` for the whole app; **~101,700 LOC of Rust** and **~32,400
+LOC of Svelte/TS**, not ~94,200 / ~29,200; and the repo layout line that
+described `gmail`/`calendar`/`drive` as "capability modules reached through the
+`google` provider" stated the OPPOSITE of what the code now does.
+
+The rule: **a count in prose has no gate except the agent that reads it.** An
+asserted count is a reason to distrust the doc, not trust it - the assertion
+guarantees the constant moved, and the prose travelled with it only if someone
+remembered. When a doc states a number, measure it at its source (the log
+line, the registry list, `wc -l`, the file list) and record WHERE to re-measure
+it, which is what the header's own "each line names where to re-measure it"
+already asks for and what most of these lines had stopped doing.
 
 ---
 

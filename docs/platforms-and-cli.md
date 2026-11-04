@@ -290,7 +290,7 @@ Providers are tiered: **Tier-1** gets full depth (analytics, engagement, comment
 | Google My Business | ✅ | — | — | 0 |
 | Skool | ✅ (Chrome ext) | — | — | 5 |
 
-**26 platforms by default.** `kick`, `vk`, `whop` and `lemmy` were removed outright (v25 §1).
+**29 platforms by default** (12 Tier-1 + 17 Tier-2). `kick`, `vk`, `whop` and `lemmy` were removed outright (v25 §1).
 
 #### Tier-3 — archive (1)
 
@@ -333,7 +333,7 @@ switchpost/
 │   │   ├── reddit_cookies.rs
 │   │   ├── linkedin.rs
 │   │   ├── tier.rs           # Tier-1/2/3 membership (v25 §1)
-│   │   └── ...              # 26 providers (+ archive/ behind flag)
+│   │   └── ...              # 29 providers (+ archive/ behind flag)
 │   ├── db/                  # Database (sqlx, migrations)
 │   ├── scheduler/           # Background post publisher
 │   └── config.rs            # Environment configuration

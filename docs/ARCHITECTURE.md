@@ -24,9 +24,9 @@ and nothing about it depends on a service you pay for.
 
   CLI ──────────────┐
   100+ commands     │
-                    ├──▶  the engine   ──▶  the platform adapters  ──▶  26 platforms
+                    ├──▶  the engine   ──▶  the platform adapters  ──▶  29 platforms
   REST API ─────────┤     (same code,     (one per platform,           12 Tier-1
-  live dashboard    │      all three)      in tier order)              14 Tier-2
+  live dashboard    │      all three)      in tier order)              17 Tier-2
                     │
   MCP server ───────┘
   389 tools

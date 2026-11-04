@@ -5,10 +5,10 @@ Every document in `docs/` is listed with the question it answers in [docs/PAGE-I
 # Switchpost
 
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Switchpost: one Rust binary, 26 social platforms, three interfaces — CLI, REST, MCP">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Switchpost: one Rust binary, 29 social platforms, three interfaces — CLI, REST, MCP">
 </p>
 
-**Social posting infrastructure that runs on your own hardware. One Rust binary, 26 platforms, and your AI agent can drive it.**
+**Social posting infrastructure that runs on your own hardware. One Rust binary, 29 platforms, and your AI agent can drive it.**
 
 Not a SaaS you rent — a service you own. No Docker required, no Redis, no Postgres, no per-seat pricing. One binary, one SQLite file, and three interfaces into the same engine: a CLI for shell and agent use, a REST API with a real-time dashboard, and an MCP server with 389 MCP tools for Claude, Cursor, Codex and friends.
 
@@ -35,7 +35,7 @@ Not a SaaS you rent — a service you own. No Docker required, no Redis, no Post
 
 ## What it is
 
-Switchpost is a single Rust binary that manages **26 social platforms** (12 Tier-1 + 14 Tier-2, verified: `src/social/tier.rs`) through three interfaces into one shared engine:
+Switchpost is a single Rust binary that manages **29 social platforms** (12 Tier-1 + 17 Tier-2, verified: `src/social/tier.rs`) through three interfaces into one shared engine:
 
 1. **CLI** — 100+ commands for AI agents and terminal power users
 2. **REST API** — SvelteKit dashboard for human operators
@@ -106,7 +106,7 @@ The full tool list and namespaces are in the [agent path](#agent-path-mcp-for-ai
 
 | Feature | Details |
 |---------|---------|
-| **Multi-platform** | 26 platforms (12 Tier-1 + 14 Tier-2), one trait-based registry |
+| **Multi-platform** | 29 platforms (12 Tier-1 + 17 Tier-2), one trait-based registry |
 | **Scheduling** | Cron + one-time, timezone-aware |
 | **Media** | Images, videos, GIFs, carousels |
 | **Analytics** | Engagement, reach, follower growth |
@@ -178,7 +178,7 @@ One binary, three interfaces, one engine, one SQLite file:
 ```
 CLI (clap)  |  REST API (axum :6543)  |  MCP stdio (rmcp, 389 tools)
 
-  Shared logic: ProviderRegistry (26 providers, 12 T1 + 14 T2) - Scheduler (30s poll)
+  Shared logic: ProviderRegistry (29 providers, 12 T1 + 17 T2) - Scheduler (30s poll)
                 Auth (JWT + Argon2 + OAuth2 + cookie) - SSE realtime
 
                     SQLite (single .db file)
@@ -317,9 +317,9 @@ Environment variables, tunnel and reverse-proxy setup, onboarding, and OAuth red
 
 ### Performance
 
-*Measured 2026-11-01 against the release binary on this machine, not estimated.
-Every number below is the result of one run, and the commands to re-take them are
-in the line so a later reader can check rather than trust.*
+*Every number below is the result of one run against the release binary, not
+estimated, and the command that produced each one is in its own line so a later
+reader can re-take it on this machine and check rather than trust.*
 
 - Cold start to `/health` answering 200: **~32 ms** (`time` from spawn to the
   first successful curl)

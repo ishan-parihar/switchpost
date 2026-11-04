@@ -43,7 +43,7 @@ At session start, Switchpost prints a compact dashboard:
 
 ```
 bin: /usr/local/bin/switchpost
-description: Post to 26 social platforms from a single CLI
+description: Post to 29 social platforms from a single CLI
 
 providers[3]{name,status,platforms}:
   x,connected,X/Twitter

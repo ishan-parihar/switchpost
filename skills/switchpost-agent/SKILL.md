@@ -6,7 +6,7 @@ description: >
 
 # Switchpost — AI Agent Guide
 
-One Rust binary, 26 social platforms, three interfaces (CLI / REST / MCP). For an
+One Rust binary, 29 social platforms, three interfaces (CLI / REST / MCP). For an
 agent, the CLI is the interface. `mcp-call` bridges to all 389 MCP tools
 in-process — no separate server needed.
 
