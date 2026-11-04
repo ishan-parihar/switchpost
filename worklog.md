@@ -7208,3 +7208,51 @@ Stage Summary:
 - Two rows CLOSED on evidence (V1a, LIVE-X-FLAKE); three re-measured with precise conditions (V1b, V1c, V1d); one premise corrected (C2); one new row added for the unregistered live suites (LIVE-SUITES).
 - One overstatement in my own record corrected, and one real test-guard defect found and fixed.
 - Gates: cargo check 0 errors, cargo test --lib 565/565, live_reddit_test 5/5 non-skipped, live_x_test 11/11, live_linkedin_youtube_test 23 passed, surface_docs_audit 5/5, frontend pnpm build succeeds.
+
+---
+Task ID: live-write-guards
+Agent: Jcode
+Task: find every live test that mutates a real channel without an opt-in, and guard it
+
+Work Log:
+- THE QUESTION. The live tests run against the OPERATOR's real database and the operator's real
+  accounts (`load_dotenv_for_live_tests` deliberately keeps the .env DATABASE_URL, unlike
+  `load_dotenv_for_tests` which isolates to target/test-data/). So a suite that writes is writing
+  to the founder's real channels. Which suites write, and do they ask first?
+
+- MEASURED, NOT ASSUMED. Audited every live suite for a MUTATING provider call - the earlier grep
+  for "write-ish" matched method NAMES in comments, which is why a naive count looked alarming
+  (live_linkedin_youtube_test showed 34). The real mutating calls are:
+    - live_reddit_test: 7, and it HAS a guard (`REDDIT_LIVE_WRITE`), honoured at the top of
+      `test_reddit_write_parity_roundtrip`. Its fixture is `sr=test` (Reddit's own sandbox), the
+      post is deleted afterwards, and the report is of its OWN fixture.
+    - live_x_test: 4 (like_tweet, unlike_tweet, retweet, unretweet) and it had NO guard.
+    - x_live_test: 6 (delete_tweet, like_tweet, unlike_tweet, retweet, unretweet, follow_user,
+      unfollow_user) and it had NO guard.
+    - live_threads_ias_test, live_youtube_test, live_github_google_test, live_telegram_test: 0
+      mutating calls. Their earlier "write-ish" matches were `post_analytics` and comment text.
+
+- THE CONSEQUENCE, stated plainly: `cargo test --test live_x_test` - a command I ran myself earlier
+  today, to validate the LIVE-X-FLAKE row - performed REAL likes and retweets on the founder's X
+  account. They are self-reversing (like then unlike, retweet then unretweet) against a public
+  fixture tweet, so the state is restored, but the reverse step is not ASSERTED: if unlike errors,
+  the like persists on a real account with a real audience. x_live_test additionally calls
+  `delete_tweet`, which is IRREVERSIBLE.
+
+- FIXED, following the Reddit suite's established shape so the rule is learnable from one place:
+  both X suites now require `X_LIVE_WRITE=1` for their mutating operations and print why they
+  skipped. The Reddit guard is `REDDIT_LIVE_WRITE`, so the two forms differ only by provider name.
+
+- VERIFIED BOTH DIRECTIONS, because a guard that is a blanket skip is not a guard. WITHOUT the
+  opt-in: live_x_test is 11 passed / 0 failed with 'X like/unlike: skipped (X_LIVE_WRITE != 1 -
+  this writes to the account)' and 'X retweet/unretweet: skipped', and x_live_test is 1 passed with
+  both write groups skipped. WITH the reads still running - user_lookup, search_tweets,
+  home_timeline, user_tweets, tweet_detail, bookmarks, list_timeline and get_me all still execute
+  and report. So the guard suppresses MUTATION and nothing else.
+
+Stage Summary:
+- Two live suites were mutating the founder's real account with no opt-in. Both are now guarded,
+  and the guard is proven not to suppress the reads.
+- This is a defect the register never had a row for, so it is recorded as LIVE-WRITES.
+- The X transport errors in the same run are the environment's (the 9.43 classifier handles them),
+  not a regression from this change.

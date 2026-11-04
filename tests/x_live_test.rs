@@ -20,6 +20,25 @@ fn log(label: &str, result: &Result<serde_json::Value, impl std::fmt::Display>) 
     }
 }
 
+/// Whether this run may MUTATE the operator's real account.
+///
+/// This suite calls like_tweet, unlike_tweet, retweet, unretweet,
+/// follow_user, unfollow_user and delete_tweet against the operator's
+/// own X account. Every one of those is a real action on a real account
+/// with a real audience, and `delete_tweet` in particular is
+/// IRREVERSIBLE - if the tweet id it targets is ever the operator's own
+/// post rather than a fixture, the post is gone.
+///
+/// The Reddit suite has had this guard (`REDDIT_LIVE_WRITE`) since it
+/// was written; this one did not, which meant a plain `cargo test`
+/// could silently like and follow on the founder's account. The opt-in
+/// is the same shape, so the rule is learnable from one place.
+fn live_write_enabled() -> bool {
+    std::env::var("X_LIVE_WRITE")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
+
 #[tokio::test]
 async fn test_x_tools_live() {
     let config = get_config();
@@ -95,18 +114,23 @@ async fn test_x_tools_live() {
         "following",
         &provider.following(&token, "44196397", 5, None).await,
     );
-    log(
-        "delete_tweet",
-        &provider.delete_tweet(&token, "999999999999999999").await,
-    );
-    log(
-        "like_tweet",
-        &provider.like_tweet(&token, &my_id, "20").await,
-    );
-    log(
-        "unlike_tweet",
-        &provider.unlike_tweet(&token, &my_id, "20").await,
-    );
+    // MUTATING: guarded by X_LIVE_WRITE (a real like on a real account).
+    if live_write_enabled() {
+        log(
+            "delete_tweet",
+            &provider.delete_tweet(&token, "999999999999999999").await,
+        );
+        log(
+            "like_tweet",
+            &provider.like_tweet(&token, &my_id, "20").await,
+        );
+        log(
+            "unlike_tweet",
+            &provider.unlike_tweet(&token, &my_id, "20").await,
+        );
+    } else {
+        eprintln!("  ⏭  write ops (delete/like/unlike): skipped (X_LIVE_WRITE != 1)");
+    }
     log(
         "bookmarks",
         &provider.bookmarks(&token, &my_id, 5, None).await,
@@ -117,16 +141,20 @@ async fn test_x_tools_live() {
             .list_timeline(&token, "1449448327965741056", 5, None)
             .await,
     );
-    log("retweet", &provider.retweet(&token, &my_id, "20").await);
-    log("unretweet", &provider.unretweet(&token, &my_id, "20").await);
-    log(
-        "follow_user",
-        &provider.follow_user(&token, &my_id, "44196397").await,
-    );
-    log(
-        "unfollow_user",
-        &provider.unfollow_user(&token, &my_id, "44196397").await,
-    );
+    if live_write_enabled() {
+        log("retweet", &provider.retweet(&token, &my_id, "20").await);
+        log("unretweet", &provider.unretweet(&token, &my_id, "20").await);
+        log(
+            "follow_user",
+            &provider.follow_user(&token, &my_id, "44196397").await,
+        );
+        log(
+            "unfollow_user",
+            &provider.unfollow_user(&token, &my_id, "44196397").await,
+        );
+    } else {
+        eprintln!("  ⏭  write ops (retweet/follow): skipped (X_LIVE_WRITE != 1)");
+    }
 
     eprintln!("\n=== ALL 18 X TOOLS TESTED ===");
 }

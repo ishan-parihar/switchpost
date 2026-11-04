@@ -42,6 +42,25 @@ fn get_token() -> Option<String> {
 /// with transport resets (the recurring false-red). The first test to run
 /// populates the cell; the rest reuse its result.
 static ME: tokio::sync::OnceCell<Option<serde_json::Value>> = tokio::sync::OnceCell::const_new();
+/// Whether this run may MUTATE the operator's real account.
+///
+/// `test_x_like_unlike` and `test_x_retweet_unretweet` act on the
+/// operator's own X account. They are self-reversing (like then unlike,
+/// retweet then unretweet) and target a public fixture tweet, so the
+/// state is restored - but the reverse step is not asserted, and if it
+/// errors the like or retweet PERSISTS on a real account. That makes
+/// them writes, not reads, and a write deserves an opt-in.
+///
+/// The Reddit suite has had this guard (`REDDIT_LIVE_WRITE`) since it
+/// was written; this one did not, so a plain `cargo test --test
+/// live_x_test` performed real writes on the founder's account.
+/// Same shape, so the rule is learnable from one place.
+fn live_write_enabled() -> bool {
+    std::env::var("X_LIVE_WRITE")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
+/// Whether this run may MUTATE the operator's real account.
 
 /// `None` means the provider did not answer and the reason was the
 /// environment's - see `common::skip_on_environment_failure`.
@@ -258,6 +277,10 @@ async fn test_x_like_unlike() {
     let Some(token) = get_token() else {
         return;
     };
+    if !live_write_enabled() {
+        println!("\n⏭  X like/unlike: skipped (X_LIVE_WRITE != 1 - this writes to the account)");
+        return;
+    }
 
     let Some(me) = me().await.cloned() else {
         return;
@@ -293,6 +316,10 @@ async fn test_x_retweet_unretweet() {
     let Some(token) = get_token() else {
         return;
     };
+    if !live_write_enabled() {
+        println!("\n⏭  X retweet/unretweet: skipped (X_LIVE_WRITE != 1 - this writes to the account)");
+        return;
+    }
 
     let Some(me) = me().await.cloned() else {
         return;
