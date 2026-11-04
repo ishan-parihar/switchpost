@@ -7179,3 +7179,32 @@ Stage Summary:
   test is the mechanism's remedy.
 - The two remaining textual matches for the stale numbers are inside the 9.62 pitfall entry that
   DESCRIBES the drift, which is correct by construction.
+
+---
+Task ID: validation-round-8
+Agent: Jcode
+Task: re-read the request, correct anything stale or overstated in the record, and continue the work
+
+Work Log:
+- CORRECTED AN OVERSTATEMENT IN MY OWN RECORD. The round-7 entry said provider_methods_test.rs 'has 58 test functions'. Measured: it has 5 `#[test]` functions; 62 is the raw `fn` count including helpers. The CONCLUSION held (the detailed providers' publish tests are failure-only; the engine-level success path is covered by a fake provider) and the four named publish tests are real at 171/210/398/540, and 'bad_token appears 26 times' is confirmed exactly - but the supporting number was wrong, and in the direction that made the file look like it had 58 tests when it has 5. A test count is a COUNT, and 62 raw functions is not 62 tests.
+
+- FOUND THE REGISTER'S OWN PREMISE DRIFTED. C2 read 'seam debt: splitter takes &dyn SocialProvider (limits live on providers); db::types::EpochUtc newtype wraps the two cutoff binds'. BOTH halves are now false. The splitter takes no provider object at all: `split_content(content: &str, provider: &str, limit: usize)` (src/services/content_splitter.rs:24), and the limit is fetched from `max_content_length()` at the CALL site (services/staging.rs:241, api/posts.rs:1681). And EpochUtc no longer wraps 'the two cutoff binds' - there are 32 `EpochUtc::from` call sites, because 9.34 was fixed repo-wide rather than at two sites. What remains as debt is narrower: the limit still LIVES on the provider, so a caller must hold a provider reference to learn it. C2 updated in place. This is 9.62 (a count/description in prose drifts while the code moves) applied to the register itself.
+
+- THE DEFERRED CREDENTIAL GATE HAD LAPSED FOR ONE ROW, and the reason is a distinction I had been getting wrong for rounds. The live tests read credentials from the .env FILE (`config::load_dotenv_for_live_tests()` -> `load_dotenv()` reads the CWD .env, then ~/.switchpost/.env). The SHELL environment has none of them set. So 'the credentials are absent' was measured against the wrong surface. Measured on the .env FILES: on the VPS none of the live-test vars are set (it carries only OAuth app credentials and the encryption key); LOCALLY the .env carries X_AUTH_TOKEN, X_CT0, REDDIT_ACCESS_TOKEN, REDDIT_REFRESH_TOKEN, REDDIT_COOKIE_TOKEN, REDDIT_LIVE_WRITE, TELEGRAM_API_ID and TELEGRAM_API_HASH, all non-empty. DISCORD_BOT_TOKEN is present but EMPTY.
+
+- V1a CLOSED ON EVIDENCE. live_reddit_test now runs NON-SKIPPED: 5 passed / 0 failed in 8.68s, including the write round-trip (crosspost created as t3_1xo383u then its fixtures deleted, a report accepted, friends add/remove round-tripped). Nothing surfaced that needed a fix. The one skip inside it is deliberate: 'block_user: no reversible live path (no unblock op in this port)'.
+
+- LIVE-X-FLAKE CLOSED, BY A THIRD OPTION THE ROW DID NOT NAME. The row asked 'retry transport errors in the live helper, or keep it strict and accept a rare red run? Not decided'. AGENTS.md 9.43 had already answered it with neither: an environment failure SKIPS. Measured: live_x_test is 11 passed / 0 failed, and test_x_get_me still hits the same transport error - but `skip_on_environment_failure` turns it into a skip. The gate is NOT a blanket skip: live_failure_classification_test.rs pins it in BOTH directions and passes 3/3 (the_environments_failures_skip, the_codes_failures_fail, the_helper_agrees_with_this_test).
+
+- V1b, V1c and V1d RE-MEASURED AND THEIR CONDITIONS MADE PRECISE, not closed. V1b's wording named ONE missing thing where there are THREE: the API id/hash ARE supplied, so the blockers are an unauthenticated USER session and an unset TELEGRAM_TEST_PEER. V1c needs a non-empty bot token (the key exists but the value is empty - a distinct condition), a test channel id and a test guild id. V1d needs the Cloud API triple plus a test recipient; its webhook-signature test already passes without credentials.
+
+- FOUND AND FIXED A REAL DEFECT IN A TEST GUARD. Five live suites were never in the register, and one of them - live_linkedin_youtube_test - skipped with 'dev user not in DB - visit the onboarding page first'. That message is WRONG in the common case: the operator's database HAS a user and HAS 3 integrations (github, reddit, x), so it sends the founder to complete onboarding they already completed. The real causes are two: the test hard-codes a fixture email (length 18) that is not the operator's account email (length 25), and that account has no linkedin/youtube integration locally (those channels live on the VPS). Fixed: the account is now selectable via LIVE_TEST_EMAIL, the fixture default is a named constant, and the skip message names the ACTUAL cause. Verified by running it both ways - with the default it says 'no account ... in this database - set LIVE_TEST_EMAIL to the account that carries the linkedin/youtube channels', and with LIVE_TEST_EMAIL pointed at the operator's real account the message advances to the true cause: 'no linkedin integration in DB', 'no youtube integration', 'no linkedin-page integrations'. 23 call sites updated.
+
+- NO REDEPLOY IS NEEDED, and that is measured rather than assumed: `git diff --stat b1d5dab..github/master -- src/ frontend/` is EMPTY. Everything since the deployed build is docs and tests.
+
+- CLIPPY: two errors exist (`render_carousel` has 10 arguments in src/cli/autopost.rs; a redundant closure in src/cli/oauth_browser.rs). NEITHER IS MINE - autopost.rs is one of the concurrent writer's modified files, oauth_browser.rs is unmodified, and both patterns are present in the committed HEAD blob. My changed file is clippy-clean.
+
+Stage Summary:
+- Two rows CLOSED on evidence (V1a, LIVE-X-FLAKE); three re-measured with precise conditions (V1b, V1c, V1d); one premise corrected (C2); one new row added for the unregistered live suites (LIVE-SUITES).
+- One overstatement in my own record corrected, and one real test-guard defect found and fixed.
+- Gates: cargo check 0 errors, cargo test --lib 565/565, live_reddit_test 5/5 non-skipped, live_x_test 11/11, live_linkedin_youtube_test 23 passed, surface_docs_audit 5/5, frontend pnpm build succeeds.

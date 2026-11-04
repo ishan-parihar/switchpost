@@ -53,17 +53,58 @@ fn decrypt_token(raw: &str) -> Option<String> {
     crypto::decrypt_string(raw, &key).ok()
 }
 
-/// Fetch all integrations for dev@switchpost.dev from the DB.
+/// The account this suite looks up when LIVE_TEST_EMAIL is not set.
+///
+/// It is a FIXTURE address, deliberately: a test that defaulted to the
+/// operator's real account would run against a real account by accident.
+const LIVE_TEST_EMAIL_DEFAULT: &str = "[REDACTED:email]";
+
+/// The account this run looks up: the operator's override, or the fixture.
+fn live_test_email() -> String {
+    std::env::var("LIVE_TEST_EMAIL").unwrap_or_else(|_| LIVE_TEST_EMAIL_DEFAULT.to_string())
+}
+
+/// Why the suite cannot run, in the founder's terms.
+///
+/// The old message was "dev user not in DB - visit the onboarding page
+/// first", and it was WRONG in the common case: the operator's database
+/// HAS a user and HAS integrations (github, reddit, x), so telling them to
+/// go complete onboarding they already completed sends them to do work that
+/// cannot help. The two real causes are (a) the account this test looks up
+/// is not the account in the database, and (b) that account has no
+/// linkedin/youtube integration. This returns the ACTUAL cause, so the
+/// message names it.
+fn skip_reason(user_missing: bool, email: &str) -> String {
+    if user_missing {
+        format!(
+            "no account {email} in this database - set LIVE_TEST_EMAIL to the \
+             account that carries the linkedin/youtube channels (the default \
+             is a fixture address no real installation uses)"
+        )
+    } else {
+        "the account is in the database but has no linkedin or youtube \
+         integration - connect one first"
+            .to_string()
+    }
+}
+
+/// Fetch all integrations for the live-test account from the DB.
+///
+/// The account is configurable: `LIVE_TEST_EMAIL` selects it, because the
+/// default fixture address belongs to nobody, and a suite that can only ever
+/// run on a fresh install cannot test an operator's real setup.
 async fn get_dev_user_integrations() -> Option<(Vec<db::models::Integration>, Uuid)> {
     let config = get_config();
     let pool = db::create_pool(&config.database_url)
         .await
         .expect("Failed to connect to DB");
 
-    // Look up dev user
-    let user = queries::get_user_by_email(&pool, "dev@switchpost.dev")
-        .await
-        .expect("DB error")?;
+    // Look up the live-test account.
+    let email = std::env::var("LIVE_TEST_EMAIL")
+        .unwrap_or_else(|_| LIVE_TEST_EMAIL_DEFAULT.to_string());
+    let Some(user) = queries::get_user_by_email(&pool, &email).await.expect("DB error") else {
+        return None;
+    };
 
     let integrations = queries::list_integrations(&pool, user.id)
         .await
@@ -79,10 +120,7 @@ async fn get_dev_user_integrations() -> Option<(Vec<db::models::Integration>, Uu
 #[tokio::test]
 async fn test_li_get_profile() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let li = integrations
@@ -110,10 +148,7 @@ async fn test_li_get_profile() {
 #[tokio::test]
 async fn test_li_get_user_id() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let li = integrations
@@ -141,10 +176,7 @@ async fn test_li_get_user_id() {
 #[tokio::test]
 async fn test_li_get_posts() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let li = integrations
@@ -182,10 +214,7 @@ async fn test_li_get_posts() {
 #[tokio::test]
 async fn test_li_get_post_detail() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let li = integrations
@@ -240,10 +269,7 @@ async fn test_li_get_post_detail() {
 #[tokio::test]
 async fn test_li_get_post_comments() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let li = integrations
@@ -299,10 +325,7 @@ async fn test_li_get_post_comments() {
 #[tokio::test]
 async fn test_li_create_comment() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let li = integrations
@@ -367,10 +390,7 @@ async fn test_li_create_comment() {
 #[tokio::test]
 async fn test_lip_get_page_posts() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let pages: Vec<_> = integrations
@@ -419,10 +439,7 @@ async fn test_lip_get_page_posts() {
 #[tokio::test]
 async fn test_lip_pages() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let page = integrations
@@ -457,10 +474,7 @@ async fn test_lip_pages() {
 #[tokio::test]
 async fn test_lip_fetch_page_info() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let pages: Vec<_> = integrations
@@ -505,10 +519,7 @@ async fn test_lip_fetch_page_info() {
 #[tokio::test]
 async fn test_lip_analytics() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let page = integrations
@@ -536,10 +547,7 @@ async fn test_lip_analytics() {
 #[tokio::test]
 async fn test_lip_post_analytics() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let page = integrations
@@ -595,10 +603,7 @@ async fn test_lip_post_analytics() {
 #[tokio::test]
 async fn test_lip_create_comment() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let page = integrations
@@ -675,10 +680,7 @@ async fn test_lip_create_comment() {
 #[tokio::test]
 async fn test_yt_search_videos() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -709,10 +711,7 @@ async fn test_yt_search_videos() {
 #[tokio::test]
 async fn test_yt_get_video() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -760,10 +759,7 @@ async fn test_yt_get_video() {
 #[tokio::test]
 async fn test_yt_get_playlists() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -800,10 +796,7 @@ async fn test_yt_get_playlists() {
 #[tokio::test]
 async fn test_yt_get_playlist_items() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -854,10 +847,7 @@ async fn test_yt_get_playlist_items() {
 #[tokio::test]
 async fn test_yt_get_comments() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -908,10 +898,7 @@ async fn test_yt_get_comments() {
 #[tokio::test]
 async fn test_yt_get_channel_stats() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -939,10 +926,7 @@ async fn test_yt_get_channel_stats() {
 #[tokio::test]
 async fn test_yt_get_analytics() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -980,10 +964,7 @@ async fn test_yt_get_analytics() {
 #[tokio::test]
 async fn test_yt_get_subscriptions() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -1021,10 +1002,7 @@ async fn test_yt_get_subscriptions() {
 #[tokio::test]
 async fn test_yt_find_creators() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -1058,10 +1036,7 @@ async fn test_yt_find_creators() {
 #[tokio::test]
 async fn test_yt_pages() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
@@ -1091,10 +1066,7 @@ async fn test_yt_pages() {
 #[tokio::test]
 async fn test_yt_fetch_page_info() {
     let Some((integrations, _uid)) = get_dev_user_integrations().await else {
-        log_skip(
-            "suite",
-            "dev user not in DB — visit the onboarding page first",
-        );
+        log_skip("suite", &skip_reason(true, &live_test_email()));
         return;
     };
     let yt = integrations
