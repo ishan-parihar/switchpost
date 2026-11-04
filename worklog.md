@@ -6970,3 +6970,90 @@ Stage Summary:
   2774 lines.
 - Known follow-up, unchanged: the fix is pushed and green but the deployed binary predates it, so
   production still mis-records the attempt number until `make deploy`.
+
+---
+Task ID: deploy-head-20261105
+Agent: Jcode
+Task: ship HEAD to the VPS via the vps-app-deploy skill - the question was "is the latest binary deployed?", and the measured answer was NO
+
+Work Log:
+- THE MEASUREMENT THAT ANSWERED THE QUESTION. The live binary was sha `88449a83...c323c0`,
+  byte-identical to the `f4c5200` build shipped on Nov 3, running as MainPID 1323611 since
+  08:20:48. HEAD was `b1d5dab`, 28 commits ahead. Of those 28, EXACTLY ONE touches src/ or
+  frontend/: `6607402`, the publish-attempt fix. No migration landed since, so there was no schema
+  risk in catching up. `b1d5dab` and `b8fa450` touch only `scripts/genome`.
+
+- BUILT FROM A CLEAN TREE, NOT THE SHARED WORKING TREE. The working tree carries 32 uncommitted
+  src/ files from a concurrent writer, so shipping it would have published their unverified work.
+  I exported HEAD with `git archive HEAD` into a scratch tree and built there. Verified: the clean
+  tree's `src/config.rs` sha equals `git show HEAD:src/config.rs`, and neither of the fix's two files
+  (src/scheduler/mod.rs, src/services/posts.rs) appears in the concurrent writer's modified set - so
+  no overlap existed to begin with.
+
+- CROSS-BUILT for the VPS ceiling with the Zig shim, and TWO OF MY OWN PATH ASSUMPTIONS WERE WRONG.
+  `cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.36` succeeded ("Finished release
+  profile in 7m 26s") but the artifact landed under `target/x86_64-unknown-linux-gnu/release/`, NOT
+  under a `.2.36` directory - cargo-zigbuild translates the target into the plain triple with a
+  zigcc wrapper. I first polled the wrong path and reported the binary "missing" when the build had
+  in fact succeeded. Second: piping cargo through `tail -25` buffered all output, so the stall
+  watchdog fired on a healthy build; the evidence it was healthy was 178 rlibs compiled in the prior
+  90s.
+
+- MY FIRST CONTENT PROBE WAS ALSO WRONG, AND IT WOULD HAVE SAID "THE FIX IS NOT IN THE BINARY".
+  `strings | grep final_attempt` returns 0 for BOTH the new and the old binary, and so does the test
+  assertion string "a single non-retryable call must record attempt 1". Two independent reasons:
+  `final_attempt` is a local VARIABLE name and never becomes a string in any binary; and the
+  assertion lives in a `#[cfg(test)]` module (src/services/posts.rs:629), so it is never compiled
+  into a release build. A probe that cannot distinguish the two builds cannot be used to prove
+  anything about either - the 9.18 shape, a check that drifts from the thing it checks.
+
+- THE PROBE THAT DOES WORK: the panic-location refs. A release binary embeds `src/<file>.rs:<line>`
+  for every panic/expect site, and the fix SHIFTED two of them. The live binary carries
+  `src/scheduler/mod.rs:2251` and `:2258`; the new binary carries `:2262` and `:2269`; the old refs
+  count 0 in the new binary. The shift is exactly +11, and the diff's arithmetic is +12 added / -1
+  removed content lines = +11 net, with the identical source code at both positions (verified by
+  reading both lines in `git show f4c5200:...` and `git show HEAD:...`). That is a proof the fix is
+  compiled in, from the binary itself.
+
+- PRE-FLIGHT ON THE VPS, with the old binary still serving. ldd resolves; glibc ceiling GLIBC_2.34,
+  under the host's 2.36; the artifact carries the shifted refs; `--version` answers "switchpost 0.7.0"
+  exit 0. The smoke test's FIRST attempt failed on the writer lock against the LIVE database because
+  the app inherits its data directory from the unit - my isolation was wrong, not the binary. Re-run
+  with `env -i` overriding HOME, SWITCHPOST_DIR and the database URL to scratch values, against a
+  scratch DB: it acquired its own writer lock, applied migrations, registered all 29 providers,
+  started the scheduler, and served /health and / at 200. A consistent DB snapshot was taken first
+  with `sqlite3 .backup` (not a plain cp of a live WAL database).
+
+- SWAPPED IN THE SKILL'S ORDER: dated backup `switchpost.bak-20261105-0352` (same directory, so
+  restore never depends on elsewhere), upload under a NEW name `switchpost.new`, sha256 verified
+  identical on both sides, then `mv` into place and `systemctl --user restart`. New MainPID 801588
+  (was 1323611). Rollback is one command:
+  `cp ~/.local/bin/switchpost.bak-20261105-0352 ~/.local/bin/switchpost && systemctl --user restart switchpost`.
+
+- VERIFIED FROM THE RUNNING PROCESS, NOT A GUESSED PATH. `readlink /proc/801588/exe` resolves to the
+  live path, whose sha is `dd4cefd1...` and which carries the new refs and zero of the old ones.
+  Public /health 200, / 200, title "Switchpost". Startup against the live DB is clean: writer lock
+  acquired, migrations applied, 29 providers registered, scheduler started.
+
+- PRE-EXISTING CONDITIONS, NOT DEPLOY REGRESSIONS. The Reddit "network policy" block appears 81
+  times BEFORE the restart and once after. The YouTube "Token expired" feed-refresher lines are
+  DEBUG level and appear 14400 times before the restart. There are NO error-level journal entries
+  since the restart other than the Reddit block. The 401s on /setup and /api/posts are the auth gate
+  working as designed.
+
+Stage Summary:
+- The answer to the question was NO, and it is now YES: production runs the binary built from HEAD,
+  with the publish-attempt fix live.
+- New live sha `dd4cefd15e0cecf331f6e2f159d38eb2763e8a9abb12ddc83edd4efa40a3390b`.
+- TODO.md's PUB-ATT row updated from "NOT LIVE YET" to the deployed state, with the rollback command.
+- Open follow-ups, unchanged and all credential-gated, not fixed by this deploy: the Reddit network
+  policy block, the expired YouTube credentials, and the 7 register rows that need credentials or a
+  founder decision.
+
+- ONE SELF-INFLICTED ERROR, recorded because `write` is not `cat >>`: I used the write tool to add
+  this section and it REPLACED the file, destroying 6971 lines of worklog history in one call. The
+  restoration was `git checkout -- worklog.md`, which returned the file byte-identical to HEAD at
+  6972 lines / 126 task sections, and the round-6 entry survived at line 6930. The lesson is the one
+  AGENTS.md §0.6 already states for docs ("append, do not overwrite"); the mechanism that makes it
+  true here is that `write` is a whole-file write, so appending to a 7000-line accumulated file
+  requires `cat >>` and nothing else.
