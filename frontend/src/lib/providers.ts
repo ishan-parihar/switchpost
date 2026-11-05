@@ -41,7 +41,7 @@ export interface ProviderMeta {
 // Source of truth for membership: src/social/tier.rs (backend), which
 // `/api/providers` reports as a `tier` field.
 export const PROVIDERS: Record<string, ProviderMeta> = {
-  x:                    { label: 'X',          color: '#9ca3af', icon: 'X',   charLimit: 280 },
+  x:                    { label: 'X',          color: '#9ca3af', icon: 'X',   charLimit: 4000 },
   reddit:               { label: 'Reddit',     color: '#fb923c', icon: 'R',   charLimit: 10000 },
   linkedin:             { label: 'LinkedIn',   color: '#3b82f6', icon: 'in',  charLimit: 3000 },
   'linkedin-page':      { label: 'LinkedIn',   color: '#3b82f6', icon: 'in',  charLimit: 3000 },
@@ -54,28 +54,28 @@ export const PROVIDERS: Record<string, ProviderMeta> = {
   pinterest:            { label: 'Pinterest',  color: '#f87171', icon: 'PIN', charLimit: 500 },
   tiktok:               { label: 'TikTok',     color: '#67e8f9', icon: 'TT',  charLimit: 2200 },
   youtube:              { label: 'YouTube',    color: '#ef4444', icon: 'YT',  charLimit: 5000 },
-  discord:              { label: 'Discord',    color: '#5865f2', icon: 'DC',  charLimit: 2000 },
+  discord:              { label: 'Discord',    color: '#5865f2', icon: 'DC',  charLimit: 1980 },
   slack:                { label: 'Slack',      color: '#e01e5a', icon: 'SL',  charLimit: 40000 },
   'telegram-bot':       { label: 'Telegram',   color: '#229ed9', icon: 'TG',  charLimit: 4096 },
   'telegram-user':      { label: 'Telegram',   color: '#229ed9', icon: 'TG',  charLimit: 4096 },
-  whatsapp:             { label: 'WhatsApp',   color: '#25d366', icon: 'WA',  charLimit: 65536 },
-  github:               { label: 'GitHub',     color: '#d1d5db', icon: 'GH',  charLimit: 65536 },
-  devto:                { label: 'Dev.to',     color: '#9ca3af', icon: 'DT',  charLimit: 65536 },
-  medium:               { label: 'Medium',     color: '#22c55e', icon: 'MD',  charLimit: 65536 },
+  whatsapp:             { label: 'WhatsApp',   color: '#25d366', icon: 'WA',  charLimit: 4096 },
+  github:               { label: 'GitHub',     color: '#d1d5db', icon: 'GH',  charLimit: 0 },
+  devto:                { label: 'Dev.to',     color: '#9ca3af', icon: 'DT',  charLimit: 800000 },
+  medium:               { label: 'Medium',     color: '#22c55e', icon: 'MD',  charLimit: 15000 },
   wordpress:            { label: 'WordPress',  color: '#60a5fa', icon: 'WP',  charLimit: 65536 },
-  hashnode:             { label: 'Hashnode',   color: '#60a5fa', icon: 'HN',  charLimit: 65536 },
-  skool:                { label: 'Skool',      color: '#facc15', icon: 'SK',  charLimit: 65536 },
-  gmail:                { label: 'Gmail',      color: '#ea4335', icon: 'GM',  charLimit: 65536 },
-  calendar:             { label: 'Calendar',   color: '#4285f4', icon: 'CA',  charLimit: 65536 },
-  drive:                { label: 'Drive',      color: '#1fa463', icon: 'DR',  charLimit: 65536 },
-  'google-my-business': { label: 'Google Biz', color: '#4285f4', icon: 'GB',  charLimit: 1500 },
+  hashnode:             { label: 'Hashnode',   color: '#60a5fa', icon: 'HN',  charLimit: 100000 },
+  skool:                { label: 'Skool',      color: '#facc15', icon: 'SK',  charLimit: 10000 },
+  gmail:                { label: 'Gmail',      color: '#ea4335', icon: 'GM',  charLimit: 0 },
+  calendar:             { label: 'Calendar',   color: '#4285f4', icon: 'CA',  charLimit: 0 },
+  drive:                { label: 'Drive',      color: '#1fa463', icon: 'DR',  charLimit: 0 },
+  'google-my-business': { label: 'Google Biz', color: '#4285f4', icon: 'GB',  charLimit: 3000 },
   // The `google` provider is the Suite consent itself. Its glyph has to be
   // DISTINCT from the four services it connects (GM/CA/DR/YT): deriving a
   // glyph from the display name "Google Suite" gives "GO", and Google
   // Calendar and Google Drive give the same two letters - which is
   // precisely the collision in ChannelRail when one login produced a
   // connected account per service.
-  google:               { label: 'Google Suite', color: '#4285f4', icon: 'GS',  charLimit: 65536 },
+  google:               { label: 'Google Suite', color: '#4285f4', icon: 'GS',  charLimit: 5000 },
 };
 
 const FALLBACK_COLOR = '#818cf8'; // indigo-400

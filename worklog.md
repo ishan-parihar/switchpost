@@ -7319,3 +7319,77 @@ Stage Summary:
 - Three more suites had the same misleading-skip defect; all four are now honest and configurable.
 - New gate: tests/live_account_selection_test.rs, 3/3, mutation-tested in four directions.
 - Remaining open register rows: C2 and C3 only.
+
+---
+Task ID: char-limit-drift
+Agent: Jcode
+Task: assess C2's remaining seam debt, and pin the character limit to its owner
+
+Work Log:
+- C2's OWN RE-MEASUREMENT WAS CORRECT, so I re-measured the debt rather than the row. The
+  remaining debt was: "the limit still LIVES on the provider, so a caller that wants to split
+  must first hold a provider reference to learn the limit." That ownership is CORRECT — the
+  provider owns its limit and the server publishes it. But following the seam out found a
+  SECOND COPY of the limit, and that copy had drifted.
+
+- THE DRIFT, MEASURED (29 providers, 13 entries wrong). frontend/src/lib/providers.ts keeps a
+  static `charLimit` per provider as the fallback for the moment before `/api/providers`
+  answers. Against `Provider::max_content_length()`:
+      x                280    vs 4000      <- the original 9.20 defect, back in place
+      discord         2000    vs 1980
+      google         65536    vs 5000
+      medium         65536    vs 15000
+      hashnode       65536    vs 100000
+      devto          65536    vs 800000
+      skool          65536    vs 10000
+      whatsapp       65536    vs 4096
+      google-my-biz   1500    vs 3000
+      gmail / calendar / drive / github  65536 vs 0   (no publish surface at all)
+  The `65536` entries were the shape of the defect: 65536 is the frontend's "no limit"
+  default, so those providers were claiming an unlimited post surface the server refuses.
+
+- WHY THE FALLBACK IS REACHABLE, WHICH IS THE PART THAT MAKES IT A DEFECT. The API client
+  RETURNS `{ error }` on a failed request rather than throwing, so the composer's `catch`
+  never fires on an HTTP error — `provRes.data` is undefined and the static table simply
+  stays in place, SILENTLY. Any 500, any network failure, any offline open of the app leaves
+  the composer enforcing numbers the server does not. And X's case is the sharpest: the
+  composer claimed 280 while the server accepted 4000, so a 280..4000 character post was
+  blocked and the Post button disabled — the exact defect 9.20 records having fixed once.
+  It came back because the FALLBACK TABLE was never pinned to the authority; fixing the
+  runtime path alone was not enough.
+
+- FIXED: all 13 entries now match the Rust provider exactly.
+
+- GATE ADDED: tests/char_limit_parity_test.rs (2/2), which reads BOTH tables and compares
+  them. The direction is fixed: `Provider::max_content_length()` is the OWNER, so the Rust
+  value wins and the test fails on disagreement.
+
+- MUTATION-TESTED IN FIVE DIRECTIONS: x 4000->280, github 0->65536, devto 800000->65536,
+  discord 1980->2000, and a RUST-SIDE change (x 4000->280 in src/social/x.rs). Each fails
+  the gate with its own message; each was restored byte-identical (diff -q against the
+  pre-mutation backup).
+
+- THE GATE HAD TWO REAL HOLES, AND BOTH WERE FOUND BY MUTATION RATHER THAN BY READING IT.
+  (1) `0 // GitHub does not support publishing content like social posts` does not parse as
+  an integer, so github, devto and wordpress were dropped from the Rust map and NEVER
+  COMPARED — a mutation on github stayed GREEN and the gate reported success. The
+  extraction now takes the leading run of digits, which also keeps `usize::MAX` (no digits)
+  honestly unparseable. (2) My first mutation of github PASSED because the string I
+  replaced did not match the file — the line has two spaces after `'GH',` and I wrote one.
+  The mutation was never applied, so the gate was never challenged; I only caught it by
+  grepping the file afterwards rather than trusting the green. A mutation that did not
+  land is not a mutation, and a gate that was never challenged has not been tested.
+  Separately, the gate's own vacuity check caught a third bug in my first parser: it read
+  the `ProviderMeta` interface's `charLimit: number;` as a table row and found zero
+  entries. And Rust's `rsplit` yields from the RIGHT, so the value after the marker is
+  `.nth(0)`, not `.nth(1)` — three parser bugs before the gate measured anything, each
+  caught by the vacuity check rather than by a green run.
+
+Stage Summary:
+- C2 is closed on evidence: the seam is in the right shape, and the second copy of the
+  limit that the seam left behind is gone.
+- A real, reachable defect is fixed: the composer could enforce the wrong character
+  limits, silently, whenever the provider fetch failed.
+- New gate: tests/char_limit_parity_test.rs, 2/2, mutation-tested in five directions
+  including from the Rust side.
+- Remaining open register rows: C3 only (a token-cost decision, owner: the user).
