@@ -41,6 +41,14 @@ records_index = "docs/decisions/README.md"   # the AD store's own README: what a
 # TARGETING) — only the succession files are dated-frozen, so lint checks
 # dates on the pattern, not on every file in the dir.
 dated_pattern = "OUTLINE-|AUDIT_|GAPS_"
+# `.rs` in the AGENTS.md source-tree diagram is the Rust file EXTENSION, not a
+# path: the diagram writes "The 43 `.rs` files under `src/social/`". The pointer
+# check reads a backticked token as a file when it is file-shaped, and `.rs` is
+# file-shaped by extension alone — so the sentence about an extension was read as
+# a claim about a file called `.rs`, and the pointer it really names
+# (`src/social/`) was never the problem. Naming the extension once here is the
+# repo saying "this is prose", which is what pointer_ignore is for.
+pointer_ignore = ".rs"
 # The gate is the library test suite only. The full `cargo test` also builds
 # the `tests/live_*` binaries, which call the real provider APIs and are not
 # `#[ignore]`d — a full-suite gate would hit the network on every close.
