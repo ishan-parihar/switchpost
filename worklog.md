@@ -7393,3 +7393,40 @@ Stage Summary:
 - New gate: tests/char_limit_parity_test.rs, 2/2, mutation-tested in five directions
   including from the Rust side.
 - Remaining open register rows: C3 only (a token-cost decision, owner: the user).
+
+---
+Task ID: c3-remeasure
+Agent: Jcode
+Task: re-measure the last open register row, C3, against the current tree
+
+Work Log:
+- THE ROW WAS WRONG IN THREE PLACES, and each correction was measured rather than assumed.
+  (1) "40 of 43 evals" — `evals.json` now holds **50** evals. The 2026-10-19 paired run covered ids
+  41/42/43, so **47** are unpaired, not 40 of 43.
+  (2) The trailing defer note said 'DEFERRED by user 2026-10-18: ... resume when credentials are
+  supplied'. That note belongs to V1a/the Reddit credentials, and those credentials HAVE SINCE BEEN
+  SUPPLIED — V1a's row already closed with the defer recorded as lapsed. On C3 it is a misplaced note
+  that MISDESCRIBES the blocker, because the paired run needs no credentials at all: its recorded
+  method is 'Each eval answered by two planning-only subagents ... No commands were executed.' What it
+  needs is a subagent runtime and token budget for 47 evals x 2 arms = 94 runs.
+  (3) The configuration half was a 2026-10-18 snapshot against a 43-eval file and a different binary.
+  I RE-RAN it against THIS tree: 37 distinct CLI command prefixes all resolve as
+  `switchpost <prefix> --help` against the current debug binary (0 unparseable); all 6 `mcp-call` tool
+  names the evals use resolve in the current **389**-tool registry (0 unresolved); every `files`
+  reference in all 50 evals exists (0 missing); 15 assertions total. So the evals are NOT stale
+  against the product, which is the whole point of the configuration check.
+
+- The new check is recorded in `c3-paired-run.json` under `config_check`, with the 2026-10-18 one
+  kept under `config_check_history` rather than deleted — the superseded numbers are evidence, and
+  the delta (43 evals -> 50, 90 commands -> 37 distinct prefixes, 7 mcp names -> 6) is the
+  interesting part.
+
+- C3 STAYS OPEN. The paired run is a token-cost decision the user declined on 2026-10-18 in favour
+  of the configuration check, and the configuration check is now green and re-runnable on every
+  release. Re-opening it means the user changes that decision; nothing about it is blocked on code.
+
+Stage Summary:
+- C3's numbers are corrected (47 of 50, not 40 of 43) and its misplaced defer note is removed.
+- The verifiable half of C3 is re-measured against the current tree and is GREEN.
+- C3 remains open with an accurate blocker: a token-cost decision owned by the user.
+- This is now the ONLY open row in the register.

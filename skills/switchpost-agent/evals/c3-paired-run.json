@@ -50,11 +50,28 @@
     "NOT RUN, by decision (2026-10-18): the paired run for the remaining 40 evals was declined. Only the configuration check below was done; no subagent runs were made."
   ],
   "config_check": {
-    "date": "2026-10-18",
-    "method": "Each switchpost command in evals.json expected_commands was checked against the debug binary built at HEAD 4dfa224 (leading subcommand words run with --help). Each mcp-call tool name was checked against `switchpost mcp-tools` (389 names). No eval content was changed.",
-    "expected_commands_checked": 90,
+    "date": "2026-11-05",
+    "method": "Each distinct CLI command prefix in evals.json expected_commands was checked against the debug binary built at HEAD 5f01bab (leading subcommand words run with --help). Each mcp-call tool name was checked against `switchpost mcp-tools` (389 names). Every `files` reference in all 50 evals was checked for existence. No eval content was changed.",
+    "evals_total": 50,
+    "evals_paired": 3,
+    "evals_unpaired": 47,
+    "cli_command_prefixes_checked": 37,
     "unparseable": 0,
-    "mcp_calls_checked": 7,
-    "unresolved_mcp_tools": 0
-  }
+    "mcp_calls_checked": 6,
+    "unresolved_mcp_tools": 0,
+    "mcp_tools_in_registry": 389,
+    "missing_file_references": 0,
+    "assertions_total": 15,
+    "note": "The 2026-10-18 check recorded 90 expected commands and 7 mcp-call names against a 43-eval file. The eval file now holds 50 evals, so the numbers changed; the STALENESS verdict did not - every command, tool name and file reference still resolves against the current product. The paired run itself remains unrun for 47 evals: it is a token-cost decision the user declined on 2026-10-18, and it needs NO API credentials (the method is planning-only, with no commands executed)."
+  },
+  "config_check_history": [
+    {
+      "date": "2026-10-18",
+      "expected_commands_checked": 90,
+      "unparseable": 0,
+      "mcp_calls_checked": 7,
+      "unresolved_mcp_tools": 0,
+      "note": "superseded by the 2026-11-05 re-measurement; the eval file grew from 43 to 50"
+    }
+  ]
 }
