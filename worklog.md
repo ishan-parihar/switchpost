@@ -7490,3 +7490,67 @@ Work Log:
 Stage Summary:
 - The character-limit fix is live on the VPS, verified over TLS on the served assets.
 - The build recipe's gap is recorded: the zig shim needs BOTH the version and the command set.
+
+---
+Task ID: re-read-the-request
+Agent: Jcode
+Task: re-read the request, correct anything stale or overstated, and continue
+
+Work Log:
+- MY OWN SUMMARY WAS OVERSTATED, and I found it by re-measuring rather than by re-reading it. I
+  had reported "THREE new gates, each mutation-tested". `git diff --name-status
+  113470e..github/master | grep ^A` shows TWO new gate files: tests/live_account_selection_test.rs
+  and tests/char_limit_parity_test.rs. counting_rule_test and surface_docs_audit are pre-existing
+  and were run as regression gates. The overstatement stayed in the chat summary and NEVER reached
+  the committed record (grep for the phrase in the remote TODO.md and worklog.md returns 0), so the
+  repo was clean and only my report was wrong. Correcting it in the goal assessment, not defending it.
+
+- RE-MEASURING THE RECORD FOR MORE OF THE SAME FOUND A REAL, SMALL DEFECT. providers.ts:13's doc
+  comment still showed `providerMeta('x') // → { ..., charLimit: 280, ... }` - the value I had just
+  changed to 4000 in the same file. The comment contradicted the code 12 lines below it. Fixed. Also
+  fixed PerPlatformCharCount.svelte:7 ("X 280, Facebook 63206") and platforms.ts:166 ("a 280 gate
+  that the API will then reject"), which both asserted the stale number as a CURRENT fact. Three
+  other 280 mentions were checked and DELIBERATELY LEFT ALONE: providers.ts:116 and AGENTS.md 9.20
+  describe the defect that used to exist (correct as history), PerPlatformCharCount:svelte:5's
+  "248/280" is a generic badge example, and src/api/ai.rs's "Maximum 280 characters" is a
+  short-post PRODUCT choice in an LLM prompt, not a platform limit - changing it would have changed
+  behaviour.
+
+- FOLLOWING THE SAME DRIFT SHAPE OUTWARD FOUND THREE MORE COPIES. The server publishes THREE
+  server-owned rules through /api/providers: `char_limit`, `dm_supported` and `tier`. I had gated
+  only the first. Measured the other two:
+  - `dm_supported` - the frontend READS it from the response (/dms/+page.svelte:77). No second copy.
+    Correct.
+  - `tier` - the frontend keeps TWO copies of the TIER_1 membership: the `SPECS` table's keys
+    (which `isTier1` reads) and a literal `TIER1` array that even claims to be "in the v25 §1 order".
+    Both matched the server today. NOTHING compared them - the same drift shape as char_limit, with
+    nothing watching.
+  So the gate now has two more checks: the frontend's SPECS membership against the server's TIER_1,
+    and the frontend's TIER1 array against the server's TIER_1 including ORDER (order decides which
+    preview a platform gets, which is what the comment says the array is for).
+
+- BOTH NEW CHECKS MUTATION-TESTED, AND THE SECOND MUTATION DID NOT LAND TWICE. The first attempt to
+  remove the bluesky SPECS entry failed to match my `old` string, so the gate stayed green and the
+  mutation was never applied - I only caught it by grepping the file afterwards, which is the same
+  trap as the earlier build. Then the TIER1 reorder mutation failed twice, because I had read the
+  indentation from `cat -A` output and concluded 4 spaces when the file has 2. `cat -A` shows the
+  line content, and I misread the leading whitespace. Writing the mutation to a file and printing the
+  BLOCK'S repr gave the truth: "  'reddit',\n  'bluesky',\n" with two spaces. The mutation then
+  landed and the gate failed with a precise diff of both arrays. THE LESSON is the one this repo
+  already records (9.51, 9.58): verify the mutation LANDED, not just that the gate was green. A gate
+  that was never challenged has not been tested.
+
+- DEAD CODE FOUND BUT NOT REMOVED. `isTier1` (platforms.ts:226) and `TIER1` (platforms.ts:80) are
+  both unused exports, tree-shaken out of the bundle, with nothing importing them. They are a fourth
+  and fifth copy of a server rule with no consumer. I did NOT delete them: `HIDDEN_PROVIDERS` nearby
+  carries a comment saying "B1 owns the backend-side tier work", which is a planning reference I have
+  not read, and deleting an exported symbol that a plan item intends to use is a decision for the
+  owner. They are now PINNED by the gate instead, so they cannot silently drift while they wait.
+
+Stage Summary:
+- Corrected my own overstatement (two new gates, not three) and confirmed it never reached the repo.
+- Fixed three stale comments that asserted the old X limit as current.
+- Extended the parity gate from 1 to 4 checks: char_limit, the zero-limit rule, SPECS membership,
+  and TIER1 membership+order. The `dm_supported` rule was measured and found to have no copy.
+- Mutation-tested the two new checks (7 directions total), and both mutations failed to land on the
+  first attempt - recorded, because that is the trap that makes a green gate look tested.

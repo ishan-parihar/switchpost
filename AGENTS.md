@@ -1522,6 +1522,48 @@ line, the registry list, `wc -l`, the file list) and record WHERE to re-measure
 it, which is what the header's own "each line names where to re-measure it"
 already asks for and what most of these lines had stopped doing.
 
+### 9.63 A FALLBACK copy of a server-owned rule is still a copy, and it drifts
+
+§9.20 fixed the composer by having it read `char_limit` from
+`/api/providers`. The FRONTEND kept a static `charLimit` table as the
+fallback for the moment before that fetch answers, and nobody pinned it.
+It drifted in 13 places - X said 280 while the server enforced 4000, and
+four providers with no publish surface (Gmail, Calendar, Drive, GitHub)
+claimed 65536.
+
+The exposure was real, because the API client RETURNS `{ error }` on a
+failed request instead of THROWING. So the composer's `catch` never fired
+on an HTTP error, `provRes.data` was undefined, and the stale table stayed
+in place SILENTLY. Any 500, any network failure, any offline open of the
+app left the composer enforcing numbers the server did not.
+
+So the fix in §9.20 was necessary and not sufficient: reading the server's
+value on the happy path does not stop the fallback from being wrong on the
+sad one. A fallback copy of a server-owned rule needs the SAME pin as the
+primary path - `tests/char_limit_parity_test.rs` compares both tables and
+fails on disagreement, with the Rust value as the owner.
+
+Two things that gate had to get right, and both were wrong first:
+
+- **A string-presence check is satisfied by prose.** The first version
+  asserted that `LIVE_TEST_EMAIL` APPEARS in a suite; a COMMENT mentions
+  it, so replacing the function body with a hard-coded address left the
+  gate green. The property is that the env var is READ.
+- **A COUNT is satisfied while a suite is renamed out of reach.** The
+  first version required "at least 5 live suites"; nine others were still
+  there when one was renamed away, so the gate stayed green over a suite
+  nobody checked. Pin the list BY NAME.
+
+And a third, in the same shape as §9.33: `0 // GitHub does not support
+publishing` does not parse as an integer, so three providers were dropped
+from the Rust map and NEVER COMPARED - a mutation on one of them stayed
+green. Take the leading run of DIGITS.
+
+**The general rule: every place a server-owned rule is copied to the
+client needs a gate that compares the two, not a code path that reads the
+server's value.** The copy is what drifts, and it drifts on the paths
+nobody exercises.
+
 ---
 
 ## 10. Environment Variables

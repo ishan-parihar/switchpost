@@ -4,7 +4,7 @@
   // F2 replaced the flat text badges with a ring per platform. A badge that
   // says "248/280" is a number the user has to mentally compare; a ring is the
   // comparison already drawn. It also removes the "am I nearly done?" question
-  // for the platforms with a very different budget (X 280, Facebook 63206) -
+  // for the platforms with a very different budget (X 4000, Facebook 63206) -
   // the ring is 98% full for X and 0.4% full for Facebook at the same moment,
   // and that difference is the entire point of a multi-platform composer.
   //

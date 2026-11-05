@@ -10,7 +10,7 @@ import { theme } from '$lib/stores/theme.svelte';
 //
 // Usage:
 //   import { providerMeta, providerLabel, providerIcon, providerColor } from '$lib/providers';
-//   providerMeta('x')           // → { label: 'X', color: '#9ca3af', icon: 'X', charLimit: 280, ... }
+//   providerMeta('x')           // → { label: 'X', color: '#9ca3af', icon: 'X', charLimit: 4000, ... }
 //   providerLabel('instagram')  // → 'Instagram'
 //   providerColor('reddit')     // → '#fb923c'
 //   providerIcon('x')           // → 'X'

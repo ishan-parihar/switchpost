@@ -163,8 +163,10 @@ const SPECS: Record<string, PlatformSpec> = {
  * X's weighted character count (twitter-text v3 rules, as the v2 API applies
  * them): characters in emoji and CJK presentation ranges cost 2, everything
  * else costs 1. `String.length` charges 1 per UTF-16 code unit, which
- * undercounts an emoji-heavy post and lets it pass a 280 gate that the API
- * will then reject.
+ * undercounts an emoji-heavy post and lets it pass the provider's weighted
+ * gate that the API will then reject. (That gate is whatever
+ * `charLimitFor(provider)` says - 4000 for X as of the provider
+ * implementation, not the 280 that X's own free-tier UI suggests.)
  *
  * Ranges are the same ones the X weighted-length helper used before F2 moved
  * it here; the behaviour is unchanged, only the owner is.

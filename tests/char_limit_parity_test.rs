@@ -212,3 +212,141 @@ fn a_limit_of_zero_means_no_publish_surface_and_the_table_says_so() {
         wrong.join("\n  ")
     );
 }
+
+/// The server's Tier-1 set, from `src/social/tier.rs`.
+fn rust_tier_1() -> Vec<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/social/tier.rs");
+    let src = std::fs::read_to_string(&path).expect("tier.rs is readable");
+    let start = src
+        .find("pub const TIER_1")
+        .expect("tier.rs declares TIER_1");
+    let body = &src[start..];
+    let end = body.find("];").expect("TIER_1 is a closed slice");
+    body[..end]
+        .lines()
+        .map(|l| l.trim().trim_end_matches(',').trim_matches('"'))
+        .filter(|l| !l.is_empty() && !l.starts_with("pub const"))
+        .map(|l| l.to_string())
+        .collect()
+}
+
+/// The frontend's Tier-1 set, from the `SPECS` table in
+/// `frontend/src/lib/composer/platforms.ts`.
+///
+/// `SPECS` is a second copy of the server's `TIER_1` membership: the
+/// frontend's `isTier1` is "is this provider in SPECS". The two matched
+/// when this gate was written, and nothing compared them.
+fn frontend_specs() -> Vec<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("frontend/src/lib/composer/platforms.ts");
+    let src = std::fs::read_to_string(&path).expect("platforms.ts is readable");
+    let mut out = Vec::new();
+    for line in src.lines() {
+        let t = line.trim();
+        if t.starts_with("//") || t.starts_with("*") || t.starts_with("/*") {
+            continue;
+        }
+        // A SPECS entry reads `provider: 'x', label: ..., counting: '...'`,
+        // so the KEY is the first quoted token after the marker - not the
+        // rest of the line. My first parser took the rest of the line and
+        // compared `x', label: providerMeta('x').label, counting: 'weighted`
+        // as a provider name, which is why the gate reported a divergence
+        // where there was none.
+        if let Some(rest) = t.strip_prefix("provider: ") {
+            let key: String = rest
+                .trim_start()
+                .chars()
+                .skip_while(|c| *c != '\'' && *c != '"')
+                .skip(1)
+                .take_while(|c| *c != '\'' && *c != '"')
+                .collect();
+            if !key.is_empty() {
+                out.push(key);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn the_frontend_tier_1_set_matches_the_server() {
+    let rust = rust_tier_1();
+    assert!(
+        !rust.is_empty(),
+        "no Tier-1 providers were parsed from src/social/tier.rs, so this test would \
+         pass VACUOUSLY (AGENTS.md 9.38/9.45)."
+    );
+
+    let front = frontend_specs();
+    assert!(
+        !front.is_empty(),
+        "no SPECS entries were parsed from frontend/src/lib/composer/platforms.ts, so \
+         this test would pass VACUOUSLY. Check the parsing."
+    );
+
+    let mut rust_sorted = rust.clone();
+    rust_sorted.sort();
+
+    let only_rust: Vec<&String> = rust_sorted.iter().filter(|r| !front.contains(r)).collect();
+    let only_front: Vec<&String> = front.iter().filter(|f| !rust_sorted.contains(f)).collect();
+
+    assert!(
+        only_rust.is_empty() && only_front.is_empty(),
+        "the frontend's SPECS table and the server's TIER_1 have diverged. The frontend's \
+         isTier1 is 'is this provider in SPECS', so a provider in one and not the other is \
+         tier-1 on one side of the wire and not on the other.\n  only in the server's \
+         TIER_1: {:?}\n  only in the frontend's SPECS: {:?}",
+        only_rust,
+        only_front
+    );
+}
+
+/// The frontend's `TIER1` array, from `frontend/src/lib/composer/platforms.ts`.
+///
+/// This is a THIRD copy of the tier-1 membership (the other two are the
+/// `SPECS` table's keys and the server's `TIER_1`), and it even claims to
+/// be "in the v25 §1 order". It is an unused export today - tree-shaken
+/// out of the bundle - but an unused copy that names the order is one
+/// import away from being a live one, and a stale ORDER would change
+/// which preview a platform gets.
+fn frontend_tier1() -> Vec<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("frontend/src/lib/composer/platforms.ts");
+    let src = std::fs::read_to_string(&path).expect("platforms.ts is readable");
+    let start = src
+        .find("export const TIER1")
+        .expect("platforms.ts declares TIER1");
+    let body = &src[start..];
+    let end = body.find("];").expect("TIER1 is a closed array");
+    body[..end]
+        .lines()
+        .map(|l| l.trim().trim_end_matches(',').trim_matches('\''))
+        .filter(|l| !l.is_empty() && !l.starts_with("export const"))
+        .map(|l| l.to_string())
+        .collect()
+}
+
+#[test]
+fn the_frontend_tier1_array_matches_the_server_in_set_and_order() {
+    let rust = rust_tier_1();
+    assert!(
+        !rust.is_empty(),
+        "no Tier-1 providers were parsed from src/social/tier.rs, so this test would \
+         pass VACUOUSLY."
+    );
+
+    let front = frontend_tier1();
+    assert!(
+        !front.is_empty(),
+        "no TIER1 entries were parsed from frontend/src/lib/composer/platforms.ts, so \
+         this test would pass VACUOUSLY. Check the parsing."
+    );
+
+    assert_eq!(
+        front, rust,
+        "the frontend's TIER1 array and the server's TIER_1 differ. TIER1 claims to be \
+         'in the v25 §1 order', so a difference here is a difference in ORDER as well as \
+         membership, and order decides which preview a platform gets."
+    );
+}
