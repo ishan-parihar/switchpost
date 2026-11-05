@@ -7430,3 +7430,63 @@ Stage Summary:
 - The verifiable half of C3 is re-measured against the current tree and is GREEN.
 - C3 remains open with an accurate blocker: a token-cost decision owned by the user.
 - This is now the ONLY open row in the register.
+
+---
+Task ID: v12-deploy
+Agent: Jcode
+Task: deploy the frontend character-limit fix to the VPS
+
+Work Log:
+- WHY A REDEPLOY. `git diff --stat b1d5dab..github/master -- src/ frontend/` is NOT empty for the
+  first time since the round-6 deploy: `frontend/src/lib/providers.ts` changed (13 insertions, 13
+  deletions). The release binary EMBEDS `frontend/build` via rust-embed, so the running binary
+  served the OLD fallback table - and the fallback table is exactly the path that matters, because
+  the API client RETURNS an error instead of throwing, so a failed `/api/providers` fetch leaves the
+  stale table in place. Shipping the fix without a deploy would have shipped the source but not the
+  behaviour.
+
+- BUILT FROM A CLEAN TREE. `git archive HEAD` -> 909 files, because the shared working tree carries
+  another writer's uncommitted files. Verified the clean tree carried the fix before building.
+
+- THE FRONTEND WAS BUILT IN THE CLEAN TREE, not copied from the shared one. The minifier writes
+  4000 as `4e3`, so the first grep for `charLimit:4000` found NOTHING and I nearly read that as a
+  build failure. The probe that works is `icon:"X",charLimit:4e3`. Verified the built bundle carries
+  `4e3` and NOT `280`, and that `icon:"GH",charLimit:0` (no publish surface) is present.
+
+- THE BUILD FAILED FIRST, WITH A CONFUSING CAUSE. `error: unsupported linker arg:
+  --no-keep-memory`. The recorded fix (round 6) is a zig shim that strips that flag, plus "cargo-
+  zigbuild resolves zig through PATH when its wrapper cache is cleared". Clearing the cache alone did
+  NOT work: the wrapper REGENERATED and still baked in `CARGO_ZIGBUILD_ZIG_COMMAND=/home/ishanp/
+  .local/bin/zig` (the pip shim reporting 0.16.0), bypassing my PATH shim. Setting
+  `CARGO_ZIGBUILD_ZIG_VERSION=0.14.1` changed the version but NOT the command. What worked was
+  setting `CARGO_ZIGBUILD_ZIG_COMMAND` EXPLICITLY to the shim path, so the regenerated wrapper
+  points at it. The round-6 record says "cargo-zigbuild resolves zig through PATH when its wrapper
+  cache is cleared" - that was true then and is NOT true now; the wrapper bakes an absolute path.
+  The record needed updating and I have put the exact working invocation in the register.
+
+- THE BINARY: built in 7m23s, 0 errors. sha256 `197acf22e4eba9c45e04d9c7c1505b4ddf78b31794deccc6
+  b4bbe7ec2f2d8c55`. glibc ceiling GLIBC_2.34 (the VPS runs 2.36; the local build would have needed
+  2.39, which is why the `.2.36` cross-target matters).
+
+- SMOKE TESTED AGAINST AN ISOLATED SCRATCH DB, never the live one. First attempt returned HTTP 000
+  because I set `PORT=19999` and the binary does not read that env var - it bound to 6543 and I
+  probed the wrong port. The log showed a HEALTHY start (migrations applied, 29 providers, every
+  background task started). Re-ran with `--port 6543`: /health 200, /ready 200, / 200, 29 providers,
+  0 errors. Then walked the SERVED assets (not the source, per 9.53): the chunk
+  `/_app/immutable/chunks/UWvnIFti.js` serves `icon:"X",charLimit:4e3`, and NO served asset
+  contains `charLimit:280`.
+
+- DEPLOYED. Uploaded as `switchpost.new`, sha256 verified on BOTH sides, dated backup
+  `switchpost.bak-20261105-0630` of the previous binary, `mv` into place, `systemctl --user restart`.
+  New MainPID 981083, started 06:30:07 IST, ActiveState=active SubState=running, and ZERO
+  error-level journal entries since the restart. Verified over TLS FROM the VPS: /health 200, / 200,
+  and the served chunk carries `charLimit:4e3` - so the fix is live, not merely uploaded.
+  Rollback: `cp ~/.local/bin/switchpost.bak-20261105-0630 ~/.local/bin/switchpost && systemctl --user
+  restart switchpost`.
+
+- VPS disk: 13G free (71% used), so no cleanup was needed. The dated .bak-* binaries now total
+  206M across three files.
+
+Stage Summary:
+- The character-limit fix is live on the VPS, verified over TLS on the served assets.
+- The build recipe's gap is recorded: the zig shim needs BOTH the version and the command set.
