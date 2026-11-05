@@ -32,6 +32,17 @@ fn resolve_token(token: &str, key: Option<&[u8; 32]>) -> String {
     }
 }
 
+/// The account this suite looks up when LIVE_TEST_EMAIL is not set.
+///
+/// It is a FIXTURE address, deliberately: a test that defaulted to the
+/// operator's real account would run against a real account by accident.
+const LIVE_TEST_EMAIL_DEFAULT: &str = "dev@switchpost.dev";
+
+/// The account this run looks up: the operator's override, or the fixture.
+fn live_test_email() -> String {
+    std::env::var("LIVE_TEST_EMAIL").unwrap_or_else(|_| LIVE_TEST_EMAIL_DEFAULT.to_string())
+}
+
 #[tokio::test]
 async fn test_live_youtube_all_tools() {
     switchpost::config::load_dotenv_for_live_tests();
@@ -46,20 +57,45 @@ async fn test_live_youtube_all_tools() {
         .await
         .expect("DB pool");
 
-    // Get YouTube integrations for dev user
+    // Get YouTube integrations for the live-test account. The account is
+    // configurable: LIVE_TEST_EMAIL selects it, because the default is a
+    // fixture address that belongs to no real installation.
+    let email = live_test_email();
     let rows = sqlx::query_as::<_, (String, String, String, String, String)>(
         "SELECT i.id, i.access_token, i.refresh_token, i.internal_id, i.profile_name
          FROM integrations i
          JOIN users u ON i.user_id = u.id
-         WHERE u.email = 'dev@switchpost.dev' AND i.provider_identifier = 'youtube'
+         WHERE u.email = ? AND i.provider_identifier = 'youtube'
          ORDER BY i.created_at",
     )
+    .bind(&email)
     .fetch_all(&pool)
     .await
     .expect("Query");
 
     if rows.is_empty() {
-        println!("⏭ live_youtube: skipped (no YouTube integration for the dev user)");
+        // The join is empty for TWO different reasons, and the operator can
+        // act on each one differently: the ACCOUNT may not be in this
+        // database, or it may be there with no YouTube channel connected.
+        // Name the actual one.
+        let user_found = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE email = ?")
+            .bind(&email)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(0)
+            > 0;
+        if user_found {
+            println!(
+                "⏭ live_youtube: skipped (the account {email} is in the database \
+                 but has no youtube integration - connect one first)"
+            );
+        } else {
+            println!(
+                "⏭ live_youtube: skipped (no account {email} in this database - \
+                 set LIVE_TEST_EMAIL to the account that carries the youtube \
+                 channel; the default is a fixture address no real installation uses)"
+            );
+        }
         return;
     }
     println!("Found {} YouTube channel(s)\n", rows.len());

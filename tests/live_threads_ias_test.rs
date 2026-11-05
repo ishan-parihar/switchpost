@@ -14,9 +14,12 @@ use switchpost::social::SocialProvider;
 
 #[tokio::test]
 async fn test_threads_get_profile() {
-    let Some((provider, token)) = get_threads_creds().await else {
-        println!("⏭ threads_get_profile skipped (no threads integration in DB)");
-        return;
+    let (provider, token) = match get_threads_creds().await {
+        Ok(v) => v,
+        Err(reason) => {
+            println!("⏭ threads_get_profile skipped: {reason}");
+            return;
+        }
     };
     let result = provider.get_profile(&token).await;
     println!("Threads get_profile: {:?}", result);
@@ -31,9 +34,12 @@ async fn test_threads_get_profile() {
 
 #[tokio::test]
 async fn test_threads_social_provider_meta() {
-    let Some((provider, _)) = get_threads_creds().await else {
-        println!("⏭ threads_social_provider_meta skipped (no threads integration in DB)");
-        return;
+    let (provider, _) = match get_threads_creds().await {
+        Ok(v) => v,
+        Err(reason) => {
+            println!("⏭ threads_social_provider_meta skipped: {reason}");
+            return;
+        }
     };
     assert_eq!(provider.identifier(), "threads");
     assert_eq!(provider.name(), "Threads");
@@ -45,9 +51,12 @@ async fn test_threads_social_provider_meta() {
 
 #[tokio::test]
 async fn test_ias_get_media() {
-    let Some((provider, token, internal_id)) = get_ias_creds().await else {
-        println!("⏭ ias_get_media skipped (no instagram-standalone integration in DB)");
-        return;
+    let (provider, token, internal_id) = match get_ias_creds().await {
+        Ok(v) => v,
+        Err(reason) => {
+            println!("⏭ ias_get_media skipped: {reason}");
+            return;
+        }
     };
     let result = provider.get_media(&token, &internal_id, 5).await;
     println!("IAS get_media: {:?}", result);
@@ -61,9 +70,12 @@ async fn test_ias_get_media() {
 
 #[tokio::test]
 async fn test_ias_social_provider_meta() {
-    let Some((provider, _, _)) = get_ias_creds().await else {
-        println!("⏭ ias_social_provider_meta skipped (no instagram-standalone integration in DB)");
-        return;
+    let (provider, _, _) = match get_ias_creds().await {
+        Ok(v) => v,
+        Err(reason) => {
+            println!("⏭ ias_social_provider_meta skipped: {reason}");
+            return;
+        }
     };
     assert_eq!(provider.identifier(), "instagram-standalone");
     assert_eq!(provider.name(), "Instagram (Standalone)");
@@ -85,18 +97,52 @@ fn get_threads_provider(config: &Config) -> ThreadsProvider {
     ThreadsProvider::new(config)
 }
 
+/// The account this suite looks up when LIVE_TEST_EMAIL is not set.
+///
+/// It is a FIXTURE address, deliberately: a test that defaulted to the
+/// operator's real account would run against a real account by accident.
+const LIVE_TEST_EMAIL_DEFAULT: &str = "dev@switchpost.dev";
+
+/// The account this run looks up: the operator's override, or the fixture.
+fn live_test_email() -> String {
+    std::env::var("LIVE_TEST_EMAIL").unwrap_or_else(|_| LIVE_TEST_EMAIL_DEFAULT.to_string())
+}
+
 fn get_ias_provider(config: &Config) -> InstagramStandaloneProvider {
     InstagramStandaloneProvider::new(config)
+}
+
+/// Why the suite cannot run, in the founder's terms.
+///
+/// The account being absent and the integration being absent are
+/// DIFFERENT problems with different fixes, and the old message
+/// ("no threads integration in DB") named the second while the common
+/// cause was the first - the fixture account belongs to nobody.
+fn skip_reason(email: &str, user_found: bool, provider_identifier: &str) -> String {
+    if !user_found {
+        format!(
+            "no account {email} in this database - set LIVE_TEST_EMAIL to the \
+             account that carries the {provider_identifier} channel (the default \
+             is a fixture address no real installation uses)"
+        )
+    } else {
+        format!(
+            "the account {email} is in the database but has no \
+             {provider_identifier} integration - connect one first"
+        )
+    }
 }
 
 async fn get_token(
     config: &Config,
     pool: &sqlx::SqlitePool,
     provider_identifier: &str,
-) -> Option<(String, String)> {
-    let user = queries::get_user_by_email(pool, "dev@switchpost.dev")
+) -> Result<(String, String), String> {
+    let email = live_test_email();
+    let user = queries::get_user_by_email(pool, &email)
         .await
-        .expect("DB query")?;
+        .expect("DB query")
+        .ok_or_else(|| skip_reason(&email, false, provider_identifier))?;
 
     let integrations = queries::list_integrations(pool, user.id)
         .await
@@ -104,7 +150,8 @@ async fn get_token(
 
     let integration = integrations
         .iter()
-        .find(|i| i.provider_identifier == provider_identifier)?;
+        .find(|i| i.provider_identifier == provider_identifier)
+        .ok_or_else(|| skip_reason(&email, true, provider_identifier))?;
 
     let token = config
         .token_encryption_key
@@ -115,25 +162,25 @@ async fn get_token(
         })
         .unwrap_or_else(|| integration.access_token.clone());
 
-    Some((token, integration.internal_id.clone()))
+    Ok((token, integration.internal_id.clone()))
 }
 
-async fn get_threads_creds() -> Option<(ThreadsProvider, String)> {
+async fn get_threads_creds() -> Result<(ThreadsProvider, String), String> {
     let config = get_config();
     let provider = get_threads_provider(&config);
     let pool = db::create_pool(&config.database_url)
         .await
         .expect("DB pool");
     let (token, _) = get_token(&config, &pool, "threads").await?;
-    Some((provider, token))
+    Ok((provider, token))
 }
 
-async fn get_ias_creds() -> Option<(InstagramStandaloneProvider, String, String)> {
+async fn get_ias_creds() -> Result<(InstagramStandaloneProvider, String, String), String> {
     let config = get_config();
     let provider = get_ias_provider(&config);
     let pool = db::create_pool(&config.database_url)
         .await
         .expect("DB pool");
     let (token, internal_id) = get_token(&config, &pool, "instagram-standalone").await?;
-    Some((provider, token, internal_id))
+    Ok((provider, token, internal_id))
 }

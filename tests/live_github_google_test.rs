@@ -1,6 +1,7 @@
 use switchpost::config::Config;
 use switchpost::crypto;
 use switchpost::db;
+use switchpost::db::queries;
 use switchpost::social::calendar::CalendarProvider;
 use switchpost::social::drive::DriveProvider;
 use switchpost::social::github::GithubProvider;
@@ -25,18 +26,64 @@ fn decrypt_token(raw: &str) -> Option<String> {
     crypto::decrypt_string(raw, &key).ok()
 }
 
-async fn get_google_token() -> Option<String> {
+/// The account this suite looks up when LIVE_TEST_EMAIL is not set.
+///
+/// It is a FIXTURE address, deliberately: a test that defaulted to the
+/// operator's real account would run against a real account by accident.
+const LIVE_TEST_EMAIL_DEFAULT: &str = "dev@switchpost.dev";
+
+/// The account this run looks up: the operator's override, or the fixture.
+fn live_test_email() -> String {
+    std::env::var("LIVE_TEST_EMAIL").unwrap_or_else(|_| LIVE_TEST_EMAIL_DEFAULT.to_string())
+}
+
+/// Why the Google suite cannot run, in the founder's terms.
+///
+/// The three causes are genuinely different and the operator can act on
+/// each one, so they are reported separately rather than collapsed into
+/// "Google token not found" - a message that blames a credential when the
+/// real cause is a missing ACCOUNT or a decode failure.
+fn google_skip_reason(account: &str, user_found: bool, has_google: bool) -> String {
+    if !user_found {
+        format!(
+            "no account {account} in this database - set LIVE_TEST_EMAIL to the \
+             account that carries the Google integration (the default is a \
+             fixture address no real installation uses)"
+        )
+    } else if !has_google {
+        format!("the account {account} is in the database but has no google integration - connect one first")
+    } else {
+        "the google integration has no readable access token - reconnect the channel".to_string()
+    }
+}
+
+/// The Google access token, or the reason there isn't one.
+async fn get_google_token() -> Result<String, String> {
     let cfg = get_config();
-    let pool = db::create_pool(&cfg.database_url).await.ok()?;
-    let user = sqlx::query!("SELECT id FROM users WHERE email = 'dev@switchpost.dev'")
-        .fetch_optional(&pool)
+    let pool = db::create_pool(&cfg.database_url)
         .await
-        .ok()??;
+        .map_err(|e| format!("could not open the database: {e}"))?;
+    let email = live_test_email();
+    // The shared helper already declares `id as "id!: Uuid"`. The bare
+    // `SELECT id` this used to run inferred TEXT from the column's DECLARED
+    // type and failed at RUNTIME with "mismatched types ... not compatible
+    // with SQL type BLOB" (AGENTS.md 5.1.1 / 9.44). The `.ok()??` chain
+    // swallowed that error and reported "Google token not found" - naming a
+    // missing credential when the real cause was a decode failure.
+    let user = queries::get_user_by_email(&pool, &email)
+        .await
+        .map_err(|e| format!("could not look up {email}: {e}"))?
+        .ok_or_else(|| google_skip_reason(&email, false, false))?;
     let row = sqlx::query!(
         "SELECT access_token FROM integrations WHERE user_id = ? AND provider_identifier = ? LIMIT 1",
         user.id, "google"
-    ).fetch_optional(&pool).await.ok()??;
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("could not read the google integration: {e}"))?
+    .ok_or_else(|| google_skip_reason(&email, true, false))?;
     decrypt_token(&row.access_token)
+        .ok_or_else(|| google_skip_reason(&email, true, true))
 }
 
 const GH_OWNER: &str = "ishan-parihar";
@@ -220,17 +267,18 @@ async fn test_gh_repo() {
 // panicking on a box without live credentials. F2: each API is exercised
 // through its canonical provider module (youtube/gmail/calendar/drive) —
 // the same types tools_google dispatches to.
-async fn google_token() -> Option<String> {
+async fn google_token() -> Result<String, String> {
     get_google_token().await
 }
 
-const SKIP_MSG: &str = "⏭ skipped: Google token not found. Connect Google Suite first.";
-
 #[tokio::test]
 async fn test_goog_search() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = YoutubeProvider::new(&get_config());
     let r = p.search_videos(&t, "Rust", 3).await.unwrap();
@@ -242,9 +290,12 @@ async fn test_goog_search() {
 
 #[tokio::test]
 async fn test_goog_channel() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = YoutubeProvider::new(&get_config());
     let pages: Vec<switchpost::social::PageInfo> = SocialProvider::pages(&p, &t).await.unwrap();
@@ -260,9 +311,12 @@ async fn test_goog_channel() {
 
 #[tokio::test]
 async fn test_goog_video() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = YoutubeProvider::new(&get_config());
     let s = p.search_videos(&t, "Rust", 1).await.unwrap();
@@ -278,9 +332,12 @@ async fn test_goog_video() {
 
 #[tokio::test]
 async fn test_goog_playlists() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = YoutubeProvider::new(&get_config());
     let pages: Vec<switchpost::social::PageInfo> = SocialProvider::pages(&p, &t).await.unwrap();
@@ -295,9 +352,12 @@ async fn test_goog_playlists() {
 
 #[tokio::test]
 async fn test_goog_comments() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = YoutubeProvider::new(&get_config());
     let s = p.search_videos(&t, "Rust", 1).await.unwrap();
@@ -315,9 +375,12 @@ async fn test_goog_comments() {
 
 #[tokio::test]
 async fn test_goog_find() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = YoutubeProvider::new(&get_config());
     match p.find_creators(&t, "architecture", None, Some(3)).await {
@@ -331,9 +394,12 @@ async fn test_goog_find() {
 
 #[tokio::test]
 async fn test_goog_analytics() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = YoutubeProvider::new(&get_config());
     let pages: Vec<switchpost::social::PageInfo> = SocialProvider::pages(&p, &t).await.unwrap();
@@ -359,9 +425,12 @@ async fn test_goog_analytics() {
 
 #[tokio::test]
 async fn test_goog_gmail() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = GmailProvider::new(&get_config());
     let r = p.get_profile(&t).await.unwrap();
@@ -373,9 +442,12 @@ async fn test_goog_gmail() {
 
 #[tokio::test]
 async fn test_goog_messages() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = GmailProvider::new(&get_config());
     let r = p.list_messages(&t, 5, None).await.unwrap();
@@ -387,9 +459,12 @@ async fn test_goog_messages() {
 
 #[tokio::test]
 async fn test_goog_labels() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = GmailProvider::new(&get_config());
     let r = p.list_labels(&t).await.unwrap();
@@ -401,9 +476,12 @@ async fn test_goog_labels() {
 
 #[tokio::test]
 async fn test_goog_cal_list() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = CalendarProvider::new(&get_config());
     let r = p.list_calendars(&t).await.unwrap();
@@ -415,9 +493,12 @@ async fn test_goog_cal_list() {
 
 #[tokio::test]
 async fn test_goog_events() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = CalendarProvider::new(&get_config());
     let r = p.list_events(&t, "primary", 5, None, None).await.unwrap();
@@ -429,9 +510,12 @@ async fn test_goog_events() {
 
 #[tokio::test]
 async fn test_goog_cal_crud() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = CalendarProvider::new(&get_config());
     let created = p
@@ -455,9 +539,12 @@ async fn test_goog_cal_crud() {
 
 #[tokio::test]
 async fn test_goog_drive_files() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = DriveProvider::new(&get_config());
     let r = p.list_files(&t, 10, None).await.unwrap();
@@ -469,9 +556,12 @@ async fn test_goog_drive_files() {
 
 #[tokio::test]
 async fn test_goog_drive_folders() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = DriveProvider::new(&get_config());
     let r = p.list_folders(&t, 10).await.unwrap();
@@ -483,9 +573,12 @@ async fn test_goog_drive_folders() {
 
 #[tokio::test]
 async fn test_goog_drive_meta() {
-    let Some(t) = google_token().await else {
-        println!("{SKIP_MSG}");
-        return;
+    let t = match google_token().await {
+        Ok(t) => t,
+        Err(reason) => {
+            println!("⏭ skipped: {reason}");
+            return;
+        }
     };
     let p = DriveProvider::new(&get_config());
     let files = p.list_files(&t, 1, None).await.unwrap();

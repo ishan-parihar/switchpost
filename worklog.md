@@ -7256,3 +7256,66 @@ Stage Summary:
 - This is a defect the register never had a row for, so it is recorded as LIVE-WRITES.
 - The X transport errors in the same run are the environment's (the 9.43 classifier handles them),
   not a regression from this change.
+
+---
+Task ID: live-account-selection
+Agent: Jcode
+Task: re-measure the LIVE-SUITES register row and fix what it actually found
+
+Work Log:
+- THE ROW WAS STALE ON BOTH HALVES. It quoted the skip message 'visit the onboarding page first'
+  and proposed 'make the guard name the ACTUAL missing thing and accept a configurable account'.
+  Both had already LANDED in round 8 — the old message is not in the tree. A register row that
+  describes work already done sends the next agent to redo it.
+
+- RE-MEASURING THE OTHER FOUR FOUND THE SAME DEFECT CLASS, WHICH THE ROW NEVER RECORDED.
+  Three suites hard-coded the SAME fixture account, so they skipped for the same wrong reason and
+  reported a MISSING CHANNEL ('no youtube integration in DB') when the real cause was a MISSING
+  ACCOUNT. The operator's account is 25 characters; the fixture is 18.
+
+- live_github_google_test WAS WORSE, AND THE SKIP MESSAGE WAS LYING. Its `SELECT id FROM users`
+  had a BARE `id` on a uuid column. The sqlx macro infers the decode type from the column's
+  DECLARED type (TEXT), so it builds fine and fails at RUNTIME against the BLOB the app stores.
+  MEASURED, not assumed — a probe against the operator's own DB:
+      (a) bare id as String: ERROR: mismatched types; Rust type `alloc::string::String`
+          (as SQL type `TEXT`) is not compatible with SQL type `BLOB`
+      (b) id as Uuid: OK
+      (c) google integrations in this DB: 0
+  The `.ok()??` chain swallowed that error and reported 'Google token not found' — naming a
+  missing CREDENTIAL when the real cause was a decode failure. This is AGENTS.md 5.1.1 / 9.44,
+  and the repo's own convention is the fix: `db::queries::get_user_by_email`, which already
+  declares `id as "id!: Uuid"`. The other five `SELECT id FROM users` sites in the tree all
+  name `Uuid` explicitly and are correct — this was the only bare one.
+
+- FIXED. All four suites resolve the account from `LIVE_TEST_EMAIL`, the bare query now goes
+  through the shared helper, and each skip message names the ACTUAL cause: account absent vs
+  channel not connected vs token unreadable. The Google suite's helper went from
+  `Option<String>` to `Result<String, String>` so the three causes can be told apart at all —
+  one `Option` and one shared message collapsed three distinct problems into one.
+
+- VERIFIED BOTH WAYS ON EACH SUITE, because a message that names one cause when another is
+  true is worse than no message: with the default fixture account and with LIVE_TEST_EMAIL set
+  to the operator's real account, each of the four names the matching cause.
+
+- THE GATE WAS MUTATION-TESTED IN FOUR DIRECTIONS, AND TWO OF THEM PASSED ON THE FIRST RUN.
+  That is the part worth recording. My first gate asserted that the string `LIVE_TEST_EMAIL`
+  APPEARS in the suite — and a comment mentions it, so replacing the function body with a
+  hard-coded address left the gate GREEN. And the suite list was checked by COUNT, so renaming
+  `live_reddit_test` out of the `live_` prefix left the gate GREEN with nine other suites still
+  satisfying "at least five". Both were real holes, not artifacts: a gate satisfied by prose
+  measures nothing (§9.33, §9.55), and a renamed suite is a suite nobody checks while looking
+  exactly like one that was deliberately excluded. The gate now asserts that the env var is
+  READ (`env::var` naming it, on a code line, not a comment line) and that the suite list is
+  PINNED BY NAME. All four mutations then fail the gate with their own message, and each
+  mutation was restored byte-identical (diff -q against the pre-mutation backup).
+
+- The gate also failed on ITSELF at first, because it is named live_*.rs and its own source
+  quotes the patterns it forbids. A gate that fails on its own text is a gate nobody can use,
+  so it excludes itself and says why.
+
+Stage Summary:
+- The LIVE-SUITES row is closed on evidence, with the stale half corrected.
+- A real uuid-decode defect and a lying skip message are fixed in live_github_google_test.
+- Three more suites had the same misleading-skip defect; all four are now honest and configurable.
+- New gate: tests/live_account_selection_test.rs, 3/3, mutation-tested in four directions.
+- Remaining open register rows: C2 and C3 only.
