@@ -7554,3 +7554,30 @@ Stage Summary:
   and TIER1 membership+order. The `dm_supported` rule was measured and found to have no copy.
 - Mutation-tested the two new checks (7 directions total), and both mutations failed to land on the
   first attempt - recorded, because that is the trap that makes a green gate look tested.
+
+---
+Task ID: redeploy-decision
+Agent: Jcode
+Task: decide whether the comment-only round needs a redeploy
+
+Work Log:
+- THE ROUND-6 RULE INVERTED ITSELF, and being disciplined about it saved a needless deploy. A
+  `frontend/` change is a NECESSARY condition for a redeploy (the binary embeds the bundle), and I
+  treated it as SUFFICIENT for three days. This round's three frontend changes are all COMMENT-ONLY:
+  correct the statements of X's limit that the code change had just made false. The minifier strips
+  comments, so the bundle is byte-equivalent.
+
+- MEASURED, NOT ASSUMED, because "the deployed binary already has the fix" was an inference until I
+  ran it. Over TLS on the VPS:
+      curl -sk https://127.0.0.1:6543/_app/immutable/chunks/UWvnIFti.js
+      -> icon:"X",charLimit:4e3
+  So the deployed binary ALREADY serves the corrected value. And the built bundle contains no trace
+  of the comment text, so a redeploy would ship an identical bundle for zero behavioural change.
+
+- NO REDEPLOY. The round-6 deploy was needed because `providers.ts` changed a VALUE that reaches the
+  browser. This round changed PROSE that does not. The distinction is what the change IS, not which
+  directory it is in.
+
+Stage Summary:
+- Measured that the deployed binary already serves the correct limit, so no redeploy was spent.
+- The rule is recorded: a non-empty `frontend/` diff is necessary for a redeploy, not sufficient.
