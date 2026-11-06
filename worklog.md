@@ -7716,7 +7716,7 @@ Stage Summary:
   pre-flight and the isolated smoke test all ahead of the move into place.
 - Both fixes verified live on the running instance: the Telegram status endpoint answers, and the
   Threads connect carries the actionable warning.
-- Rollback is one command: cp -p ~/.local/bin/switchpost.bak-20261106-2045
+- Rollback is one command: cp -p ~/.local/bin/switchpost.bak-20261106-2029
   ~/.local/bin/switchpost && systemctl --user restart switchpost
 
 Known issues / follow-ups:
