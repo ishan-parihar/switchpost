@@ -7663,3 +7663,65 @@ Known issues / follow-ups:
 - The frontend is built but the release binary was NOT rebuilt, so the VPS still serves the old
   bundle until `make deploy`. The Telegram credentials endpoint is reachable over the REST API
   today; the paste-in form needs the redeploy.
+
+---
+Task ID: channel-login-deploy
+Agent: Jcode
+Task: ship the two channel-login fixes to the VPS and verify them live
+
+Work Log:
+- THE DEPLOY IS THE DELIVERY OF THE FIX, so it is not optional: the reported bugs are on the
+  running instance, and its binary predates the fix. Measured before anything else: the live
+  binary was dated Nov 5 and answered `No such endpoint: .../telegram-user/status`, so it had
+  neither half.
+
+- FOLLOWED THE HOST'S ACTUAL SHAPE, not the Makefile's. The unit is a USER unit at
+  `~/.config/systemd/user/switchpost.service`, `ExecStart=/home/nerd/.local/bin/switchpost serve`,
+  and the process is pid 981083 (Nov 5) — the Makefile's `BINARY_PATH=/usr/local/bin` and its
+  `systemctl` (root) would both have missed. `/home/nerd/switchpost` holds only `data/` + `.env`.
+
+- GATES, in the order the skill gives them, and all against the real artifact:
+    1. built with `cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.36`, through the
+       `--no-keep-memory` zig shim (Zig's LLD rejects that flag by name; the shim was already
+       installed at ~/.cache/zb/shimdir).
+    2. glibc ceiling measured at GLIBC_2.34 <= 2.36 — a host-target build would need 2.39.
+    3. the binary contains the fix's own strings (the probe URL, INSTAGRAM BUSINESS, the
+       telegram route paths, the form's title) — a substring COUNT is not a verdict, so each was
+       a long distinguishing string.
+    4. backed up the live binary and took a SQLite `.backup` snapshot before anything ran.
+    5. shipped under a NEW name and verified sha256 matched.
+    6. pre-flighted the new file while the live one still served (ldd resolves, ceiling, strings).
+    7. smoke-tested on an ISOLATED copy on a free port with a scratch DB and scratch HOME: it
+       booted, applied migrations, registered all 29 providers, started every worker, and answered
+       /health /ready / 200.
+
+- THE SERVED-PAGE CHECK IS THE ONE THAT MATTERS, and my first two attempts at it were wrong in
+  instructive ways. Probing the chunk names in the <script> tags found nothing; walking the start
+  manifest's names found nothing either; and asking app.js for its node map returned 0 nodes
+  because the static adapter answers that path with the SPA fallback. The honest check is the EXACT
+  asset path from the build: /_app/immutable/nodes/11.DwN6oam8.js, fetched from the running
+  instance, grepped for the form's marker — and then the SAME path on the old binary to prove the
+  path was right and the difference was the build. New: FOUND. Old: absent. That is the check a
+  compile-time gate cannot make.
+
+- LIVE VERIFICATION through the real public hostname with the real operator session:
+    - `telegram-user/status` -> {"configured":false,...}. The channels screen will offer the
+      credentials form, which is the whole fix: the old binary could only answer with a dead-end
+      message about a file on a server.
+    - `connect/threads` -> the real authorize URL, with the warning attached, naming the dev-mode
+      cause and the tester fix.
+
+Stage Summary:
+- Deployed to the VPS through its user unit, with the backup, the snapshot, the checksum, the
+  pre-flight and the isolated smoke test all ahead of the move into place.
+- Both fixes verified live on the running instance: the Telegram status endpoint answers, and the
+  Threads connect carries the actionable warning.
+- Rollback is one command: cp -p ~/.local/bin/switchpost.bak-20261106-2045
+  ~/.local/bin/switchpost && systemctl --user restart switchpost
+
+Known issues / follow-ups:
+- The Telegram credentials are STILL absent from the deployment, by design: I did not write the
+  founder's api_id/hash onto their server. The founder pastes them into the app once, and the
+  endpoint I just verified saves them to that file.
+- The Threads app's tester role still needs adding at developers.facebook.com. Meta offers no API
+  for it, so that is the founder's step either way — the warning now tells them exactly that.
