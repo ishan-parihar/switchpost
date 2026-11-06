@@ -108,6 +108,16 @@ pub struct ConnectOutput {
     pub auth_url: String,
     pub state: String,
     pub instructions: String,
+    /// A warning about this provider's sign-in, when the provider can
+    /// name one. `None` for the providers that have no gate.
+    ///
+    /// Threads is the one that needs it — Meta's consent gate redirects
+    /// the BROWSER to its own privacy/consent page and never comes back
+    /// to our callback, so the failure is invisible to the agent too, not
+    /// just to the WebUI. An agent that gets this can tell the USER what
+    /// to fix, which is the only thing that unblocks the connect.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -135,7 +145,10 @@ pub async fn list_providers(
         .into_iter()
         .map(|p| {
             let id = p.identifier();
-            let has_creds = state.config.provider_credentials(id).is_some();
+            // The LIVE configured state, so a channel whose credentials the
+            // founder just supplied in the app is reported as configured
+            // on the very next read — with no restart in between.
+            let has_creds = state.provider_configured(id);
             ProviderInfo {
                 identifier: id.to_string(),
                 name: p.name().to_string(),
@@ -212,6 +225,7 @@ pub async fn connect_integration(
                 auth_url,
                 state: "one-time-token".into(),
                 instructions,
+                warning: None,
             }));
         }
 
@@ -267,6 +281,7 @@ pub async fn connect_integration(
                 "Connected to {} as {}. Store is complete.",
                 input.provider, token.name
             ),
+            warning: None,
         }));
     }
 
@@ -279,6 +294,15 @@ pub async fn connect_integration(
     )
     .await?;
 
+    // Asking the provider for a sign-in warning is the SAME question the
+    // REST connect route asks, and it is asked here for the same reason:
+    // Meta's Threads consent gate redirects the BROWSER to its own page
+    // and never returns to our callback, so a failure there is invisible
+    // to every handler of ours. The agent needs the reason too, because
+    // an agent that reports "the sign-in failed" without naming the
+    // cause has to hand the problem back to the user unsolved.
+    let warning = provider_obj.connect_preflight().await;
+
     Ok(Json(ConnectOutput {
         auth_url: result.auth_url,
         state: result.state,
@@ -289,6 +313,7 @@ pub async fn connect_integration(
              will process the result.",
             state.config.app_url,
         ),
+        warning,
     }))
 }
 
@@ -425,7 +450,10 @@ mod tests {
                 );
             }
             // Both halves must carry the code, or the founder has nothing to redeem.
-            assert!(auth_url.contains("CODE"), "{provider}: code missing from auth_url");
+            assert!(
+                auth_url.contains("CODE"),
+                "{provider}: code missing from auth_url"
+            );
             assert!(
                 instructions.contains("CODE"),
                 "{provider}: code missing from instructions"

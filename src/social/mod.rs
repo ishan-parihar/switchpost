@@ -34,6 +34,7 @@ pub mod slack;
 pub mod telegram_bot;
 pub mod telegram_user;
 pub mod threads;
+pub mod threads_app;
 pub mod tier;
 pub mod tiktok;
 pub mod whatsapp;
@@ -543,6 +544,29 @@ pub trait SocialProvider: Send + Sync {
     /// override this to `true`.
     fn requires_https_redirect(&self) -> bool {
         false
+    }
+
+    /// A warning to show the founder BEFORE they are sent to the
+    /// provider's consent screen.
+    ///
+    /// ─── WHY THIS EXISTS ───────────────────────────────────────
+    /// Some providers can refuse a sign-in at a step our server never
+    /// sees. Meta's Threads is the one we have measured: when its own
+    /// privacy/consent gate refuses the login, the BROWSER is redirected
+    /// to `www.threads.com/privacy/consent/?flow=gdp` with
+    /// `error_code=1349003&source=gdp_error` in the tail, and it never
+    /// comes back to our callback. So no handler of ours runs, no error
+    /// is recorded, and the founder is left staring at a Meta page with
+    /// nothing actionable — the exact dead end in the login-error report.
+    ///
+    /// A provider that can answer "will this sign-in work?" BEFORE the
+    /// founder is redirected answers it here, and the caller shows the
+    /// answer next to the sign-in button.
+    ///
+    /// The default is `None`: most providers have no such gate, and a
+    /// warning that fires for every provider is a warning nobody reads.
+    async fn connect_preflight(&self) -> Option<String> {
+        None
     }
 
     /// Extension cookies needed (for Chrome extension providers like Skool)

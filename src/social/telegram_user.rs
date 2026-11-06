@@ -91,10 +91,19 @@ impl SocialProvider for TelegramUserProvider {
     ) -> Result<AuthToken, ProviderError> {
         let mgr = self.client_manager.as_ref().ok_or_else(|| {
             ProviderError::Api(
-                "Telegram user client not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH."
+                "Telegram user client not available in this process. Set TELEGRAM_API_ID and \
+                 TELEGRAM_API_HASH."
                     .into(),
             )
         })?;
+
+        if mgr.credentials().is_none() {
+            return Err(ProviderError::Api(
+                "Telegram user client has no API credentials. Set TELEGRAM_API_ID and \
+                 TELEGRAM_API_HASH (from https://my.telegram.org) in ~/.switchpost/.env."
+                    .into(),
+            ));
+        }
 
         let is_auth = mgr
             .is_authenticated()
@@ -143,10 +152,19 @@ impl SocialProvider for TelegramUserProvider {
     ) -> Result<PublishResult, ProviderError> {
         let mgr = self.client_manager.as_ref().ok_or_else(|| {
             ProviderError::Api(
-                "Telegram user client not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH."
+                "Telegram user client not available in this process. Set TELEGRAM_API_ID and \
+                 TELEGRAM_API_HASH."
                     .into(),
             )
         })?;
+
+        if mgr.credentials().is_none() {
+            return Err(ProviderError::Api(
+                "Telegram user client has no API credentials. Set TELEGRAM_API_ID and \
+                 TELEGRAM_API_HASH (from https://my.telegram.org) in ~/.switchpost/.env."
+                    .into(),
+            ));
+        }
 
         let target = post
             .settings

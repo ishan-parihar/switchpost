@@ -193,51 +193,82 @@ async fn main() -> anyhow::Result<()> {
     let broadcaster = Broadcaster::new();
 
     // ── Telegram user client (Grammers) ──────────────────────
+    //
+    // ─── THE MANAGER ALWAYS EXISTS ────────────────────────────
+    // It used to be `None` when TELEGRAM_API_ID/TELEGRAM_API_HASH were
+    // unset, and every route that needed it answered "Telegram is not
+    // configured on this server ... set the env vars and restart". The
+    // founder could not act on that from the app: the only way to supply
+    // the pair was to edit the server's `.env` by hand and restart the
+    // service. That is the exact dead end the login report described.
+    //
+    // Now the manager is built either way. With credentials it behaves
+    // exactly as before; without them it starts UNCONFIGURED and the
+    // channels screen offers a paste-in form whose endpoint writes the
+    // pair to `~/.switchpost/.env` and swaps them into this manager in
+    // place — no restart.
+    //
+    // A malformed TELEGRAM_API_ID (non-numeric) is still a startup
+    // error rather than a silent "unconfigured": the operator set the
+    // variable and it is wrong, which is a different fault from not
+    // setting it.
+    let telegram_session_dir = PathBuf::from(
+        config
+            .telegram_session_dir
+            .clone()
+            .unwrap_or_else(|| config::DEFAULT_TELEGRAM_SESSION_DIR.into()),
+    );
     let telegram_client_manager = if let (Some(api_id_str), Some(api_hash)) =
         (&config.telegram_api_id, &config.telegram_api_hash)
     {
         let api_id: i32 = api_id_str.parse().map_err(|e| {
             anyhow::anyhow!("Invalid TELEGRAM_API_ID: expected numeric, got {api_id_str}: {e}")
         })?;
-        // Config resolves the default (config::DEFAULT_TELEGRAM_SESSION_DIR),
-        // so there is ONE place that decides where the session lives.
-        let session_dir = config
-            .telegram_session_dir
-            .clone()
-            .unwrap_or_else(|| config::DEFAULT_TELEGRAM_SESSION_DIR.into());
-        Some(Arc::new(TelegramClientManager::new(
-            api_id,
-            api_hash.clone(),
-            PathBuf::from(session_dir),
-        )))
+        if api_hash.trim().is_empty() {
+            tracing::warn!(
+                "TELEGRAM_API_HASH is set but empty — Telegram user client starts unconfigured"
+            );
+            Some(Arc::new(TelegramClientManager::unconfigured(
+                telegram_session_dir,
+            )))
+        } else {
+            Some(Arc::new(TelegramClientManager::new(
+                api_id,
+                api_hash.clone(),
+                telegram_session_dir,
+            )))
+        }
     } else {
         tracing::warn!(
-            "TELEGRAM_API_ID / TELEGRAM_API_HASH not set — Telegram user client disabled"
+            "TELEGRAM_API_ID / TELEGRAM_API_HASH not set — Telegram user client starts \
+             unconfigured. Paste them into the Telegram User channel's setup form to enable it."
         );
-        None
+        Some(Arc::new(TelegramClientManager::unconfigured(
+            telegram_session_dir,
+        )))
     };
 
     // ── WhatsApp Web client (wa-rs replaces Go wacli sidecar) ──
-    let wa_client: switchpost::wa::OptionalWhaClient =
-        if let Some(dir) = &config.whatsapp_store_dir {
-            let store_dir = PathBuf::from(dir);
-            match WhaClient::new(store_dir).await {
-                Ok(client) => {
-                    tracing::info!("WhatsApp Web client (wa-rs): initialized");
-                    Some(Arc::new(tokio::sync::Mutex::new(client)))
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to initialize WhatsApp client: {e}");
-                    None
-                }
+    let wa_client: switchpost::wa::OptionalWhaClient = if let Some(dir) = &config.whatsapp_store_dir
+    {
+        let store_dir = PathBuf::from(dir);
+        match WhaClient::new(store_dir).await {
+            Ok(client) => {
+                tracing::info!("WhatsApp Web client (wa-rs): initialized");
+                Some(Arc::new(tokio::sync::Mutex::new(client)))
             }
-        } else {
-            tracing::info!(
-                "WHATSAPP_STORE_DIR unset — WhatsApp Web client at the default {}",
-                config::DEFAULT_WHATSAPP_STORE_DIR
-            );
-            None
-        };
+            Err(e) => {
+                tracing::warn!("Failed to initialize WhatsApp client: {e}");
+                None
+            }
+        }
+    } else {
+        tracing::info!(
+            "WHATSAPP_STORE_DIR unset — WhatsApp Web client at the default {}",
+            config::DEFAULT_WHATSAPP_STORE_DIR
+        );
+        None
+    };
 
     // ── Provider registry ─────────────────────────────────────
     let providers =

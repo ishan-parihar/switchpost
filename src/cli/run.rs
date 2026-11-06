@@ -266,31 +266,45 @@ async fn init_state() -> anyhow::Result<AppState> {
     // creds set (parity bug caught during the V1b live pass). Mirror
     // main.rs's construction, but degrade with a warn instead of
     // failing: a malformed TELEGRAM_API_ID must not break `posts list`.
+    //
+    // The manager ALWAYS exists, exactly as in `main.rs`. "No
+    // credentials" is a state it can be moved out of at runtime, so a
+    // CLI invocation on an unconfigured instance can still report the
+    // channel as needing setup rather than pretending the feature does
+    // not exist.
+    let telegram_session_dir = std::path::PathBuf::from(
+        config
+            .telegram_session_dir
+            .clone()
+            .unwrap_or_else(|| crate::config::DEFAULT_TELEGRAM_SESSION_DIR.into()),
+    );
     let telegram_client_manager = match (&config.telegram_api_id, &config.telegram_api_hash) {
-        (Some(id_str), Some(hash)) if !id_str.is_empty() && !hash.is_empty() => {
-            match id_str.parse::<i32>() {
-                Ok(api_id) => {
-                    let session_dir = config
-                        .telegram_session_dir
-                        .clone()
-                        .unwrap_or_else(|| {
-                            crate::config::DEFAULT_TELEGRAM_SESSION_DIR.into()
-                        });
+        (Some(id_str), Some(hash)) if !id_str.trim().is_empty() && !hash.trim().is_empty() => {
+            match id_str.trim().parse::<i32>() {
+                Ok(api_id) => Some(std::sync::Arc::new(
+                    crate::services::telegram_client::TelegramClientManager::new(
+                        api_id,
+                        hash.trim().to_string(),
+                        telegram_session_dir,
+                    ),
+                )),
+                Err(_) => {
+                    tracing::warn!(
+                        "Invalid TELEGRAM_API_ID — Telegram user client starts unconfigured"
+                    );
                     Some(std::sync::Arc::new(
-                        crate::services::telegram_client::TelegramClientManager::new(
-                            api_id,
-                            hash.clone(),
-                            std::path::PathBuf::from(session_dir),
+                        crate::services::telegram_client::TelegramClientManager::unconfigured(
+                            telegram_session_dir,
                         ),
                     ))
                 }
-                Err(_) => {
-                    tracing::warn!("Invalid TELEGRAM_API_ID — Telegram user client disabled");
-                    None
-                }
             }
         }
-        _ => None,
+        _ => Some(std::sync::Arc::new(
+            crate::services::telegram_client::TelegramClientManager::unconfigured(
+                telegram_session_dir,
+            ),
+        )),
     };
     let wa_client: crate::wa::OptionalWhaClient = if let Some(dir) = &config.whatsapp_store_dir {
         let store_dir = std::path::PathBuf::from(dir);
@@ -1342,14 +1356,31 @@ async fn handle_connect_wait(
         .unwrap_or(false);
     if oauth_provider {
         match oauth_auth_url_with_redirect(state, provider).await {
-            Ok((url, redirect_uri)) => output_json(&serde_json::json!({
-                "status": "waiting_for_oauth",
-                "provider": provider,
-                "method": "oauth",
-                "auth_url": url,
-                "redirect_uri": redirect_uri,
-                "hint": "Open the auth_url in a browser, complete the login, and this command will report the connection. If the platform says redirect_uri_mismatch, register the redirect_uri above in the provider's developer console.",
-            })),
+            Ok((url, redirect_uri)) => {
+                // ─── THE PROVIDER'S OWN PREFLIGHT ──────────────────
+                // The same question the REST route and the MCP tool ask,
+                // for the same reason: Meta's Threads consent gate
+                // redirects the BROWSER to its own page and never comes
+                // back to our callback, so the failure is invisible to a
+                // shell user too. The agent driving the CLI needs the
+                // reason to tell the founder what to fix.
+                let warning = match state.providers.get(provider) {
+                    Some(p) => p.connect_preflight().await,
+                    None => None,
+                };
+                let mut payload = serde_json::json!({
+                    "status": "waiting_for_oauth",
+                    "provider": provider,
+                    "method": "oauth",
+                    "auth_url": url,
+                    "redirect_uri": redirect_uri,
+                    "hint": "Open the auth_url in a browser, complete the login, and this command will report the connection. If the platform says redirect_uri_mismatch, register the redirect_uri above in the provider's developer console.",
+                });
+                if let Some(w) = warning {
+                    payload["warning"] = serde_json::Value::String(w);
+                }
+                output_json(&payload);
+            }
             Err(e) => {
                 // Not configured, or the provider refused to build a URL —
                 // let the one-shot print the actionable diagnostic.
@@ -1582,13 +1613,9 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                         // channel list shows the real account, not the
                         // fictional seed one beside it.
                         let seeds =
-                            crate::db::queries::delete_seed_integrations(
-                                &state.db,
-                                user_id,
-                                "x",
-                            )
-                            .await
-                            .unwrap_or(0);
+                            crate::db::queries::delete_seed_integrations(&state.db, user_id, "x")
+                                .await
+                                .unwrap_or(0);
 
                         output_json(&serde_json::json!({
                             "status": "connected",
@@ -1654,19 +1681,17 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                         "REDDIT_COOKIE_TOKEN".to_string(),
                     )
                 });
-            let imported = crate::social::reddit_cookies::extract_reddit_cookies().map(
-                |cookies| {
-                    (
-                        crate::social::reddit_cookies::build_cookie_token(
-                            &cookies.reddit_session,
-                            cookies.token_v2.as_deref(),
-                            Some(&cookies.cookie_string),
-                        ),
-                        "browser-import".to_string(),
-                        cookies.source,
-                    )
-                },
-            );
+            let imported = crate::social::reddit_cookies::extract_reddit_cookies().map(|cookies| {
+                (
+                    crate::social::reddit_cookies::build_cookie_token(
+                        &cookies.reddit_session,
+                        cookies.token_v2.as_deref(),
+                        Some(&cookies.cookie_string),
+                    ),
+                    "browser-import".to_string(),
+                    cookies.source,
+                )
+            });
             let imported = imported.or(env_token);
             match imported {
                 Some((token_str, method, source)) => {
@@ -1703,14 +1728,11 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                             .await?;
                             // Drop the seed_demo fixture row (if any) — see
                             // the X branch for why.
-                            let seeds =
-                                crate::db::queries::delete_seed_integrations(
-                                    &state.db,
-                                    user_id,
-                                    "reddit",
-                                )
-                                .await
-                                .unwrap_or(0);
+                            let seeds = crate::db::queries::delete_seed_integrations(
+                                &state.db, user_id, "reddit",
+                            )
+                            .await
+                            .unwrap_or(0);
 
                             output_json(&serde_json::json!({
                                 "status": "connected",
@@ -1847,7 +1869,11 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                     &serde_json::json!({"status": "already_connected", "provider": "bluesky", "count": existing.len()}),
                 );
             } else if let (Some(handle), Some(app_pw)) = (
-                state.config.bluesky_handle.as_deref().filter(|h| !h.is_empty()),
+                state
+                    .config
+                    .bluesky_handle
+                    .as_deref()
+                    .filter(|h| !h.is_empty()),
                 state
                     .config
                     .bluesky_app_password
@@ -1874,7 +1900,8 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                             Ok(session) => {
                                 let jwt = session["accessJwt"].as_str().unwrap_or("");
                                 let did = session["did"].as_str().unwrap_or("").to_string();
-                                let handle_owned = session["handle"].as_str().unwrap_or(handle).to_string();
+                                let handle_owned =
+                                    session["handle"].as_str().unwrap_or(handle).to_string();
                                 let display = session["email"]
                                     .as_str()
                                     .or(session["handle"].as_str())
@@ -1980,7 +2007,10 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                 match provider_obj.get_authenticated_user(token).await {
                     Ok(user) => {
                         let login = user["login"].as_str().unwrap_or("github-user");
-                        let id = user["id"].as_i64().map(|v| v.to_string()).unwrap_or_default();
+                        let id = user["id"]
+                            .as_i64()
+                            .map(|v| v.to_string())
+                            .unwrap_or_default();
                         let avatar = user["avatar_url"].as_str();
                         let name = user["name"].as_str().unwrap_or(login);
                         crate::db::queries::create_integration(
@@ -1999,10 +2029,11 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                             Some("token"), // §6: explicit auth_mode
                         )
                         .await?;
-                        let seeds =
-                            crate::db::queries::delete_seed_integrations(&state.db, user_id, "github")
-                                .await
-                                .unwrap_or(0);
+                        let seeds = crate::db::queries::delete_seed_integrations(
+                            &state.db, user_id, "github",
+                        )
+                        .await
+                        .unwrap_or(0);
                         output_json(&serde_json::json!({
                             "status": "connected",
                             "provider": "github",
@@ -2086,7 +2117,9 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                             )
                             .await?;
                             let seeds = crate::db::queries::delete_seed_integrations(
-                                &state.db, user_id, "telegram-bot",
+                                &state.db,
+                                user_id,
+                                "telegram-bot",
                             )
                             .await
                             .unwrap_or(0);
@@ -2156,7 +2189,7 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                 && state.config.slack_client_secret.is_some()
             {
                 output_json(
-                     &serde_json::json!({"status": "not_connected", "provider": "slack", "method": "oauth", "auth_url": oauth_auth_url(state, "slack").await?, "redirect_uri": oauth_redirect_uri(state), "hint": "Open the auth_url in a browser to complete OAuth authorization."}),
+                    &serde_json::json!({"status": "not_connected", "provider": "slack", "method": "oauth", "auth_url": oauth_auth_url(state, "slack").await?, "redirect_uri": oauth_redirect_uri(state), "hint": "Open the auth_url in a browser to complete OAuth authorization."}),
                 );
             } else {
                 output_json(
@@ -2242,7 +2275,7 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                 && state.config.youtube_client_secret.is_some()
             {
                 output_json(
-                     &serde_json::json!({"status": "not_connected", "provider": "youtube", "method": "oauth", "auth_url": oauth_auth_url(state, "youtube").await?, "redirect_uri": oauth_redirect_uri(state), "hint": "Open the auth_url in a browser to complete OAuth authorization."}),
+                    &serde_json::json!({"status": "not_connected", "provider": "youtube", "method": "oauth", "auth_url": oauth_auth_url(state, "youtube").await?, "redirect_uri": oauth_redirect_uri(state), "hint": "Open the auth_url in a browser to complete OAuth authorization."}),
                 );
             } else {
                 output_json(
@@ -2305,9 +2338,22 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
         }
         "threads" => {
             if state.config.threads_app_id.is_some() && state.config.threads_app_secret.is_some() {
-                output_json(
-                    &serde_json::json!({"status": "not_connected", "provider": "threads", "method": "oauth", "auth_url": oauth_auth_url(state, "threads").await?, "redirect_uri": oauth_redirect_uri(state), "hint": "Open the auth_url in a browser to complete OAuth authorization."}),
-                );
+                // ─── THE PROVIDER'S OWN PREFLIGHT ──────────────────
+                // The same question the REST route, the MCP tool and
+                // `connect --wait` ask, for the same reason: Meta's
+                // consent gate redirects the BROWSER to its own page and
+                // never comes back to our callback, so a shell user sees
+                // the dead end too. An agent driving this command needs
+                // the reason to tell the founder what to fix.
+                let warning = match state.providers.get(provider) {
+                    Some(p) => p.connect_preflight().await,
+                    None => None,
+                };
+                let mut payload = serde_json::json!({"status": "not_connected", "provider": "threads", "method": "oauth", "auth_url": oauth_auth_url(state, "threads").await?, "redirect_uri": oauth_redirect_uri(state), "hint": "Open the auth_url in a browser to complete OAuth authorization."});
+                if let Some(w) = warning {
+                    payload["warning"] = serde_json::Value::String(w);
+                }
+                output_json(&payload);
             } else {
                 output_json(
                     &serde_json::json!({"status": "not_configured", "provider": "threads", "requires": ["THREADS_APP_ID", "THREADS_APP_SECRET"], "hint": "Threads uses Meta credentials. Set THREADS_APP_ID and THREADS_APP_SECRET in ~/.switchpost/.env"}),
@@ -2372,7 +2418,11 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                     })).collect::<Vec<_>>(),
                     "hint": "Already connected.",
                 }));
-            } else if state.config.provider_credentials("google_my_business").is_some() {
+            } else if state
+                .config
+                .provider_credentials("google_my_business")
+                .is_some()
+            {
                 output_json(&serde_json::json!({
                     "status": "not_connected",
                     "provider": "google_my_business", "method": "oauth", "auth_url": oauth_auth_url(state, "google_my_business").await?, "redirect_uri": oauth_redirect_uri(state),
@@ -3296,11 +3346,9 @@ async fn handle_campaigns_with_state(
     use crate::mcp::tools_campaigns as c;
 
     let value = match action {
-        CampaignAction::List => {
-            c::handle_campaign_list(state, &c::CampaignListInput {})
-                .await
-                .map(|r| r.0)
-        }
+        CampaignAction::List => c::handle_campaign_list(state, &c::CampaignListInput {})
+            .await
+            .map(|r| r.0),
         CampaignAction::Create {
             name,
             description,
@@ -3361,7 +3409,10 @@ async fn handle_campaigns_with_state(
             c::handle_campaign_delete(state, &input).await.map(|r| r.0)
         }
     };
-    output_json(&truncate_json_strings(&value.map_err(|e| anyhow::anyhow!("{e}"))?, 500));
+    output_json(&truncate_json_strings(
+        &value.map_err(|e| anyhow::anyhow!("{e}"))?,
+        500,
+    ));
     Ok(())
 }
 
@@ -3382,11 +3433,9 @@ async fn handle_signatures_with_state(
     use crate::mcp::tools_admin as a;
 
     let value = match action {
-        SignatureAction::List => {
-            a::handle_signatures_list(state, &a::SignatureListInput {})
-                .await
-                .map(|r| r.0)
-        }
+        SignatureAction::List => a::handle_signatures_list(state, &a::SignatureListInput {})
+            .await
+            .map(|r| r.0),
         SignatureAction::Create {
             name,
             content,
@@ -3397,7 +3446,9 @@ async fn handle_signatures_with_state(
                 content,
                 provider,
             };
-            a::handle_signatures_create(state, &input).await.map(|r| r.0)
+            a::handle_signatures_create(state, &input)
+                .await
+                .map(|r| r.0)
         }
         SignatureAction::Update {
             signature_id,
@@ -3411,14 +3462,21 @@ async fn handle_signatures_with_state(
                 content,
                 provider,
             };
-            a::handle_signatures_update(state, &input).await.map(|r| r.0)
+            a::handle_signatures_update(state, &input)
+                .await
+                .map(|r| r.0)
         }
         SignatureAction::Delete { signature_id } => {
             let input = a::SignatureDeleteInput { signature_id };
-            a::handle_signatures_delete(state, &input).await.map(|r| r.0)
+            a::handle_signatures_delete(state, &input)
+                .await
+                .map(|r| r.0)
         }
     };
-    output_json(&truncate_json_strings(&value.map_err(|e| anyhow::anyhow!("{e}"))?, 500));
+    output_json(&truncate_json_strings(
+        &value.map_err(|e| anyhow::anyhow!("{e}"))?,
+        500,
+    ));
     Ok(())
 }
 
@@ -3426,13 +3484,19 @@ async fn handle_ai_with_state(state: &AppState, action: AiAction) -> anyhow::Res
     use crate::mcp::tools_ai as ai;
 
     let value = match action {
-        AiAction::Generate { topic, tone, length } => {
+        AiAction::Generate {
+            topic,
+            tone,
+            length,
+        } => {
             let input = ai::AiGeneratePostInput {
                 topic,
                 tone,
                 length,
             };
-            ai::handle_ai_generate_post(state, &input).await.map(|r| r.0)
+            ai::handle_ai_generate_post(state, &input)
+                .await
+                .map(|r| r.0)
         }
         AiAction::Bulk {
             topic,
@@ -3446,11 +3510,15 @@ async fn handle_ai_with_state(state: &AppState, action: AiAction) -> anyhow::Res
                 tone,
                 count: Some(count),
             };
-            ai::handle_ai_generate_bulk(state, &input).await.map(|r| r.0)
+            ai::handle_ai_generate_bulk(state, &input)
+                .await
+                .map(|r| r.0)
         }
         AiAction::Improve { content } => {
             let input = ai::AiContentInput { content };
-            ai::handle_ai_improve_writing(state, &input).await.map(|r| r.0)
+            ai::handle_ai_improve_writing(state, &input)
+                .await
+                .map(|r| r.0)
         }
         AiAction::Summarize { content } => {
             let input = ai::AiContentInput { content };
@@ -3458,14 +3526,19 @@ async fn handle_ai_with_state(state: &AppState, action: AiAction) -> anyhow::Res
         }
         AiAction::Hashtags { content } => {
             let input = ai::AiContentInput { content };
-            ai::handle_ai_suggest_hashtags(state, &input).await.map(|r| r.0)
+            ai::handle_ai_suggest_hashtags(state, &input)
+                .await
+                .map(|r| r.0)
         }
         AiAction::Tone { content, tone } => {
             let input = ai::AiChangeToneInput { content, tone };
             ai::handle_ai_change_tone(state, &input).await.map(|r| r.0)
         }
     };
-    output_json(&truncate_json_strings(&value.map_err(|e| anyhow::anyhow!("{e}"))?, 500));
+    output_json(&truncate_json_strings(
+        &value.map_err(|e| anyhow::anyhow!("{e}"))?,
+        500,
+    ));
     Ok(())
 }
 
@@ -3478,11 +3551,9 @@ async fn handle_rss_with_state(state: &AppState, action: RssAction) -> anyhow::R
     use crate::mcp::tools_rss as rss_tools;
 
     let value = match action {
-        RssAction::List => {
-            rss_tools::handle_rss_feed_list(state, &rss_tools::RssFeedListInput {})
-                .await
-                .map(|r| r.0)
-        }
+        RssAction::List => rss_tools::handle_rss_feed_list(state, &rss_tools::RssFeedListInput {})
+            .await
+            .map(|r| r.0),
         RssAction::Add {
             feed_url,
             integration_id,
@@ -4902,12 +4973,21 @@ mod tests {
         let saved = current_output_format();
         set_output_format(true, false);
         let ok_text = crate::cli::platforms::render_emit(&Ok(serde_json::json!({"a": 1})));
-        assert!(ok_text.starts_with('{'), "--json must reach platform shims, got: {ok_text}");
+        assert!(
+            ok_text.starts_with('{'),
+            "--json must reach platform shims, got: {ok_text}"
+        );
         let err_text = crate::cli::platforms::render_emit::<serde_json::Value>(&Err("boom".into()));
-        assert!(err_text.starts_with('{'), "--json must reach error arm, got: {err_text}");
+        assert!(
+            err_text.starts_with('{'),
+            "--json must reach error arm, got: {err_text}"
+        );
         set_output_format(false, true);
         let pretty_text = crate::cli::platforms::render_emit(&Ok(serde_json::json!({"a": 1})));
-        assert!(pretty_text.starts_with('{'), "--pretty must reach platform shims");
+        assert!(
+            pretty_text.starts_with('{'),
+            "--pretty must reach platform shims"
+        );
         set_output_format(false, false);
         let toon_text = crate::cli::platforms::render_emit(&Ok(serde_json::json!({"a": 1})));
         assert!(!toon_text.starts_with('{'), "default must stay TOON");
@@ -4958,16 +5038,14 @@ async fn handle_connect_browser(
 
 /// `autopost`: render a Deckmill carousel, upload it, and stage (or
 /// publish) it on the given platforms.
-async fn handle_autopost(
-    state: &AppState,
-    options: &super::AutopostOptions,
-) -> anyhow::Result<()> {
+async fn handle_autopost(state: &AppState, options: &super::AutopostOptions) -> anyhow::Result<()> {
     // 1. The slide specs — Deckmill's own contract, read verbatim.
     let raw = tokio::fs::read_to_string(&options.slides)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to read {}: {e}", options.slides))?;
-    let specs: Vec<serde_json::Value> = serde_json::from_str(&raw)
-        .map_err(|e| anyhow::anyhow!("{} is not a JSON array of slide specs: {e}", options.slides))?;
+    let specs: Vec<serde_json::Value> = serde_json::from_str(&raw).map_err(|e| {
+        anyhow::anyhow!("{} is not a JSON array of slide specs: {e}", options.slides)
+    })?;
 
     // 2. The target integrations.
     let user_id = resolve_user(state).await?;
@@ -5100,9 +5178,7 @@ async fn handle_autopost(
             .with_timezone(&chrono::Utc);
         let first = scheduled_at.expect("checked above");
         if until <= first {
-            return Err(anyhow::anyhow!(
-                "--repeat-until must be after --schedule"
-            ));
+            return Err(anyhow::anyhow!("--repeat-until must be after --schedule"));
         }
         let max_copies = ((until - first).num_days() / days as i64) + 1;
         if max_copies > 100 {
@@ -5338,7 +5414,10 @@ mod tests_cli {
     /// a two-state field cannot express "leave it alone" AND "clear it".
     #[test]
     fn a_value_replaces_and_a_clear_clears() {
-        assert_eq!(double_state(Some("new".into()), false), Some(Some("new".into())));
+        assert_eq!(
+            double_state(Some("new".into()), false),
+            Some(Some("new".into()))
+        );
         assert_eq!(double_state(None, true), Some(None));
     }
 

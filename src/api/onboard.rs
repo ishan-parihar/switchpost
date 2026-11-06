@@ -194,7 +194,10 @@ pub async fn onboard_page(
     for provider in &sorted {
         let id = provider.identifier();
         let name = provider.name();
-        let has_creds = state.config.provider_credentials(id).is_some();
+        // The LIVE configured state, not the Config snapshot: the
+        // Telegram USER channel's credentials can be supplied from the
+        // app, and this page has to reflect that without a restart.
+        let has_creds = state.provider_configured(id);
         let uses_oauth = provider.uses_oauth();
         let is_onetime = provider.one_time_token();
         let redirect_uri = format!("{}/api/auth/callback", state.config.app_url);
@@ -614,7 +617,7 @@ pub async fn public_connect(
 ) -> Result<Response, AppError> {
     let user_id = resolve_authed_user(&headers, query.token.as_deref(), &state.config.jwt_secret)?;
 
-    if state.config.provider_credentials(&provider).is_none() {
+    if !state.provider_configured(&provider) {
         // A known-but-unset provider and an outright typo need different
         // advice, and only `provider_meta` knows the former's env hint.
         let known = all_known_identifiers();

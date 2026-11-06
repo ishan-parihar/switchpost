@@ -38,6 +38,18 @@
   let verifying = $state(false);
   let popupBlocked = $state(false);
 
+  // ─── THE PROVIDER'S SIGN-IN WARNING ────────────────────────────
+  // Some providers can refuse a sign-in at a step OUR server never sees.
+  // Meta's Threads is the one we have measured: its consent gate
+  // redirects the BROWSER to Meta's own privacy/consent page with
+  // `error_code=1349003` and never comes back to our callback, so the
+  // founder is left on a Meta screen with nothing to do about it.
+  //
+  // The connect route asks the provider whether it knows of such a gate
+  // and returns the answer alongside the URL. This shows it, so the
+  // founder sees the reason and the fix BEFORE they hit the wall.
+  let warning = $state("");
+
   function reset() {
     phase = "idle";
     errorMsg = "";
@@ -45,6 +57,7 @@
     botCode = "";
     verifying = false;
     popupBlocked = false;
+    warning = "";
   }
 
   function handleClose() {
@@ -102,6 +115,9 @@
         phase = "idle";
         return;
       }
+
+      // The provider's own warning, if it named one.
+      warning = r.data?.warning ?? "";
 
       // Server completed the flow itself (env-var credentials already present).
       if (r.data?.state === "auto") {
@@ -174,6 +190,28 @@
 
 <Modal open={show} title="Connect {providerLabel(provider)}" onclose={handleClose}>
   <div class="space-y-4">
+    <!--
+      THE WARNING IS ABOVE THE PHASE BLOCK, NOT INSIDE IT.
+
+      The warning arrives with the authorization URL, which is the moment
+      the phase flips from "idle" to "awaiting". A warning rendered only
+      in the idle branch therefore disappears EXACTLY when the founder
+      is about to hit Meta's consent wall — which is the moment it
+      matters. It stays up for the whole attempt instead.
+
+      It is a block of TEXT, not markup: the server builds it, and a
+      provider's answer is not HTML. Rendering it as text means a
+      provider can never inject markup into the page.
+    -->
+    {#if warning}
+      <div
+        class="text-sm text-content bg-warning/10 border border-warning/20 rounded-lg px-3 py-2 whitespace-pre-line"
+        role="status"
+      >
+        {warning}
+      </div>
+    {/if}
+
     {#if phase === "bot_code"}
       <p class="text-sm text-muted">1. Open this bot:</p>
       <a

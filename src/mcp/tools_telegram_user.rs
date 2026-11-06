@@ -70,13 +70,29 @@ pub struct TuSignInOutput {
     pub data: serde_json::Value,
 }
 
+/// The Telegram user client, or a message that says what is missing.
+///
+/// The manager always exists now (it can be UNCONFIGURED rather than
+/// absent), so the check is "does it have credentials?" rather than "is
+/// it there?". The message names the two variables and the page they come
+/// from, because an agent driving this tool can act on it.
 fn client_manager(
     state: &AppState,
 ) -> Result<&std::sync::Arc<crate::services::telegram_client::TelegramClientManager>, String> {
-    state.telegram_client_manager.as_ref().ok_or_else(|| {
-        "Telegram user client not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH."
+    let mgr = state.telegram_client_manager.as_ref().ok_or_else(|| {
+        "Telegram user client not available in this process. Set TELEGRAM_API_ID and \
+         TELEGRAM_API_HASH."
             .to_string()
-    })
+    })?;
+    if mgr.credentials().is_none() {
+        return Err(
+            "Telegram user client has no API credentials. Set TELEGRAM_API_ID and \
+             TELEGRAM_API_HASH (from https://my.telegram.org) in ~/.switchpost/.env, or POST them \
+             to /api/integrations/connect/telegram-user/credentials."
+                .to_string(),
+        );
+    }
+    Ok(mgr)
 }
 
 pub async fn handle_tu_auth_status(state: &AppState) -> Result<Json<TuAuthStatusOutput>, String> {

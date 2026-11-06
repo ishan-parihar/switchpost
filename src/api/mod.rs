@@ -89,6 +89,31 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Is this provider CONFIGURED right now?
+    ///
+    /// Usually this is `config.provider_credentials(id).is_some()`, which
+    /// reads the environment the process started with.
+    ///
+    /// The exception is `telegram-user`, whose MTProto credentials the
+    /// founder can now supply from the app (`POST
+    /// /api/integrations/connect/telegram-user/credentials`). Those are
+    /// written to the config file AND swapped into the live client
+    /// manager, so the live manager is the authority — the `Config`
+    /// snapshot still holds the OLD value (or none) until the process
+    /// restarts.
+    ///
+    /// Reading `Config` here would make the channels screen offer a
+    /// Connect button for a channel that is already connected, and hide
+    /// the credential form for one that is not, in the same response.
+    pub fn provider_configured(&self, id: &str) -> bool {
+        if id == "telegram-user" {
+            if let Some(mgr) = self.telegram_client_manager.as_ref() {
+                return mgr.credentials().is_some();
+            }
+        }
+        self.config.provider_credentials(id).is_some()
+    }
+
     /// Find one integration by its `(provider_identifier, internal_id)` pair —
     /// the key a platform uses for a specific sub-account (LinkedIn Page, FB
     /// page, IG account, Discord channel, …), as opposed to the
@@ -337,6 +362,14 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/integrations/connect/whatsapp/status",
             axum::routing::get(integrations::whatsapp_status),
+        )
+        .route(
+            "/api/integrations/connect/telegram-user/credentials",
+            axum::routing::post(integrations::telegram_user_credentials),
+        )
+        .route(
+            "/api/integrations/connect/telegram-user/status",
+            axum::routing::get(integrations::telegram_user_status),
         )
         .route(
             "/api/integrations/connect/telegram-user/request-code",
@@ -1048,9 +1081,7 @@ pub(crate) async fn streak_check(
 ) -> Result<axum::Json<serde_json::Value>, crate::error::AppError> {
     use crate::error::AppError;
     let zone = match query.tz.as_deref() {
-        Some(name) => {
-            Some(crate::api::calendar::parse_zone(name).map_err(AppError::BadRequest)?)
-        }
+        Some(name) => Some(crate::api::calendar::parse_zone(name).map_err(AppError::BadRequest)?),
         None => None,
     };
     // Computed, not stored: the scheduler's counter stays as a cheap

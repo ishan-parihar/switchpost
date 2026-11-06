@@ -7581,3 +7581,85 @@ Work Log:
 Stage Summary:
 - Measured that the deployed binary already serves the correct limit, so no redeploy was spent.
 - The rule is recorded: a non-empty `frontend/` diff is necessary for a redeploy, not sufficient.
+---
+Task ID: channel-login-fixes
+Agent: Jcode
+Task: fix the two reported channel-login failures: Telegram (user) login dead end, and Threads
+  login bouncing to Meta's privacy/consent page with error_code=1349003
+
+Work Log:
+- TELEGRAM: the credentials were simply absent from the deployment. The VPS
+  `~/.switchpost/.env` is a symlink to `/home/nerd/switchpost/.env`, which carries NO `TELEGRAM_*`
+  lines, so `main.rs` built `telegram_client_manager = None` and every route answered "Telegram is
+  not configured on this server ... set TELEGRAM_API_ID and TELEGRAM_API_HASH ... and restart" —
+  three things the founder cannot do from a browser. The local `.env` HAS the pair, so this was a
+  deployment gap surfacing as a code dead end.
+
+  Backend (landed earlier in this session): `config::persist_env_vars` writes `~/.switchpost/.env`
+  idempotently; `TelegramClientManager` now always exists (unconfigured when creds are absent),
+  carries a `credentials()` accessor and a `reconfigure()` that hot-swaps; `POST
+  /api/integrations/connect/telegram-user/credentials` validates, persists FIRST, then swaps
+  (persist-before-swap so a failed write cannot leave a channel that works until the next
+  restart); `GET .../status` reports presence; `AppState::provider_configured()` special-cases
+  `telegram-user`. This round added the FRONTEND half — the founder's app now collects the pair.
+
+  Measured against the real endpoints: the write appends to the existing `.env` without disturbing
+  `SWEEP`/`APP_PASSWORD`, `configured` flips true, and the live MTProto client reaches Telegram's
+  API (an rpc 420 FLOOD_WAIT on the test number, which only a genuinely authorised client gets).
+
+- THREADS: root-caused on evidence, not speculation. Three measurements, each with a control:
+    (a) `grant_type=client_credentials` with the configured pair RETURNS an app token (a wrong
+        secret is rejected) -> the credential pair is valid.
+    (b) `graph.threads.net/debug_token` on that token answers "The app associated with this request
+        is in dev mode." The SAME probe on the sibling FACEBOOK app in the same `.env` answers
+        "Invalid OAuth access token" -> the message is specific to the Threads app.
+    (c) The app is NOT readable through graph.facebook.com at all ("Invalid application ID") ->
+        the Threads app is a distinct app type, which is why the same probe returns Unknown there.
+  Meta's get-started page states the consequence: "Threads testers can grant your app these
+  permissions at any time. In order for app users without a role on your app to be able to grant
+  your app these permissions, each permission must first be approved through App Review, and your
+  app must be published." So the founder's Threads account cannot grant the scopes, and Meta's
+  consent gate redirects the browser to its own page and NEVER RETURNS to our callback.
+
+  The earlier scope-narrowing fix (1f16f12) was necessary and not sufficient: the URL in the
+  founder's report already carried the narrowed five.
+
+  Fix: `social::threads_app` probes the app's mode through `debug_token` and produces a message
+  naming both causes Meta documents (dev-mode/unreviewed app with no role on the account, and a
+  Threads account tied to an Instagram BUSINESS account), the exact fix (App roles -> Add People
+  -> Threads Tester, then accept under Settings -> Account -> Website permissions), and the manual
+  escape hatch (`www.threads.com/privacy/consent/?flow=gdp`). It is exposed through a new
+  `SocialProvider::connect_preflight()` trait hook and surfaced by the REST connect route (as a
+  `warning` next to the auth URL, and folded into the HTTPS gate when both fire), the MCP
+  `integrations_connect` tool, and all three CLI connect paths — because a Shell-only founder (and
+  an agent driving them) hits the same dead end.
+
+- THE TRAP I HIT MYSELF, recorded because it would have silently re-closed the defect: the
+  preflight was first written as an INHERENT method on `ThreadsProvider` with the same name as the
+  trait's. The registry hands out `Arc<dyn SocialProvider>`, so every caller resolved to the
+  TRAIT's default `None`. The inherent method went dead code, the build stayed green, and every
+  connect would have returned NO warning. `tests::the_preflight_is_reachable_through_the_trait_object`
+  now pins it by calling through the trait object exactly as production does.
+
+- LIVE VERIFICATION of the production probe: a scratch integration test ran
+  `threads_app::probe_app_mode` against the real `.env` credentials and returned `DevMode` — the
+  Rust path is exercised against Meta, not just against a canned fixture. A live server instance
+  then served both messages: over http:// the HTTPS refusal now ALSO names the app's dev mode (one
+  round trip, both facts), and over https:// the auth URL is returned with the warning attached.
+
+Stage Summary:
+- Telegram user login is actionable from the app: a status check gates the phone step, a paste-in
+  form saves the credentials to the config file and hot-swaps them, and no restart is needed.
+- Threads login now names the real cause and both Meta-side fixes before the founder is
+  redirected into Meta's opaque consent page.
+- 574/574 backend tests, svelte-check 0 errors, pnpm build, and the hex/tailwind/ink gates all
+  pass. The Rust probe is validated against live Meta.
+
+Known issues / follow-ups:
+- The Threads app still needs its tester role added (or to be published with App Review) — that is
+  the founder's action at developers.facebook.com, and Meta offers no API for it: both
+  `/{app-id}/accounts` (POST, add tester) and `/{app-id}/roles` were measured and are refused with
+  "Object ... does not exist" for a Threads app.
+- The frontend is built but the release binary was NOT rebuilt, so the VPS still serves the old
+  bundle until `make deploy`. The Telegram credentials endpoint is reachable over the REST API
+  today; the paste-in form needs the redeploy.

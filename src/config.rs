@@ -555,17 +555,79 @@ pub(crate) fn generate_random_password(len: usize) -> String {
 /// Returns the write error instead of only warning so callers that
 /// report the outcome to a human (e.g. the CLI) can fail loudly.
 pub(crate) fn persist_app_password(password: &str) -> anyhow::Result<std::path::PathBuf> {
+    persist_env_vars(&[("APP_PASSWORD", password)])
+}
+
+/// Persist one or more `KEY=VALUE` pairs into `~/.switchpost/.env`,
+/// creating the directory if needed. Idempotent — an existing line for a
+/// key is REPLACED, and a key that is not in the file is appended.
+///
+/// ─── WHY THIS EXISTS ────────────────────────────────────────
+/// The Telegram USER channel needs `TELEGRAM_API_ID` and
+/// `TELEGRAM_API_HASH` from https://my.telegram.org before it can
+/// build an MTProto client at all. Until now the only way to supply
+/// them was to edit the file on the server by hand and restart, so the
+/// founder's report was "Telegram is not configured on this server"
+/// with no way forward from the UI.
+///
+/// This is the same seam `persist_app_password` already used, generalised
+/// to N keys, so a credential the founder pastes into the app is written
+/// to the SAME file the process reads at startup and survives a restart.
+///
+/// The value is written VERBATIM, so a value containing spaces or `#`
+/// would be mis-parsed by dotenvy on the next load. The callers pass
+/// values that are either numeric or a hex/bot-token string, and the
+/// writer refuses a value with a newline (which would inject a second
+/// line into the file) rather than writing something that parses as a
+/// different key.
+pub(crate) fn persist_env_vars(pairs: &[(&str, &str)]) -> anyhow::Result<std::path::PathBuf> {
+    for (key, value) in pairs {
+        if !key
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            || key.is_empty()
+        {
+            anyhow::bail!("Refusing to write an env var with an invalid name: {key:?}");
+        }
+        if value.contains('\n') || value.contains('\r') {
+            anyhow::bail!("Refusing to write {key}: the value contains a newline.");
+        }
+    }
+
     let dir = config_dir();
     std::fs::create_dir_all(&dir)?;
     let env_path = dir.join(".env");
     let existing = std::fs::read_to_string(&env_path).unwrap_or_default();
-    let mut lines: Vec<String> = existing
-        .lines()
-        .filter(|l| !l.starts_with("APP_PASSWORD="))
-        .map(|l| l.to_string())
-        .collect();
-    lines.push(format!("APP_PASSWORD={password}"));
-    let body = lines.join("\n") + "\n";
+
+    let mut lines: Vec<String> = existing.lines().map(|l| l.to_string()).collect();
+    for (key, value) in pairs {
+        let prefix = format!("{key}=");
+        // Replace the first occurrence and drop any duplicates, so the
+        // file never ends up with two lines for one key (dotenvy would
+        // take the first, and a stale first line is a silent surprise).
+        let mut replaced = false;
+        let mut kept: Vec<String> = Vec::with_capacity(lines.len() + 1);
+        for line in lines.drain(..) {
+            if line.starts_with(&prefix) {
+                if !replaced {
+                    kept.push(format!("{key}={value}"));
+                    replaced = true;
+                }
+                // A duplicate is dropped rather than kept.
+            } else {
+                kept.push(line);
+            }
+        }
+        if !replaced {
+            kept.push(format!("{key}={value}"));
+        }
+        lines = kept;
+    }
+
+    let mut body = lines.join("\n");
+    if !body.is_empty() {
+        body.push('\n');
+    }
     std::fs::write(&env_path, body)?;
     Ok(env_path)
 }
@@ -641,20 +703,14 @@ mod tests {
 
     #[test]
     fn port_coverage_accepts_matching_port() {
-        assert!(frontend_origins_cover_port(
-            "https://localhost:6544",
-            6544
-        ));
+        assert!(frontend_origins_cover_port("https://localhost:6544", 6544));
     }
 
     #[test]
     fn port_coverage_rejects_stale_port() {
         // The exact drift that 403'd every browser write: env pinned to
         // 6543, serve running on 6544.
-        assert!(!frontend_origins_cover_port(
-            "https://localhost:6543",
-            6544
-        ));
+        assert!(!frontend_origins_cover_port("https://localhost:6543", 6544));
     }
 
     #[test]
@@ -674,7 +730,10 @@ mod tests {
 
     #[test]
     fn port_coverage_ignores_unparseable_entries() {
-        assert!(frontend_origins_cover_port("not a url, https://localhost:6544", 6544));
+        assert!(frontend_origins_cover_port(
+            "not a url, https://localhost:6544",
+            6544
+        ));
         // Nothing parseable at all — never claim coverage.
         assert!(!frontend_origins_cover_port("*", 6544));
     }
@@ -699,7 +758,10 @@ mod tests {
         );
 
         // A cleared line is "unset", not "use the empty string".
-        assert_eq!(resolve_whatsapp_store_dir(Some("".into())), "./data/whatsapp");
+        assert_eq!(
+            resolve_whatsapp_store_dir(Some("".into())),
+            "./data/whatsapp"
+        );
         assert_eq!(
             resolve_whatsapp_store_dir(Some("   ".into())),
             "./data/whatsapp"

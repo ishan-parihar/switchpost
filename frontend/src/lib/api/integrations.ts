@@ -32,6 +32,24 @@ export interface ConnectApiKeyRequest {
   verification_code?: string;
 }
 
+/**
+ * The Telegram USER channel's MTProto credentials.
+ *
+ * Telegram's user client is not an OAuth flow — it needs an API id and
+ * hash from https://my.telegram.org, and there is no token to paste.
+ */
+export interface TelegramUserCredentialsRequest {
+  api_id: string;
+  api_hash: string;
+}
+
+/** Whether the Telegram USER channel has the credentials it needs. */
+export interface TelegramUserStatus {
+  configured: boolean;
+  requires: string[];
+  help_url: string;
+}
+
 export interface ConnectWeb3Request {
   provider: string;
   address: string;
@@ -91,7 +109,7 @@ export const integrationsApi = {
   list: () => api.get<{ integrations: Integration[] }>("/api/integrations"),
   /** Every registered provider, with the content limit the server enforces. */
   listProviders: () => api.get<ProviderStatus[]>("/api/providers"),
-  connect: (provider: string) => api.get<{ url: string; state: string }>(`/api/integrations/connect/${provider}`),
+  connect: (provider: string) => api.get<{ url: string; state: string; warning?: string }>(`/api/integrations/connect/${provider}`),
   connectApiKey: (body: ConnectApiKeyRequest) =>
     api.post<{ integration: Integration }>("/api/integrations/connect/api-key", body),
   connectWeb3: (body: ConnectWeb3Request) =>
@@ -133,6 +151,28 @@ export const integrationsApi = {
     api.post<{ status: string }>("/api/integrations/connect/telegram-user/request-code", { phone }),
   telegramUserSignIn: (code: string) =>
     api.post<{ integration: Integration }>("/api/integrations/connect/telegram-user/sign-in", { code }),
+  /**
+   * Whether the Telegram USER channel has its MTProto credentials.
+   *
+   * The channels screen asks this BEFORE it shows the phone-number step:
+   * without an API id and hash the sign-in cannot start at all, and the
+   * founder would type a phone number that is rejected for a reason
+   * the phone-number field does not explain.
+   */
+  telegramUserStatus: () =>
+    api.get<TelegramUserStatus>("/api/integrations/connect/telegram-user/status"),
+  /**
+   * Save the Telegram USER channel's MTProto credentials.
+   *
+   * The server writes them to the config file AND swaps them into the
+   * live client, so the channel works on the next sign-in with no
+   * restart.
+   */
+  telegramUserCredentials: (body: TelegramUserCredentialsRequest) =>
+    api.post<{ status: string; saved_to: string }>(
+      "/api/integrations/connect/telegram-user/credentials",
+      body
+    ),
   connectTelegramBotToken: (token: string) =>
     api.post<{ integration: Integration }>("/api/integrations/connect/telegram-bot/token", { token }),
   listTargets: (integrationId: string) =>

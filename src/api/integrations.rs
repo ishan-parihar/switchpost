@@ -31,6 +31,23 @@ pub struct ConnectQuery {
 pub struct ConnectResponse {
     pub url: String,
     pub state: String,
+    /// A warning about this provider's sign-in, when the provider can
+    /// name one.
+    ///
+    /// ─── WHY THIS FIELD EXISTS ────────────────────────────────
+    /// Meta's Threads consent gate refuses some sign-ins WITHOUT ever
+    /// returning to our callback: the browser is redirected to Meta's own
+    /// privacy/consent page with `error_code=1349003` in the tail, and
+    /// the founder is left on a Meta screen with no next step. The
+    /// connect handler cannot see that failure, because it happens after
+    /// the redirect.
+    ///
+    /// So the handler asks the provider, BEFORE handing out the URL,
+    /// whether it knows of a gate. The answer rides along with the URL
+    /// and the connect dialog shows it — which turns a dead end into a
+    /// reason and a fix, which is what the founder's report needed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,7 +85,7 @@ pub async fn connect(
     Query(query): Query<ConnectQuery>,
 ) -> Result<Json<ConnectResponse>, AppError> {
     // Check credentials first
-    if state.config.provider_credentials(&provider).is_none() {
+    if !state.provider_configured(&provider) {
         return Err(AppError::BadRequest(
             format!("Provider '{provider}' is not configured. Set the corresponding environment variables first.")
         ));
@@ -122,6 +139,7 @@ pub async fn connect(
             return Ok(Json(ConnectResponse {
                 url: instructions,
                 state: "one-time-token".into(),
+                warning: None,
             }));
         }
 
@@ -169,6 +187,7 @@ pub async fn connect(
                 provider, token.name
             ),
             state: "auto".into(),
+            warning: None,
         }));
     }
 
@@ -179,6 +198,27 @@ pub async fn connect(
         &state.config.app_url,
     )
     .map_err(AppError::BadRequest)?;
+
+    // ─── THE PROVIDER'S OWN PREFLIGHT ──────────────────────────
+    // Ask the provider whether it knows of a gate that would refuse
+    // this sign-in, BEFORE the founder is sent to the consent screen.
+    //
+    // Threads is the one that needs it: Meta's consent gate redirects
+    // the BROWSER to its own privacy/consent page and never comes back
+    // to our callback, so a failure there is invisible to every handler
+    // of ours. The founder's report was that dead end.
+    //
+    // The warning is NOT a refusal. The founder may have fixed the
+    // underlying cause outside the app already, and the manual consent
+    // escape hatch is in the message — so the answer is information,
+    // and the founder chooses.
+    //
+    // It runs BEFORE the HTTPS gate, and it is folded into that gate's
+    // message when both fire. A founder whose instance is on http:// AND
+    // whose Threads app is in dev mode would otherwise fix the URL,
+    // retry, and only THEN learn about the app — two round trips for
+    // two facts we already have.
+    let warning = provider_obj.connect_preflight().await;
 
     // ─── THE HTTPS GATE ────────────────────────────────────────
     // Refuse a connect that is KNOWN to fail at the provider's consent
@@ -191,13 +231,21 @@ pub async fn connect(
     // "Connection failed" into a message that names the exact env var to
     // change.
     if provider_obj.requires_https_redirect() && !redirect_uri.starts_with("https://") {
-        return Err(AppError::ConnectFailed(format!(
+        let mut message = format!(
             "{provider} needs an HTTPS callback URL, but this instance is configured with \
              '{redirect_uri}' (from APP_URL). Set APP_URL=https://… — the server then \
              auto-generates a self-signed certificate — or put the instance behind a \
              reverse proxy / tunnel with a public HTTPS URL. Meta rejects http:// \
              redirect URIs even for localhost."
-        )));
+        );
+        if let Some(w) = &warning {
+            message.push_str(
+                "\n\nThere is a second thing to fix, and it would bite you right \
+                              after this one:\n\n",
+            );
+            message.push_str(w);
+        }
+        return Err(AppError::ConnectFailed(message));
     }
 
     tracing::info!("OAuth connect {provider}: redirect_uri={redirect_uri}");
@@ -220,6 +268,7 @@ pub async fn connect(
     Ok(Json(ConnectResponse {
         url: auth_url.url,
         state: oauth_state,
+        warning,
     }))
 }
 
@@ -443,7 +492,11 @@ pub async fn list_providers(
     let mut statuses = Vec::new();
     for provider in all {
         let id = provider.identifier();
-        let has_creds = state.config.provider_credentials(id).is_some();
+        // `provider_configured` reads the LIVE state, not the Config
+        // snapshot, so a channel whose credentials the founder just
+        // pasted in the app is reported as configured on the very next
+        // read — with no restart in between.
+        let has_creds = state.provider_configured(id);
         statuses.push(ProviderStatus {
             identifier: id.to_string(),
             name: provider.name().to_string(),
@@ -741,6 +794,7 @@ pub async fn verify_one_time_token(
     Ok(Json(ConnectResponse {
         url: format!("Connected to {} as {}", provider_obj.name(), token.name),
         state: "connected".into(),
+        warning: None,
     }))
 }
 
@@ -911,6 +965,137 @@ pub async fn whatsapp_status(
     ))
 }
 
+/// POST /api/integrations/connect/telegram-user/credentials
+///
+/// Accept the MTProto API id and hash from https://my.telegram.org and
+/// enable the Telegram USER channel without a restart.
+///
+/// ─── WHY THIS ROUTE EXISTS ──────────────────────────────────
+/// The Telegram USER channel signs in through Telegram's own MTProto
+/// network, which needs an API id and hash. Those came from the process
+/// environment at startup, so the founder's report was a dead end:
+///
+///   "Telegram is not configured on this server ... set TELEGRAM_API_ID
+///    and TELEGRAM_API_HASH in ~/.switchpost/.env and restart."
+///
+/// There was no way to act on that from the app. This route is the way.
+///
+/// Two things happen, in this order:
+///
+/// 1. The pair is written to `~/.switchpost/.env`, the SAME file the
+///    process reads at startup — so it survives a restart and a
+///    redeploy. This is the same seam `persist_app_password` already
+///    used, so there is one writer for the config file.
+/// 2. The pair is swapped into the LIVE client manager, so the very next
+///    "Send code" builds an MTProto client from them. No restart.
+///
+/// The values are validated BEFORE anything is written: a non-numeric
+/// API id is rejected with a message that says what the field wants,
+/// because my.telegram.org shows it as a number and a founder who typed
+/// the "App hash" into the "App id" box should be told, not persisted.
+pub async fn telegram_user_credentials(
+    State(state): State<AppState>,
+    _auth: AuthenticatedUser,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let api_id_raw = body["api_id"].as_str().unwrap_or("").trim().to_string();
+    let api_hash = body["api_hash"].as_str().unwrap_or("").trim().to_string();
+
+    if api_id_raw.is_empty() {
+        return Err(AppError::ConnectFailed(
+            "Enter the App ID from https://my.telegram.org. It is a number, shown next to \
+             'App api_id'."
+                .into(),
+        ));
+    }
+    if api_hash.is_empty() {
+        return Err(AppError::ConnectFailed(
+            "Enter the App hash from https://my.telegram.org. It is the 32-character hex string \
+             shown next to 'App api_hash'."
+                .into(),
+        ));
+    }
+
+    let api_id: i32 = api_id_raw.parse().map_err(|_| {
+        AppError::ConnectFailed(format!(
+            "'{api_id_raw}' is not a valid App ID. It is a number, shown next to 'App api_id' \
+             on https://my.telegram.org — copy that, not the App hash."
+        ))
+    })?;
+
+    // Write to the config file FIRST. If the write fails, the live swap
+    // must not happen: a channel that works until the next restart is
+    // worse than one that never worked, because the founder believes it
+    // is connected.
+    let env_path = crate::config::persist_env_vars(&[
+        ("TELEGRAM_API_ID", &api_id_raw),
+        ("TELEGRAM_API_HASH", &api_hash),
+    ])
+    .map_err(|e| {
+        tracing::error!("Failed to persist Telegram credentials: {e}");
+        AppError::ConnectFailed(format!(
+            "Could not save the Telegram credentials to {}: {e}. Check that the directory is \
+             writable, or set TELEGRAM_API_ID and TELEGRAM_API_HASH in that file and restart.",
+            env_path_display()
+        ))
+    })?;
+
+    // Swap them into the live manager so no restart is needed.
+    let mgr = state.telegram_client_manager.as_ref().ok_or_else(|| {
+        AppError::Internal(
+            "The Telegram user client is not available in this process. Set TELEGRAM_API_ID and \
+             TELEGRAM_API_HASH and restart."
+                .into(),
+        )
+    })?;
+    mgr.reconfigure(api_id, api_hash).await;
+
+    tracing::info!(
+        "Telegram user credentials saved to {} — the Telegram User channel is now configured.",
+        env_path.display()
+    );
+
+    Ok(Json(serde_json::json!({
+        "status": "configured",
+        "saved_to": env_path.display().to_string(),
+    })))
+}
+
+/// The config file the credentials are written to, for an error message.
+///
+/// `config::config_dir()` is the canonical location and the same function
+/// `persist_env_vars` writes to, so the two cannot point at different
+/// files.
+fn env_path_display() -> String {
+    crate::config::config_dir()
+        .join(".env")
+        .display()
+        .to_string()
+}
+
+/// GET /api/integrations/connect/telegram-user/status
+///
+/// Whether the Telegram USER channel has the MTProto credentials it needs.
+///
+/// The channels screen asks this before it shows the phone-number step,
+/// so an unconfigured channel can offer the credential form instead of
+/// letting the founder type a phone number that will be rejected.
+pub async fn telegram_user_status(
+    State(state): State<AppState>,
+    _auth: AuthenticatedUser,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let configured = state
+        .telegram_client_manager
+        .as_ref()
+        .map(|m| m.credentials().is_some())
+        .unwrap_or(false);
+    Ok(Json(serde_json::json!({
+        "configured": configured,
+        "requires": ["TELEGRAM_API_ID", "TELEGRAM_API_HASH"],
+        "help_url": "https://my.telegram.org",
+    })))
+}
+
 /// POST /api/integrations/connect/telegram-user/request-code
 pub async fn telegram_user_request_code(
     State(state): State<AppState>,
@@ -928,14 +1113,21 @@ pub async fn telegram_user_request_code(
 
     let mgr = state.telegram_client_manager.as_ref().ok_or_else(|| {
         AppError::ConnectFailed(
-            "Telegram is not configured on this server. Telegram-user signs in through Telegram's own \
-             MTProto network, which needs an API id and hash from https://my.telegram.org — set \
-             TELEGRAM_API_ID and TELEGRAM_API_HASH in ~/.switchpost/.env and restart. If you only want \
-             to post, connect the Telegram Bot channel instead: message @BotFather, create a bot, and \
-             paste its token in the Bot token form."
+            "The Telegram user client is not available in this process. Set TELEGRAM_API_ID and \
+             TELEGRAM_API_HASH in ~/.switchpost/.env and restart."
                 .into(),
         )
     })?;
+
+    if mgr.credentials().is_none() {
+        return Err(AppError::ConnectFailed(
+            "Telegram needs an API id and hash before it can sign you in. Paste them into the \
+             Telegram User setup form (they come from https://my.telegram.org), then send the \
+             code. If you only want to post, connect the Telegram Bot channel instead: message \
+             @BotFather, create a bot, and paste its token in the Bot token form."
+                .into(),
+        ));
+    }
 
     mgr.request_login_code(&phone).await.map_err(|e| {
         AppError::ConnectFailed(format!(
@@ -962,14 +1154,19 @@ pub async fn telegram_user_sign_in(
 
     let mgr = state.telegram_client_manager.as_ref().ok_or_else(|| {
         AppError::ConnectFailed(
-            "Telegram is not configured on this server. Telegram-user signs in through Telegram's own \
-                 MTProto network, which needs an API id and hash from https://my.telegram.org — set \
-                 TELEGRAM_API_ID and TELEGRAM_API_HASH in ~/.switchpost/.env and restart. If you only \
-                 want to post, connect the Telegram Bot channel instead: message @BotFather, create a \
-                 bot, and paste its token in the Bot token form."
+            "The Telegram user client is not available in this process. Set TELEGRAM_API_ID and \
+             TELEGRAM_API_HASH in ~/.switchpost/.env and restart."
                 .into(),
         )
     })?;
+
+    if mgr.credentials().is_none() {
+        return Err(AppError::ConnectFailed(
+            "Telegram has no API id and hash yet. Paste them into the Telegram User setup form \
+             (they come from https://my.telegram.org), then send the code and sign in."
+                .into(),
+        ));
+    }
 
     mgr.sign_in("", &code).await.map_err(|e| {
         AppError::ConnectFailed(format!(

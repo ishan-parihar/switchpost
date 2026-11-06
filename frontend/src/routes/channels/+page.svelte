@@ -12,6 +12,7 @@
   import ChannelCard from "$lib/channels/ChannelCard.svelte";
   import ProviderIcon from "$lib/channels/ProviderIcon.svelte";
   import ConnectFlow from "$lib/channels/ConnectFlow.svelte";
+  import TelegramCredentials from "$lib/channels/TelegramCredentials.svelte";
   import { channelStatus } from "$lib/channels/channel-status";
 
   let integrations = $state<Integration[]>([]);
@@ -33,6 +34,20 @@
     instructions?: string;
   } | null>(null);
   let connecting = $state<string | null>(null);
+
+  // ─── THE TELEGRAM CREDENTIALS GATE ──────────────────────────────
+  // The Telegram USER channel needs MTProto credentials (an API id and
+  // hash from my.telegram.org) before it can send a login code. Without
+  // them the phone-number step is a dead end: the founder types a number
+  // and the server answers "Telegram is not configured on this server …
+  // set TELEGRAM_API_ID and TELEGRAM_API_HASH in ~/.switchpost/.env and
+  // restart" — a file on a server, and a restart, neither of which the
+  // founder can do from a browser.
+  //
+  // So the channel screen asks the server whether the credentials are
+  // there, and offers the form when they are not. This is the whole
+  // point of the status endpoint.
+  let telegramCredsDialog = $state(false);
 
   // Provider labels come from the central $lib/providers module (R-8).
   // The channels page overrides a few labels for the connect dialog
@@ -186,11 +201,62 @@
    * itself which one applies.
    */
   function initiateConnect(provider: string) {
-    if (provider === "whatsapp" || provider === "telegram-user") {
+    if (provider === "whatsapp") {
       onboardDialog = { provider, step: "phone", phone: "" };
       return;
     }
+    if (provider === "telegram-user") {
+      // The credential check is ASYNC, so this one path cannot be a
+      // synchronous branch like the rest. It is deliberately the only
+      // async one: WhatsApp needs no credentials, and every other
+      // provider's readiness is already known to the server, which
+      // refuses the connect with a message naming the env var.
+      void startTelegramUserConnect();
+      return;
+    }
     connectProvider = provider;
+  }
+
+  /**
+   * Start the Telegram USER connect, checking the credentials first.
+   *
+   * The order matters: asking for a phone number before the credentials
+   * are known to be present sends the founder down a path that cannot
+   * finish, and the only explanation arrives AFTER they have typed a
+   * number they were asked for.
+   */
+  async function startTelegramUserConnect() {
+    error = "";
+    try {
+      const r = await integrationsApi.telegramUserStatus();
+      if (r.error) {
+        // The status endpoint is the one thing that must answer. If it
+        // does not, fall back to showing the phone step rather than
+        // blocking the founder on an unreachable endpoint — the server
+        // will still refuse the code request with its own message, and
+        // that message names the fix.
+        onboardDialog = { provider: "telegram-user", step: "phone", phone: "" };
+        return;
+      }
+      if (r.data?.configured) {
+        onboardDialog = { provider: "telegram-user", step: "phone", phone: "" };
+        return;
+      }
+      telegramCredsDialog = true;
+    } catch {
+      onboardDialog = { provider: "telegram-user", step: "phone", phone: "" };
+    }
+  }
+
+  /**
+   * The credentials are saved — carry on to the phone number.
+   *
+   * The server has already swapped them into the live client, so the
+   * next request code works without a restart.
+   */
+  function handleTelegramCredentialsSaved() {
+    telegramCredsDialog = false;
+    onboardDialog = { provider: "telegram-user", step: "phone", phone: "" };
   }
 
   async function handleChannelRefresh(id: string) {
@@ -540,3 +606,18 @@
   </div>
 </div>
 {/if}
+
+<!--
+  The Telegram USER credentials form.
+
+  It is a SEPARATE dialog from the phone-number wizard on purpose: the
+  phone-number step assumes the credentials are already in place, and
+  mixing the two would put two unrelated forms in one modal. The server
+  writes the credentials to the config file and swaps them into the live
+  client, so the phone step that follows works with no restart.
+-->
+<TelegramCredentials
+  show={telegramCredsDialog}
+  onSuccess={handleTelegramCredentialsSaved}
+  onClose={() => { telegramCredsDialog = false; error = ""; }}
+/>

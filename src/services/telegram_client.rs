@@ -21,11 +21,55 @@ struct InnerState {
 
 pub struct TelegramClientManager {
     inner: Mutex<InnerState>,
-    api_id: i32,
-    api_hash: String,
+    /// The MTProto credentials in force.
+    ///
+    /// A `std::sync::RwLock` rather than part of the tokio `Mutex` above,
+    /// because "is this provider configured?" is asked on SYNCHRONOUS
+    /// paths — `/api/providers` reports it, the channels grid shows a
+    /// Connect button — and a tokio mutex cannot be read without an
+    /// await. It is the ONE source of truth for the credentials;
+    /// `InnerState` does not keep a second copy.
+    ///
+    /// The lock order is always tokio-mutex then this lock, so the two
+    /// cannot deadlock.
+    credentials: std::sync::RwLock<Option<TelegramCredentials>>,
     session_path: PathBuf,
     queue: Mutex<WriteQueue>,
     worker_running: AtomicBool,
+}
+
+/// The MTProto credentials, held where they can be REPLACED without
+/// rebuilding the whole process.
+///
+/// ─── WHY THIS EXISTS ────────────────────────────────────────
+/// The Telegram USER channel cannot connect at all without an API id and
+/// hash from https://my.telegram.org. Until now those came from the
+/// process environment at startup, so the only way to supply them was to
+/// edit `~/.switchpost/.env` on the server and restart — and the founder's
+/// report was the dead end "Telegram is not configured on this server".
+///
+/// Now the founder can paste the two values into the app. The endpoint
+/// that accepts them persists them to the same `.env` file the process
+/// reads at startup (so they SURVIVE a restart) and calls
+/// `reconfigure` here, which swaps the live credentials in place. No
+/// restart, and the next `request_login_code` builds a client from them.
+///
+/// The credentials live INSIDE the mutex-guarded state, not as plain
+/// struct fields, because every client operation takes that same lock. A
+/// plain field would be read outside the lock by `ensure_client`, and a
+/// reconfigure could interleave with a half-built client — one operation
+/// using the old api_id and another using the new one.
+///
+/// The live MTProto client is dropped when the credentials change: it is
+/// bound to the api_id/api_hash it was built with, so keeping it would be
+/// a client whose identity no longer matches the configured one. The
+/// session FILE is kept — the authorized user session is what the founder
+/// wants to keep, and a session file written under one api_id remains
+/// valid.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TelegramCredentials {
+    pub api_id: i32,
+    pub api_hash: String,
 }
 
 impl TelegramClientManager {
@@ -37,17 +81,88 @@ impl TelegramClientManager {
                 pending_token: None,
                 pending_password_token: None,
             }),
-            api_id,
-            api_hash,
+            credentials: std::sync::RwLock::new(Some(TelegramCredentials { api_id, api_hash })),
             session_path,
             queue: Mutex::new(WriteQueue::default()),
             worker_running: AtomicBool::new(false),
         }
     }
 
+    /// A manager with NO credentials.
+    ///
+    /// The Telegram USER channel used to be absent from the process
+    /// entirely when `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` were unset,
+    /// and every call to it answered "not configured on this server". The
+    /// founder could not fix that from the app — the only way to supply
+    /// the pair was to edit the server's `.env` and restart.
+    ///
+    /// So the manager now always exists, and "no credentials" is a state
+    /// it can be moved OUT of at runtime by `reconfigure`. The API surface
+    /// reads `credentials()` to decide whether the channel is configured,
+    /// and the UI offers the paste-in form when it is not.
+    pub fn unconfigured(session_dir: PathBuf) -> Self {
+        let session_path = session_dir.join("telegram-user.session");
+        Self {
+            inner: Mutex::new(InnerState {
+                client: None,
+                pending_token: None,
+                pending_password_token: None,
+            }),
+            credentials: std::sync::RwLock::new(None),
+            session_path,
+            queue: Mutex::new(WriteQueue::default()),
+            worker_running: AtomicBool::new(false),
+        }
+    }
+
+    /// Swap the MTProto credentials in place.
+    ///
+    /// Returns `false` when the credentials are UNCHANGED and no live
+    /// client has to be torn down — so a founder who re-submits the same
+    /// values does not lose a login code they had already requested.
+    ///
+    /// The live client is dropped when the credentials actually change,
+    /// because a Gramers client is bound to the api_id/api_hash it was
+    /// constructed with. The pending login token is dropped with it for
+    /// the same reason: a token issued under the old credentials cannot be
+    /// redeemed under the new ones.
+    pub async fn reconfigure(&self, api_id: i32, api_hash: String) -> bool {
+        let next = TelegramCredentials { api_id, api_hash };
+        {
+            let current = self.credentials.read().unwrap_or_else(|e| e.into_inner());
+            if current.as_ref() == Some(&next) {
+                return false;
+            }
+        }
+
+        // Drop the live client and any pending login token FIRST: they are
+        // bound to the credentials being replaced.
+        {
+            let mut guard = self.inner.lock().await;
+            guard.client = None;
+            guard.pending_token = None;
+            guard.pending_password_token = None;
+        }
+
+        let mut current = self.credentials.write().unwrap_or_else(|e| e.into_inner());
+        *current = Some(next);
+        true
+    }
+
+    /// The credentials currently in force, if any.
+    ///
+    /// Synchronous on purpose: the "is this provider configured?" check
+    /// runs on non-async paths (`/api/providers`, the channels grid).
+    pub fn credentials(&self) -> Option<TelegramCredentials> {
+        self.credentials
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     pub async fn is_authenticated(&self) -> Result<bool, String> {
         let mut guard = self.inner.lock().await;
-        Self::ensure_client(&mut guard, self.api_id, &self.api_hash, &self.session_path).await?;
+        Self::ensure_client(&mut guard, &self.credentials, &self.session_path).await?;
         match guard.client.as_ref() {
             Some(client) => client
                 .is_authorized()
@@ -59,7 +174,7 @@ impl TelegramClientManager {
 
     pub async fn request_login_code(&self, phone: &str) -> Result<Value, String> {
         let mut guard = self.inner.lock().await;
-        Self::ensure_client(&mut guard, self.api_id, &self.api_hash, &self.session_path).await?;
+        Self::ensure_client(&mut guard, &self.credentials, &self.session_path).await?;
 
         let client = guard
             .client
@@ -78,13 +193,7 @@ impl TelegramClientManager {
                     guard.client = None;
                     guard.pending_token = None;
                     let _ = std::fs::remove_file(&self.session_path);
-                    Self::ensure_client(
-                        &mut guard,
-                        self.api_id,
-                        &self.api_hash,
-                        &self.session_path,
-                    )
-                    .await?;
+                    Self::ensure_client(&mut guard, &self.credentials, &self.session_path).await?;
                     let client = guard
                         .client
                         .as_ref()
@@ -103,7 +212,7 @@ impl TelegramClientManager {
 
     pub async fn sign_in(&self, _phone: &str, code: &str) -> Result<Value, String> {
         let mut guard = self.inner.lock().await;
-        Self::ensure_client(&mut guard, self.api_id, &self.api_hash, &self.session_path).await?;
+        Self::ensure_client(&mut guard, &self.credentials, &self.session_path).await?;
 
         let token = guard
             .pending_token
@@ -578,15 +687,32 @@ impl TelegramClientManager {
         }))
     }
 
+    /// Build the MTProto client if it is not connected yet.
+    ///
+    /// The credentials are read from the manager's own store rather than
+    /// passed in, so the pair used to build the client is the SAME pair a
+    /// concurrent `reconfigure` would swap. The tokio mutex is taken
+    /// FIRST and the credentials lock SECOND, and `reconfigure` takes them
+    /// in the same order, so the two cannot deadlock.
     async fn ensure_client(
         guard: &mut InnerState,
-        api_id: i32,
-        api_hash: &str,
+        credentials: &std::sync::RwLock<Option<TelegramCredentials>>,
         session_path: &PathBuf,
     ) -> Result<(), String> {
         if guard.client.is_some() {
             return Ok(());
         }
+
+        let credentials = credentials
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or_else(|| {
+                "Telegram user client not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH."
+                    .to_string()
+            })?;
+        let api_id = credentials.api_id;
+        let api_hash = credentials.api_hash;
 
         let parent = session_path.parent().ok_or_else(|| {
             format!(

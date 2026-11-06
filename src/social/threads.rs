@@ -3,8 +3,8 @@
 
 use async_trait::async_trait;
 
-use super::*;
 use super::common::extract_access_token;
+use super::*;
 use crate::config::Config;
 
 pub struct ThreadsProvider {
@@ -25,6 +25,47 @@ impl ThreadsProvider {
 
     fn graph_url(&self) -> &'static str {
         "https://graph.threads.net/v1.0"
+    }
+
+    /// The app's publication state, as Meta reports it.
+    ///
+    /// `Unknown` when the probe cannot tell. The caller turns that into
+    /// an honest message rather than a guess.
+    pub async fn app_mode(&self) -> crate::social::threads_app::ThreadsAppMode {
+        if self.client_id.is_empty() || self.client_secret.is_empty() {
+            return crate::social::threads_app::ThreadsAppMode::Unknown;
+        }
+        crate::social::threads_app::probe_app_mode(&self.client_id, &self.client_secret).await
+    }
+
+    /// The message to show when Meta's consent gate refuses the sign-in.
+    ///
+    /// This is the message the founder's report needed and did not get:
+    /// the browser was redirected to Meta's own privacy/consent page, so
+    /// none of our handlers ran, and the founder was left with a Meta URL
+    /// and no next step.
+    pub async fn consent_gate_message(&self) -> String {
+        let mode = self.app_mode().await;
+        self.consent_gate_message_for(mode)
+    }
+
+    /// The same message, for an already-probed mode.
+    ///
+    /// Split out so the preflight does not probe TWICE — one Graph API
+    /// call is one call, and a connect is a user-visible latency.
+    fn consent_gate_message_for(&self, mode: crate::social::threads_app::ThreadsAppMode) -> String {
+        let detail = match mode {
+            crate::social::threads_app::ThreadsAppMode::DevMode => {
+                crate::social::threads_app::dev_mode_detail()
+            }
+            crate::social::threads_app::ThreadsAppMode::Published => {
+                crate::social::threads_app::published_detail()
+            }
+            crate::social::threads_app::ThreadsAppMode::Unknown => {
+                crate::social::threads_app::unknown_detail()
+            }
+        };
+        crate::social::threads_app::consent_gate_message(&self.scopes(), &detail)
     }
 }
 
@@ -89,6 +130,37 @@ impl SocialProvider for ThreadsProvider {
     /// before the founder is sent to the consent screen.
     fn requires_https_redirect(&self) -> bool {
         true
+    }
+
+    /// The warning shown next to the Threads sign-in button.
+    ///
+    /// It is a WARNING and not a refusal, on purpose. The app's
+    /// publication state is not the only thing that can make Meta's
+    /// consent gate refuse: an account that is not a tester can still
+    /// succeed once the founder adds it, and the founder may already have
+    /// done that outside the app. Refusing to hand out the sign-in URL
+    /// would turn a gate we cannot fully see into a hard block, and the
+    /// one thing that is known to work — completing Meta's GDPR consent
+    /// by hand, which the founder's report suggests was tried — would be
+    /// unreachable from the app.
+    ///
+    /// So the answer is the URL plus the reason plus the manual escape
+    /// hatch, and the founder chooses.
+    ///
+    /// ─── WHY THIS LIVES IN THE TRAIT IMPL, NOT AN INHERENT IMPL ──
+    /// The registry hands out `Arc<dyn SocialProvider>`, so the call
+    /// resolves to the TRAIT's method. An inherent method with the same
+    /// name on the concrete type is a DIFFERENT method, and it silently
+    /// loses to the trait's default `None` — which is exactly how this
+    /// bug happened once: the code compiled, the warning was dead code,
+    /// and every connect got no warning at all.
+    async fn connect_preflight(&self) -> Option<String> {
+        let mode = self.app_mode().await;
+        // A published app has no gate we can warn about.
+        if mode == crate::social::threads_app::ThreadsAppMode::Published {
+            return None;
+        }
+        Some(self.consent_gate_message_for(mode))
     }
 
     async fn generate_auth_url(
@@ -1004,6 +1076,49 @@ impl ThreadsProvider {
 mod tests {
     use super::*;
     use crate::social::test_config;
+    use std::sync::Arc;
+
+    /// ─── THE TRAIT-DISPATCH TRAP ─────────────────────────────────
+    ///
+    /// The preflight used to be an INHERENT method on `ThreadsProvider`
+    /// with the same name as the trait's method. The registry hands out
+    /// `Arc<dyn SocialProvider>`, so every caller resolved to the
+    /// TRAIT's method — whose default is `None`. The inherent method
+    /// was dead code, the build was green, and every connect produced
+    /// no warning at all: the exact defect this fix exists to close,
+    /// reintroduced one layer up.
+    ///
+    /// This test calls through the trait object, the way every caller
+    /// does. It is offline-safe: with no credentials in the test
+    /// config, the probe cannot reach Meta and returns `Unknown`, which
+    /// is still a WARNING — so the assertion is that the TRAIT OBJECT
+    /// produces one, not that the message says anything specific.
+    #[tokio::test]
+    async fn the_preflight_is_reachable_through_the_trait_object() {
+        let provider = ThreadsProvider::new(&test_config());
+        let as_trait: Arc<dyn SocialProvider> = Arc::new(provider);
+        assert!(
+            as_trait.connect_preflight().await.is_some(),
+            "the preflight must be reachable through Arc<dyn SocialProvider> — an inherent \
+             method with the same name is dead code and the connect gets NO warning"
+        );
+    }
+
+    /// The warning must name the cause, not just announce that something
+    /// might be wrong.
+    ///
+    /// The founder's report was a Meta URL and no next step. A warning
+    /// that says "Meta's consent gate may refuse this" without saying
+    /// what to do is the same dead end in a different font.
+    #[test]
+    fn the_consent_message_names_the_tester_fix() {
+        let provider = ThreadsProvider::new(&test_config());
+        let msg =
+            provider.consent_gate_message_for(crate::social::threads_app::ThreadsAppMode::DevMode);
+        assert!(msg.contains("App roles"), "{msg}");
+        assert!(msg.contains("Threads Tester"), "{msg}");
+        assert!(msg.contains("privacy/consent"), "{msg}");
+    }
 
     fn post_with_images(n: usize) -> PostContent {
         PostContent {
@@ -1201,12 +1316,9 @@ mod tests {
             let supported = [
                 "threads_basic".eq(scope.as_str()),
                 "threads_content_publish".eq(scope.as_str()),
-                "threads_manage_replies".eq(scope.as_str())
-                    || src.contains("reply_to_thread"),
-                "threads_read_replies".eq(scope.as_str())
-                    || src.contains("get_mentions"),
-                "threads_manage_insights".eq(scope.as_str())
-                    || src.contains("insights"),
+                "threads_manage_replies".eq(scope.as_str()) || src.contains("reply_to_thread"),
+                "threads_read_replies".eq(scope.as_str()) || src.contains("get_mentions"),
+                "threads_manage_insights".eq(scope.as_str()) || src.contains("insights"),
             ]
             .iter()
             .any(|v| *v);
