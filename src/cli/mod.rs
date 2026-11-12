@@ -702,7 +702,17 @@ pub enum PostsAction {
     /// Publish a queued or errored post immediately via the provider
     Publish { id: String },
     /// Delete a post
-    Delete { id: String },
+    Delete {
+        id: String,
+        /// Also delete the PUBLISHED post on the platform.
+        ///
+        /// Without this the local row is removed and the tweet stays live
+        /// — so the dashboard says the post is gone while the audience
+        /// still sees it. The platform delete happens FIRST, so a failure
+        /// leaves the row (and its platform id) for a retry.
+        #[arg(long)]
+        from_platform: bool,
+    },
     /// Find the next available posting slot (optionally for one integration)
     FindSlot {
         #[arg(long)]

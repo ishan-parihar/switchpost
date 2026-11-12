@@ -4637,20 +4637,29 @@ async fn handle_posts_with_state(state: &AppState, action: PostsAction) -> anyho
             })
             .map_err(|e| anyhow::anyhow!("Publish failed: {e}"))
         }
-        PostsAction::Delete { id } => {
+        PostsAction::Delete { id, from_platform } => {
             let post_id = match id.parse::<uuid::Uuid>() {
                 Ok(id) => id,
                 Err(_) => return output_error("Invalid post ID"),
             };
-            crate::services::posts::PostService::delete(
-                &state.db,
-                &state.broadcast,
-                user_id,
-                post_id,
+            // The REST handler is the one implementation of "delete a post"
+            // (AGENTS §9.21): it owns the platform half — which the CLI
+            // could not do at all, so deleting a post from the shell left
+            // the tweet live.
+            let deleted = crate::api::posts::delete(
+                axum::extract::State(state.clone()),
+                crate::auth::middleware::AuthenticatedUser { user_id },
+                axum::extract::Path(post_id),
+                axum::extract::Query(crate::api::posts::DeletePostParams {
+                    delete_from_platform: Some(from_platform),
+                }),
             )
             .await
-            .map(|deleted| serde_json::json!({"ok": deleted, "id": id}))
-            .map_err(|e| anyhow::anyhow!("Delete failed: {e}"))
+            .map_err(|e| anyhow::anyhow!("Delete failed: {e}"))?;
+            let axum::Json(result) = deleted;
+            Ok(
+                serde_json::json!({"ok": true, "id": id, "deleted_from_platform": from_platform, "result": result}),
+            )
         }
         PostsAction::FindSlot { integration } => {
             let integration_id = integration

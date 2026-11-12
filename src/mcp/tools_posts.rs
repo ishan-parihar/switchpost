@@ -732,52 +732,33 @@ pub async fn delete_post(
     let user_id = resolve_first_user(state).await?;
     let post_id = Uuid::parse_str(&input.id).map_err(|_| "Invalid post ID".to_string())?;
 
-    // §8.2: one verb for both halves — platform first (so a failure
-    // leaves the row + its platform_post_id intact for retry), then the
-    // local row.
-    if input.delete_from_platform {
-        let post = crate::db::queries::get_post_with_integration(&state.db, post_id, user_id)
-            .await
-            .map_err(|e| format!("DB error: {e}"))?
-            .ok_or_else(|| "Post not found".to_string())?;
-        if post.state != crate::db::models::PostState::Published {
-            return Err(
-                "delete_from_platform=true requires a PUBLISHED post — the local row is the only copy"
-                    .into(),
-            );
-        }
-        let platform_id = post
-            .platform_post_id
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("")
-            .to_string();
-        if platform_id.is_empty() {
-            return Err("post is published but carries no platform_post_id".into());
-        }
-        let provider = state
-            .providers
-            .get(&post.provider_identifier)
-            .ok_or_else(|| format!("Provider '{}' not found", post.provider_identifier))?;
-        let token =
-            crate::crypto::maybe_decrypt_token(&post.access_token, state.token_key.as_ref());
-        provider
-            .delete_published(&token, &platform_id)
-            .await
-            .map_err(|e| {
-                format!(
-                    "platform delete failed for {} {platform_id} — the local row was KEPT for retry: {e}",
-                    post.provider_identifier
-                )
-            })?;
-    }
+    // ONE implementation of "delete a post" (AGENTS §9.21): the REST
+    // handler owns it, and it does the platform half FIRST when asked, so
+    // a failure leaves the row and its `platform_post_id` intact for a
+    // retry.
+    //
+    // The tool used to implement the platform delete itself, which meant
+    // the BROWSER could not do it: `DELETE /api/posts/:id` removed the
+    // local row only, so deleting a post from the dashboard left the
+    // tweet live with no trace of it in the app. The founder had to know
+    // to ask an agent.
+    super::rest_bridge::rest_result(
+        crate::api::posts::delete(
+            axum::extract::State(state.clone()),
+            crate::auth::middleware::AuthenticatedUser { user_id },
+            axum::extract::Path(post_id),
+            axum::extract::Query(crate::api::posts::DeletePostParams {
+                delete_from_platform: Some(input.delete_from_platform),
+            }),
+        )
+        .await,
+    )?;
 
-    PostService::delete(&state.db, &state.broadcast, user_id, post_id).await?;
-
+    let deleted_from_platform = input.delete_from_platform;
     Ok(Json(crate::mcp::McpJsonValue(serde_json::json!({
         "success": true,
-        "deleted_from_platform": input.delete_from_platform,
-        "message": if input.delete_from_platform {
+        "deleted_from_platform": deleted_from_platform,
+        "message": if deleted_from_platform {
             "Post deleted on the platform and locally"
         } else {
             "Post deleted"

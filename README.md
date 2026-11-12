@@ -148,6 +148,7 @@ TOKEN_ENCRYPTION_KEY=<64 hex chars>     # AES-256-GCM for tokens at rest
 |---------|-------------|
 | `switchpost post "text" --platforms x,bluesky` | Create (or schedule via `--schedule`) post |
 | `switchpost posts schedule <id> <at>` | Schedule an existing draft |
+| `switchpost posts delete <id> [--from-platform]` | Delete a post; `--from-platform` also removes the published post on the platform |
 | `switchpost analytics get <PROVIDER>` | Get analytics |
 | `switchpost mcp` | Start MCP server (stdio) |
 | `switchpost config set KEY VALUE` | Manage config |

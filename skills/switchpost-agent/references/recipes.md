@@ -78,6 +78,7 @@ switchpost posts list --state error            # what failed. STATE VOCAB: draft
 switchpost posts get <POST_ID>                  # read error_message for the cause
 switchpost posts publish <POST_ID>              # retry immediately (editor's fixes first: posts update)
 switchpost posts delete <POST_ID>              # or drop it
+switchpost posts delete <POST_ID> --from-platform   # ALSO delete the live post on the platform (the platform delete runs first; a failure keeps the row for retry)
 ```
 
 The scheduler retries `RateLimited`/`Network` failures with exponential

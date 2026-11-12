@@ -1191,18 +1191,80 @@ pub async fn reschedule(
 }
 
 /// DELETE /api/posts/:id
+///
+/// `?delete_from_platform=true` also deletes the PUBLISHED post on the
+/// platform. The platform delete happens FIRST, so a failure leaves the
+/// local row — and its `platform_post_id` — intact for a retry. A post
+/// whose local row is gone but whose tweet is still live cannot be
+/// retried, and the founder cannot find it.
+#[derive(Debug, Deserialize, Default)]
+pub struct DeletePostParams {
+    /// Also delete the published post on the platform.
+    #[serde(default)]
+    pub delete_from_platform: Option<bool>,
+}
+
 pub async fn delete(
     State(state): State<AppState>,
     auth: AuthenticatedUser,
     Path(id): Path<Uuid>,
+    Query(params): Query<DeletePostParams>,
 ) -> Result<Json<serde_json::Value>, crate::error::AppError> {
+    let delete_from_platform = params.delete_from_platform.unwrap_or(false);
+
+    if delete_from_platform {
+        let post = queries::get_post_with_integration(&state.db, id, auth.user_id)
+            .await?
+            .ok_or_else(|| crate::error::AppError::NotFound("Post not found".into()))?;
+        if post.state != crate::db::models::PostState::Published {
+            return Err(crate::error::AppError::BadRequest(
+                "delete_from_platform=true requires a PUBLISHED post — the local row is the only copy"
+                    .into(),
+            ));
+        }
+        let platform_id = post
+            .platform_post_id
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .to_string();
+        if platform_id.is_empty() {
+            return Err(crate::error::AppError::BadRequest(
+                "post is published but carries no platform_post_id".into(),
+            ));
+        }
+        let provider = state
+            .providers
+            .get(&post.provider_identifier)
+            .ok_or_else(|| {
+                crate::error::AppError::BadRequest(format!(
+                    "Provider '{}' not found",
+                    post.provider_identifier
+                ))
+            })?;
+        let token =
+            crate::crypto::maybe_decrypt_token(&post.access_token, state.token_key.as_ref());
+        provider
+            .delete_published(&token, &platform_id)
+            .await
+            .map_err(|e| {
+                crate::error::AppError::BadRequest(format!(
+                    "platform delete failed for {} {platform_id} — the local row was KEPT for retry: {e}",
+                    post.provider_identifier
+                ))
+            })?;
+    }
+
     let deleted = PostService::delete(&state.db, &state.broadcast, auth.user_id, id)
         .await
         .map_err(crate::error::AppError::BadRequest)?;
     if !deleted {
         return Err(crate::error::AppError::NotFound("Post not found".into()));
     }
-    Ok(Json(serde_json::json!({"deleted": true})))
+    Ok(Json(serde_json::json!({
+        "deleted": true,
+        "deleted_from_platform": delete_from_platform,
+    })))
 }
 
 /// PUT /api/posts/{id}/tags
@@ -1793,4 +1855,292 @@ pub async fn validate(
         "valid": errors.is_empty(),
         "errors": errors,
     })))
+}
+
+#[cfg(test)]
+mod v12_platform_delete_tests {
+    use super::*;
+    use crate::social::{
+        AuthToken, AuthUrlResponse, PageInfo, PostContent, ProviderError, SocialProvider,
+    };
+    use std::sync::{Arc, Mutex};
+
+    /// A provider whose platform delete SUCCEEDS, and which records that it
+    /// was called.
+    struct DeletableProvider {
+        deleted: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl SocialProvider for DeletableProvider {
+        fn identifier(&self) -> &'static str {
+            "fake-deletable"
+        }
+        fn name(&self) -> &'static str {
+            "Fake Deletable"
+        }
+        fn scopes(&self) -> Vec<String> {
+            vec![]
+        }
+        fn max_content_length(&self) -> usize {
+            3000
+        }
+        async fn generate_auth_url(
+            &self,
+            _state: &str,
+            _code_verifier: &str,
+            _redirect_uri: &str,
+        ) -> Result<AuthUrlResponse, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn exchange_code(
+            &self,
+            _code: &str,
+            _code_verifier: &str,
+            _redirect_uri: &str,
+        ) -> Result<AuthToken, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn refresh_token(&self, _r: &str) -> Result<AuthToken, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn publish(
+            &self,
+            _t: &str,
+            _p: &PostContent,
+        ) -> Result<crate::social::PublishResult, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn pages(&self, _t: &str) -> Result<Vec<PageInfo>, ProviderError> {
+            Ok(vec![])
+        }
+        async fn fetch_page_info(
+            &self,
+            _access_token: &str,
+            _page_id: &str,
+        ) -> Result<PageInfo, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn delete_published(
+            &self,
+            _access_token: &str,
+            platform_post_id: &str,
+        ) -> Result<(), ProviderError> {
+            self.deleted
+                .lock()
+                .unwrap()
+                .push(platform_post_id.to_string());
+            Ok(())
+        }
+    }
+
+    /// A provider whose platform delete FAILS.
+    struct UndeletableProvider;
+
+    #[async_trait::async_trait]
+    impl SocialProvider for UndeletableProvider {
+        fn identifier(&self) -> &'static str {
+            "fake-undeletable"
+        }
+        fn name(&self) -> &'static str {
+            "Fake Undeletable"
+        }
+        fn scopes(&self) -> Vec<String> {
+            vec![]
+        }
+        fn max_content_length(&self) -> usize {
+            3000
+        }
+        async fn generate_auth_url(
+            &self,
+            _state: &str,
+            _code_verifier: &str,
+            _redirect_uri: &str,
+        ) -> Result<AuthUrlResponse, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn exchange_code(
+            &self,
+            _code: &str,
+            _code_verifier: &str,
+            _redirect_uri: &str,
+        ) -> Result<AuthToken, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn refresh_token(&self, _r: &str) -> Result<AuthToken, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn publish(
+            &self,
+            _t: &str,
+            _p: &PostContent,
+        ) -> Result<crate::social::PublishResult, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn pages(&self, _t: &str) -> Result<Vec<PageInfo>, ProviderError> {
+            Ok(vec![])
+        }
+        async fn fetch_page_info(
+            &self,
+            _access_token: &str,
+            _page_id: &str,
+        ) -> Result<PageInfo, ProviderError> {
+            unreachable!("not used")
+        }
+    }
+
+    async fn state_with(provider: Arc<dyn SocialProvider>) -> (AppState, Arc<Mutex<Vec<String>>>) {
+        let deleted = Arc::new(Mutex::new(Vec::new()));
+        let provider: Arc<dyn SocialProvider> = if provider.identifier() == "fake-deletable" {
+            Arc::new(DeletableProvider {
+                deleted: deleted.clone(),
+            })
+        } else {
+            provider
+        };
+        crate::config::load_dotenv_for_tests();
+        let config = crate::config::Config::from_env().expect("config");
+        let db = crate::db::create_pool(&config.database_url)
+            .await
+            .expect("pool");
+        crate::db::ensure_local_user(&db).await.expect("local user");
+        let registry = crate::social::registry::ProviderRegistry::with_providers(vec![(
+            provider.identifier(),
+            provider,
+        )]);
+        (
+            AppState {
+                db,
+                config,
+                broadcast: crate::realtime::Broadcaster::new(),
+                providers: registry,
+                token_key: None,
+                telegram_client_manager: None,
+                wa_client: None,
+                media_http_client: reqwest::Client::new(),
+                media_wreq_client: wreq::Client::new(),
+            },
+            deleted,
+        )
+    }
+
+    async fn seed_published_post(state: &AppState, provider: &str) -> (Uuid, Uuid) {
+        let user_id = crate::auth::middleware::DEFAULT_USER_ID;
+        let integration_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO integrations
+                (id, user_id, provider_identifier, provider_name, internal_id,
+                 access_token, refresh_token, token_expires_at,
+                 disabled, refresh_needed, posting_times, auth_method)
+             VALUES (?, ?, ?, 'Fake', ?, 'tok', NULL, NULL, 0, 0, '[]', 'oauth')",
+        )
+        .bind(integration_id)
+        .bind(user_id)
+        .bind(provider)
+        .bind(format!("internal-{integration_id}"))
+        .execute(&state.db)
+        .await
+        .expect("seed the integration");
+        let post_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO posts
+                (id, user_id, integration_id, state, content, title, media, settings,
+                 scheduled_at, published_at, platform_post_id, platform_post_url,
+                 error_message, created_at, updated_at, repeat_interval_days,
+                 repeat_end_date, group_id, first_comment, sequence, idempotency_key)
+             VALUES (?, ?, ?, 'published', 'hello', NULL, '[]', '{}', NULL, unixepoch(),
+                     'platform-1', NULL, NULL, unixepoch(), unixepoch(), NULL, NULL, NULL,
+                     NULL, 0, ?)",
+        )
+        .bind(post_id)
+        .bind(user_id)
+        .bind(integration_id)
+        .bind(Uuid::new_v4())
+        .execute(&state.db)
+        .await
+        .expect("seed the post");
+        (post_id, integration_id)
+    }
+
+    #[tokio::test]
+    async fn the_platform_delete_removes_the_post_on_the_platform_and_locally() {
+        let (state, deleted) = state_with(Arc::new(DeletableProvider {
+            deleted: Arc::new(Mutex::new(Vec::new())),
+        }))
+        .await;
+        let (post_id, _) = seed_published_post(&state, "fake-deletable").await;
+
+        let result = delete(
+            State(state.clone()),
+            AuthenticatedUser {
+                user_id: crate::auth::middleware::DEFAULT_USER_ID,
+            },
+            Path(post_id),
+            Query(DeletePostParams {
+                delete_from_platform: Some(true),
+            }),
+        )
+        .await;
+        assert!(result.is_ok(), "the delete must succeed: {result:?}");
+
+        // The delete is a SOFT delete (`deleted_at`), so the row is still
+        // there — what matters is that it is no longer visible.
+        let deleted_at: Option<i64> =
+            sqlx::query_scalar("SELECT deleted_at FROM posts WHERE id = ?")
+                .bind(post_id)
+                .fetch_one(&state.db)
+                .await
+                .expect("read");
+        assert!(deleted_at.is_some(), "the local row must be marked deleted");
+    }
+
+    #[tokio::test]
+    async fn a_failed_platform_delete_keeps_the_local_row_for_a_retry() {
+        // The row carries the platform id. If it is deleted anyway, the
+        // founder has a live tweet and NO trace of it in the app — and no
+        // way to retry.
+        let (state, _) = state_with(Arc::new(UndeletableProvider)).await;
+        let (post_id, _) = seed_published_post(&state, "fake-undeletable").await;
+
+        let result = delete(
+            State(state.clone()),
+            AuthenticatedUser {
+                user_id: crate::auth::middleware::DEFAULT_USER_ID,
+            },
+            Path(post_id),
+            Query(DeletePostParams {
+                delete_from_platform: Some(true),
+            }),
+        )
+        .await;
+        assert!(result.is_err(), "the platform delete must fail loudly");
+
+        let deleted_at: Option<i64> =
+            sqlx::query_scalar("SELECT deleted_at FROM posts WHERE id = ?")
+                .bind(post_id)
+                .fetch_one(&state.db)
+                .await
+                .expect("read");
+        assert!(
+            deleted_at.is_none(),
+            "the local row must be KEPT — with its platform id — for a retry"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_local_delete_does_not_touch_the_platform() {
+        let (state, _) = state_with(Arc::new(UndeletableProvider)).await;
+        let (post_id, _) = seed_published_post(&state, "fake-undeletable").await;
+
+        let result = delete(
+            State(state.clone()),
+            AuthenticatedUser {
+                user_id: crate::auth::middleware::DEFAULT_USER_ID,
+            },
+            Path(post_id),
+            Query(DeletePostParams::default()),
+        )
+        .await;
+        assert!(result.is_ok(), "the local delete must succeed: {result:?}");
+    }
 }
