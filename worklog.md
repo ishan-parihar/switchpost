@@ -7806,3 +7806,46 @@ Known issues / follow-ups:
   metric" on page tokens, and feed engagement fetches log pages_read_engagement permission
   errors (app review / Page Public Content Access) — visible in the journal before and after.
 - The 7 lib-test failures in this sandbox (media/x_cookies /var/tmp) remain environmental.
+---
+Task ID: v12-postiz-contrast-audit
+Agent: DeepSeek Harness (large-stack)
+Task: Contrast implementation gaps against ../external-repos/postiz-app, red-team audit, /ponytail-audit
+
+Work Log:
+- Mapped both trees and measured: switchpost 103,097 LOC / 192 files / 29 providers / 392 MCP
+  tools / 29 frontend routes / 54 direct deps / 1,068 tests (71 files + 583 inline); postiz
+  27,228 LOC of provider code (38 files), 88 Prisma models, Postgres+Redis+Temporal+Stripe.
+- Re-measured the v25 depth matrix by trait-method coverage per Tier-1 provider: rows 1, 3, 4, 7
+  and 10 are closed; rows 5 (comment write 2/12), 8 (needs_cron_refresh 7/12) and 6
+  (search_mention 9/12) are still open. edit_published has 0 overrides AND 0 call sites.
+- Red-team + lean passes ran as five fresh-context subagents (postiz architecture, provider
+  parity, backend red-team, frontend/contract red-team, lean). Every finding I carried into
+  the report was re-read from the cited lines; two subagent claims were corrected on
+  verification (the feed log level is `info!` per row inside queries.rs, not feed/mod.rs; and
+  reddit's `send_dm` is a private helper, not the trait method, so the /dms page is not lying).
+- Wrote docs/audit/AUDIT_2026-11-12-POSTIZ-CONTRAST.md (32 findings + the sequenced upgrade
+  order) and added its PAGE-INDEX row. NO code changed this task — the findings need approval.
+
+Stage Summary:
+- Top security findings (all verified by reading): tokens stored in PLAINTEXT on 5 connect
+  paths because create_integration does not encrypt (src/db/queries.rs:102-172) and the OAuth
+  path falls back to plaintext on encrypt failure (src/services/integrations.rs:144-164);
+  /api/proxy-media serves attacker-hosted SVG inline on the app origin (media.rs:837-849,
+  1004-1025); webhook + RSS URLs are authenticated SSRF with response read-back
+  (webhooks.rs:271-275; rss.rs:80-88,129); API keys have no scopes and can mint more keys.
+- Top wrong-result findings: a token refresh on a connected FB/IG PAGE channel overwrites the
+  page token with a user token, after which every post goes to the FIRST page of the account
+  (integrations.rs:618-673 + facebook.rs:807-853); LinkedIn Page publishes to the first org,
+  never the connected page (linkedin_page.rs:988-994); MCP tags_update binds SQL params in the
+  wrong order so it can never rename a tag (tools_tags.rs:166-179); the CLI is the only surface
+  that can create an invalid post (run.rs:4231 vs api/posts.rs:525-585).
+- Lean: 246 lines of dead public functions verified at 0 call sites; 19 of 26 providers
+  hand-roll error classification instead of classify_error; 5 copies of the refresh decision;
+  21 live env vars undocumented in .env.example.
+- Switchpost's own advantages over postiz, measured: comment read 12/12 Tier-1, DM surface on
+  3 providers (postiz has none), delete-on-platform on 4 (postiz 1), 392-tool agent interface.
+
+Known issues / follow-ups:
+- Nothing executed this pass — cargo test/clippy not run. Each fix needs one failing-first test.
+- The 5-connect-path plaintext finding needs a migration to re-encrypt rows already stored.
+
