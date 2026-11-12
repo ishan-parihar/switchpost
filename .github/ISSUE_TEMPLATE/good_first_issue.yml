@@ -1,0 +1,57 @@
+---
+name: Good first issue — I would like to fix this
+description: Offer a fix. Name the file and the test, so a maintainer can say yes in one reading.
+title: "[fix] "
+labels: good first issue
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The maintainer reads this to decide what to route to a newcomer. Three things
+        make that decision fast:
+
+        1. **the reproduction** — the failing command or input,
+        2. **the file to change** — where you think the fix belongs,
+        3. **the test that must pass** — the check that proves it works.
+
+        If you are unsure about (2) or (3), say so and say what you have ruled out.
+        That is a useful offer, not a weak one.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong
+      description: The behaviour that should change, in one or two sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: The exact command or input, in order.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: file
+    attributes:
+      label: Which file should change
+      description: Your best guess, and why.
+      placeholder: src/services/content_splitter.rs
+
+  - type: textarea
+    id: test
+    attributes:
+      label: The test that must pass
+      description: The check that would prove the fix — a new test in `tests/`, or the command you would run.
+    validations:
+      required: true
+
+  - type: textarea
+    id: approach
+    attributes:
+      label: How you would do it
+    validations:
+      required: false

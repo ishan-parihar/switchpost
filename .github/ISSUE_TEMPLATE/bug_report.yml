@@ -1,0 +1,83 @@
+---
+name: Bug report
+description: Something does not work. Say what you did, what you expected, and what happened.
+title: "[bug] "
+labels: bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Three things make a post about a publishing engine
+        actionable: **the command**, **the provider**, and **what you expected
+        instead**.
+
+        If you want to pick up the fix rather than report it, the
+        *good first issue* template is the one you want.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v12.0.0 / a1b2c3d
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider
+      options:
+        - x / twitter
+        - bluesky
+        - linkedin
+        - instagram
+        - facebook
+        - reddit
+        - telegram
+        - discord
+        - whatsapp
+        - youtube
+        - not provider-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The error, the wrong output, or the behaviour you saw.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: The exact command, in order, from a clean state.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: where
+    attributes:
+      label: Where in the code
+      description: If you found it — the file and the line. If you did not, leave this empty.
+      placeholder: src/services/content_splitter.rs:24
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I searched the open issues for this one.
+        - label: I checked the register (`TODO.md`) — this is not already listed there.
+        - label: This is not a security problem (those go to Security -> Report a vulnerability).
