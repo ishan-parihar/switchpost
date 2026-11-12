@@ -7763,3 +7763,46 @@ Known issues / follow-ups:
 - If the scheduler's token refresh ever overwrites a child channel's page token with a user
   token, publish still works (user-token path resolves via /me/accounts) but picks the FIRST
   page — pre-existing behavior, out of scope here.
+---
+Task ID: v12-deploy-prod-verify
+Agent: DeepSeek Harness (fast-quality)
+Task: CLI-level post-compilation test + deploy the FB/IG page-token fix to the VPS + exhaustive production channel testing
+
+Work Log:
+- Build under the write-restricted sandbox (cargo-sandbox-builds skill): seeded a writable
+  CARGO_HOME in the workspace from ~/.cargo registry cache+index, cargo --offline for gates;
+  zig needed TMPDIR + zig cache dirs inside the workspace, and a shim stripping
+  --no-keep-memory (rustc 1.98 emits it for cdylibs, Zig's LLD rejects it by name — see
+  vps-app-deploy references/cross-build.md). Release cross-build succeeded:
+  cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.36, max GLIBC_2.34 <= 2.36.
+- New tests/cli_boot_smoke_test.rs drives the COMPILED binary end-to-end: boots serve on a
+  scratch DB/port, /health + /ready 200, embedded SPA served, password gate (401 wrong /
+  sf_session on right), REST write+read, then the CLI on the same DB lists the REST-created
+  row. Passes; existing binary suites (mcp_call_reach, mcp_session_toolset) also pass.
+  Committed 94dfee5.
+- Deployed to racknerd per vps-app-deploy: backed up binary (switchpost.bak-20261112-0823)
+  + DB (sqlite3 .backup), scp as switchpost.new, sha256 verified (6a9f3e86…), pre-flight
+  ldd/objdump/strings on the VPS, mv into ~/.local/bin, systemctl --user restart.
+  New MainPID 2451504; public https://switchpost.ishanparihar.com/health and / both 200.
+- Production channel test (script ran on the VPS, APP_PASSWORD never left the host):
+  24 channels, all targets probes HTTP 200, all validate 200 (youtube/reddit "invalid" is
+  correct rule enforcement: video/subreddit required). facebook channels: available-pages
+  OK(5). instagram (FB Login) channels: music search returns 22 tracks (the bug is fixed).
+  instagram-standalone: music 400 with the new actionable message (Audio API unsupported on
+  Instagram Login — by design). General reads (/api/posts, /feed, /activity,
+  /analytics/summary, /notifications, /providers) all 200.
+- Real publish proof: created + published a labeled test post to FB page 604373986102944
+  via the API; outbox drain applied platform_post_id 604373986102944_122199020450879373
+  (the page-token /me fallback engaged — journal shows the #100 -> /me fallback firing).
+  Deleted the platform post via MCP fb_delete_post (facebook toolset) — success:true.
+
+Stage Summary:
+- commits: a3f1f67 (FB/IG page-token + music fix), 8c8886f (worklog), 94dfee5 (CLI smoke test)
+- VPS: switchpost.ishanparihar.com serving the new binary, all 24 channels probed OK
+- Rollback if needed: ssh racknerd 'cp ~/.local/bin/switchpost.bak-20261112-0823 ~/.local/bin/switchpost && systemctl --user restart switchpost'
+
+Known issues / follow-ups:
+- Pre-existing, NOT from this change: FB analytics fetch logs "(#100) invalid insights
+  metric" on page tokens, and feed engagement fetches log pages_read_engagement permission
+  errors (app review / Page Public Content Access) — visible in the journal before and after.
+- The 7 lib-test failures in this sandbox (media/x_cookies /var/tmp) remain environmental.
