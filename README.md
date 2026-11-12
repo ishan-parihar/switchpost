@@ -148,8 +148,8 @@ TOKEN_ENCRYPTION_KEY=<64 hex chars>     # AES-256-GCM for tokens at rest
 |---------|-------------|
 | `switchpost post "text" --platforms x,bluesky` | Create (or schedule via `--schedule`) post |
 | `switchpost posts schedule <id> <at>` | Schedule an existing draft |
-| `switchpost posts delete <id> [--from-platform]` | Delete a post; `--from-platform` also removes the published post on the platform |
-| `switchpost posts schedule <id> <at> [--republish]` | Re-schedule a post (`--republish` re-queues a published one) |
+| `switchpost posts delete <id> [--from-platform]` | Delete a post (`--from-platform` also removes the platform post) |
+| `switchpost posts schedule <id> <at> [--republish]` | Re-schedule (`--republish` re-queues a published one) |
 | `switchpost analytics get <PROVIDER>` | Get analytics |
 | `switchpost mcp` | Start MCP server (stdio) |
 | `switchpost config set KEY VALUE` | Manage config |
@@ -330,8 +330,7 @@ reader can re-take it on this machine and check rather than trust.*
 ## Requirements
 
 Rust 1.85+, Node 20+ with pnpm, and the BoringSSL build prerequisites (`cmake` +
-`libclang`). No database server — SQLite is embedded. The exact package list is
-[AGENTS.md §3.1](AGENTS.md).
+`libclang`). No database server — SQLite is embedded. Packages: [AGENTS.md §3.1](AGENTS.md).
 
 ---
 
