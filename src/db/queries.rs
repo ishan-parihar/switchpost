@@ -2079,6 +2079,65 @@ pub struct PostTagRow {
     pub updated_at: DateTime<Utc>,
 }
 
+/// The tags of MANY posts, in ONE query.
+///
+/// The calendar asked for the tags of every post in the range, one query
+/// per post: a year-wide window opened 300 posts and ran 301 sequential
+/// queries against the single writer. One `WHERE post_id IN (...)` is one
+/// round trip, and the rows are grouped back by post here.
+///
+/// The result is keyed by post id; a post with no tags is simply absent
+/// from the map.
+pub async fn get_tags_for_posts(
+    pool: &SqlitePool,
+    post_ids: &[Uuid],
+    user_id: Uuid,
+) -> Result<std::collections::HashMap<Uuid, Vec<PostTagRow>>, sqlx::Error> {
+    let mut grouped: std::collections::HashMap<Uuid, Vec<PostTagRow>> =
+        std::collections::HashMap::new();
+    if post_ids.is_empty() {
+        return Ok(grouped);
+    }
+    // SQLite caps a variable list at 999 by default; a calendar window can
+    // hold more than that, so the list is fetched in chunks.
+    for chunk in post_ids.chunks(500) {
+        let mut sql = String::from(
+            "SELECT pt.post_id as \"post_id!: Uuid\", t.id as \"id!: Uuid\", t.name, t.color, \
+             t.created_at as \"created_at!: DateTime<Utc>\", \
+             t.updated_at as \"updated_at!: DateTime<Utc>\" \
+             FROM post_tags pt JOIN tags t ON pt.tag_id = t.id \
+             WHERE t.user_id = ? AND pt.post_id IN (",
+        );
+        sql.push_str(&vec!["?"; chunk.len()].join(", "));
+        sql.push_str(") ORDER BY t.name");
+        let mut q = sqlx::query_as::<_, PostTagWithPost>(&sql).bind(user_id);
+        for id in chunk {
+            q = q.bind(id);
+        }
+        for row in q.fetch_all(pool).await? {
+            grouped.entry(row.post_id).or_default().push(PostTagRow {
+                id: row.id,
+                name: row.name,
+                color: row.color,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            });
+        }
+    }
+    Ok(grouped)
+}
+
+/// A tag row that also names the post it belongs to.
+#[derive(sqlx::FromRow)]
+struct PostTagWithPost {
+    post_id: Uuid,
+    id: Uuid,
+    name: String,
+    color: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
 pub async fn get_tags_for_post(
     pool: &SqlitePool,
     post_id: Uuid,

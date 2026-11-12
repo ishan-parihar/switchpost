@@ -9,7 +9,8 @@
   // Inspired by postiz-app's providers/linkedin/linkedin.preview.tsx.
 
   import { providerMeta } from '$lib/providers';
-  import { plainText as plainTextOf } from '$lib/composer/platforms';
+  import { plainText as plainTextOf, charLimitFor } from '$lib/composer/platforms';
+  import { cropForPreview } from './crop';
   import type { MediaItem } from '$lib/api/media';
 
   let {
@@ -32,20 +33,17 @@
   // somewhere else, and it is the SHARED helper - it used to be a
   // per-file copy of the same regex.
   let plainText = $derived(plainTextOf(content));
-  let charLimit = $derived(providerMeta('linkedin').charLimit);
-  let isOverLimit = $derived(plainText.length > charLimit);
+  // The provider's rule, measured by the shared counter (not `length`, which
+  // counts UTF-16 code units) and cropped on the PLAIN text (not the escaped
+  // string) — see $lib/composer/preview-crop.
+  let charLimit = $derived(charLimitFor('linkedin'));
+  let previewCrop = $derived(cropForPreview('linkedin', plainText, { accent: '#0a66c2' }));
+  let isOverLimit = $derived(previewCrop.over);
+  let previewCount = $derived(previewCrop.count);
 
-  let highlightedHtml = $derived.by(() => {
-    let escaped = plainText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    escaped = escaped.replace(/@(\w+)/g, '<span style="color: #0a66c2; font-weight: 500;">@$1</span>');
-    escaped = escaped.replace(/#(\w+)/g, '<span style="color: #0a66c2; font-weight: 500;">#$1</span>');
-    if (isOverLimit) {
-      const before = escaped.slice(0, charLimit);
-      const after = escaped.slice(charLimit);
-      return `${before}<mark style="background-color: rgba(239, 68, 68, 0.2); color: #f87171;">${after}</mark>`;
-    }
-    return escaped;
-  });
+  let highlightedHtml = $derived(
+    cropForPreview('linkedin', plainText, { accent: '#0a66c2' }).html
+  );
 </script>
 
 <div class="bg-white text-black rounded-xl overflow-hidden max-w-[500px] mx-auto border border-gray-200" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
@@ -70,7 +68,7 @@
   <div class="px-3 pb-3">
     <p class="text-sm text-gray-800 whitespace-pre-wrap break-words leading-relaxed">{@html highlightedHtml}</p>
     {#if isOverLimit}
-      <p class="text-[10px] text-red-500 mt-1">{plainText.length}/{charLimit} - text beyond {charLimit} will be cropped</p>
+      <p class="text-[10px] text-red-500 mt-1">{previewCount}/{charLimit} - text beyond {charLimit} will be cropped</p>
     {/if}
   </div>
 

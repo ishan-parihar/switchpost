@@ -54,18 +54,14 @@ pub struct CalendarQuery {
 /// reason `tz_offset` beyond a day is a 400, not a clamp).
 pub fn parse_zone(name: &str) -> Result<chrono_tz::Tz, String> {
     use std::str::FromStr;
-    chrono_tz::Tz::from_str(name)
-        .map_err(|_| format!("tz is not a known IANA zone name: {name}"))
+    chrono_tz::Tz::from_str(name).map_err(|_| format!("tz is not a known IANA zone name: {name}"))
 }
 
 /// The offset of a PARSED zone (see `parse_zone`) at one instant.
 /// Per-instant, so a window spanning a DST transition buckets every
 /// post into the day the founder sees - the same as the frontend's
 /// `zoneOffsetMs`.
-pub fn zone_offset_seconds(
-    zone: chrono_tz::Tz,
-    at: chrono::DateTime<chrono::Utc>,
-) -> i64 {
+pub fn zone_offset_seconds(zone: chrono_tz::Tz, at: chrono::DateTime<chrono::Utc>) -> i64 {
     use chrono::Offset;
     at.with_timezone(&zone).offset().fix().local_minus_utc() as i64
 }
@@ -171,6 +167,22 @@ pub async fn get(
     let end = parse_end_date_or_datetime(&query.end)
         .ok_or_else(|| AppError::BadRequest("Invalid end date".into()))?;
 
+    // CAP THE RANGE.
+    //
+    // The calendar is a VIEW: a founder opens a month, a week or a day. A
+    // caller that asks for ten years gets every post in the database
+    // loaded, bucketed and serialised — on the single writer, while the
+    // scheduler is publishing. The cap is a YEAR, which is more than the
+    // UI ever asks for and is enough for a yearly view.
+    const MAX_CALENDAR_RANGE_DAYS: i64 = 366;
+    let range_days = (end - start).num_days();
+    if range_days > MAX_CALENDAR_RANGE_DAYS {
+        return Err(AppError::BadRequest(format!(
+            "The calendar range is {range_days} days; the maximum is {MAX_CALENDAR_RANGE_DAYS}. \
+             Ask for a narrower window."
+        )));
+    }
+
     // A NAME beats a constant: it resolves the offset PER-INSTANT
     // (DST-correct), so a window spanning a transition buckets every
     // post into the day the founder sees. The constant stays for
@@ -230,6 +242,16 @@ pub async fn get(
     )
     .await?;
 
+    // The tags of every post in the range, in ONE query.
+    //
+    // It used to be one `get_tags_for_post` per post: a year-wide window
+    // opened 300 posts and ran 301 sequential queries against the single
+    // writer, which is the same writer the scheduler publishes on.
+    let post_ids: Vec<Uuid> = posts.iter().map(|p| p.id).collect();
+    let tags_by_post = queries::get_tags_for_posts(&state.db, &post_ids, auth.user_id)
+        .await
+        .unwrap_or_default();
+
     let mut day_map: std::collections::BTreeMap<String, Vec<CalendarPost>> =
         std::collections::BTreeMap::new();
     for p in posts {
@@ -258,18 +280,20 @@ pub async fn get(
             .integration_name
             .unwrap_or_else(|| "Removed channel".into());
 
-        let tags = queries::get_tags_for_post(&state.db, p.id, auth.user_id)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|row| TagResponse {
-                id: row.id,
-                name: row.name,
-                color: row.color,
-                created_at: row.created_at.to_rfc3339(),
-                updated_at: row.updated_at.to_rfc3339(),
+        let tags = tags_by_post
+            .get(&p.id)
+            .map(|rows| {
+                rows.iter()
+                    .map(|row| TagResponse {
+                        id: row.id,
+                        name: row.name.clone(),
+                        color: row.color.clone(),
+                        created_at: row.created_at.to_rfc3339(),
+                        updated_at: row.updated_at.to_rfc3339(),
+                    })
+                    .collect()
             })
-            .collect();
+            .unwrap_or_default();
 
         day_map.entry(date_key).or_default().push(CalendarPost {
             id: p.id,
@@ -377,8 +401,10 @@ mod tests {
     #[test]
     fn an_unknown_zone_name_is_refused_not_treated_as_utc() {
         assert!(parse_zone("Mars/Olympus_Mons").is_err());
-        assert!(parse_zone("America%2FNew_York").is_err(),
-            "a doubly-encoded name (the classic client bug) must be loud, not UTC");
+        assert!(
+            parse_zone("America%2FNew_York").is_err(),
+            "a doubly-encoded name (the classic client bug) must be loud, not UTC"
+        );
         assert!(parse_zone("").is_err());
     }
 }

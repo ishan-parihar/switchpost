@@ -75,18 +75,11 @@ pub const WEEKDAYS: [&str; 7] = [
 ///
 /// `weekday` is SQLite's `strftime('%w')` convention (0 = Sunday) so
 /// `WEEKDAYS[weekday]` keeps indexing the way it always did.
-pub fn week_slot(
-    epoch: i64,
-    tz: Option<chrono_tz::Tz>,
-) -> Option<(i32, i32)> {
+pub fn week_slot(epoch: i64, tz: Option<chrono_tz::Tz>) -> Option<(i32, i32)> {
     use chrono::Timelike;
     let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(epoch, 0)?;
     let local = match tz {
-        Some(z) => {
-            dt + chrono::Duration::seconds(
-                crate::api::calendar::zone_offset_seconds(z, dt),
-            )
-        }
+        Some(z) => dt + chrono::Duration::seconds(crate::api::calendar::zone_offset_seconds(z, dt)),
         None => dt,
     };
     // %w: 0=Sunday..6=Saturday. date_naive has no weekday-offset trap
@@ -339,7 +332,16 @@ pub async fn get(
     auth: AuthenticatedUser,
     Query(query): Query<ResearchQuery>,
 ) -> Result<Json<ResearchResponse>, AppError> {
-    let days = i64::from(query.days.clamp(1, 3650));
+    // The window is capped at TWO YEARS.
+    //
+    // It used to accept 3650 (ten years), and the content-gaps section
+    // reads every external post in the window into memory — so a ten-year
+    // window on a well-fed feed loaded the whole corpus, on the single
+    // writer, to compute word frequencies. Two years is more than the
+    // feature needs (a topic the niche returns to across years is visible
+    // in the ranked sections too).
+    const MAX_RESEARCH_WINDOW_DAYS: i32 = 730;
+    let days = i64::from(query.days.clamp(1, MAX_RESEARCH_WINDOW_DAYS));
     let limit = query.limit.clamp(1, 50);
     let cutoff = chrono::Utc::now() - chrono::Duration::days(days);
 
@@ -463,18 +465,27 @@ pub async fn get(
     // The founder's side reads every post they have ever written, not just
     // the window: a topic they covered a year ago is still covered, and
     // windowing it would resurrect that topic as a false gap.
+    // The corpus is CAPPED. Word frequencies over the most recent rows
+    // answer the question ("what does the niche talk about that the
+    // founder does not?") — loading every row the founder has ever
+    // written only made the request slower and the memory larger.
+    const MAX_CORPUS_ROWS: i64 = 5_000;
     let competitor_texts: Vec<String> = sqlx::query_scalar::<_, String>(
         "SELECT text FROM external_posts
-          WHERE user_id = ? AND hidden_at IS NULL AND created_at >= ?",
+          WHERE user_id = ? AND hidden_at IS NULL AND created_at >= ?
+          ORDER BY created_at DESC LIMIT ?",
     )
     .bind(auth.user_id)
     .bind(crate::db::types::EpochUtc::from(cutoff))
+    .bind(MAX_CORPUS_ROWS)
     .fetch_all(&state.db)
     .await?;
     let own_texts: Vec<String> = sqlx::query_scalar::<_, String>(
-        "SELECT content FROM posts WHERE user_id = ? AND deleted_at IS NULL",
+        "SELECT content FROM posts WHERE user_id = ? AND deleted_at IS NULL
+          ORDER BY created_at DESC LIMIT ?",
     )
     .bind(auth.user_id)
+    .bind(MAX_CORPUS_ROWS)
     .fetch_all(&state.db)
     .await?;
     let competitor_refs: Vec<&str> = competitor_texts.iter().map(String::as_str).collect();

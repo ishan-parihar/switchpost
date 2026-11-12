@@ -114,6 +114,29 @@ function browserTodayKey(): string {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
 }
 
+/**
+ * Parse a `YYYY-MM-DD` key into a LOCAL `Date` — the browser's calendar day.
+ *
+ * `new Date("2026-11-15")` parses as UTC midnight, and every negative-offset
+ * zone then reads the PREVIOUS day: `/calendar?date=2026-11-15` opened
+ * November 14 in New York, and the calendar wrote that wrong day back to the
+ * URL and to localStorage.
+ *
+ * The date-only string is a CALENDAR DATE (AGENTS §9.10), so it is built
+ * from its parts in local time — the same way `formatDateKey` reads it.
+ */
+export function parseDateKey(key: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key.trim());
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  const date = new Date(Number(y), Number(mo) - 1, Number(d));
+  if (Number.isNaN(date.getTime())) return null;
+  // A key like 2026-02-31 rolls over into March; refuse it rather than
+  // opening a different day than the URL names.
+  if (formatDateKey(date) !== key.trim()) return null;
+  return date;
+}
+
 export function formatDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

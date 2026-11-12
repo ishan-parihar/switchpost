@@ -17,7 +17,7 @@
   import PostStatsModal from "$lib/calendar/PostStatsModal.svelte";
   import GeneratorModal from "$lib/composer/GeneratorModal.svelte";
   import { toCalendarEvent, type CalendarEvent, type CalendarView } from "$lib/calendar/types";
-  import { formatDateKey } from "$lib/calendar/utils";
+  import { formatDateKey, parseDateKey } from "$lib/calendar/utils";
   import CalendarHeader from "$lib/calendar/CalendarHeader.svelte";
   import MonthView from "$lib/calendar/MonthView.svelte";
   import WeekView from "$lib/calendar/WeekView.svelte";
@@ -532,8 +532,12 @@
     }
     const urlDate = url.searchParams.get('date');
     if (urlDate) {
-      const d = new Date(urlDate);
-      if (!isNaN(d.getTime())) {
+      // A date-only URL parameter is a CALENDAR DATE. `new Date(urlDate)`
+      // parsed it as UTC midnight, so `/calendar?date=2026-11-15` opened
+      // November 14 in every negative-offset zone — and the calendar then
+      // wrote that wrong day back to the URL and to localStorage.
+      const d = parseDateKey(urlDate);
+      if (d) {
         calendarState.setDate(d);
       }
     }

@@ -17,7 +17,8 @@
   // <span> tags with explicit colors.
 
   import { providerMeta } from '$lib/providers';
-  import { plainText as plainTextOf } from '$lib/composer/platforms';
+  import { plainText as plainTextOf, charLimitFor } from '$lib/composer/platforms';
+  import { cropForPreview } from './crop';
   import type { MediaItem } from '$lib/api/media';
 
   let {
@@ -44,43 +45,23 @@
   // per-file copy of the same regex.
   let plainText = $derived(plainTextOf(content));
 
-  // Get the char limit for this provider.
-  let charLimit = $derived(providerMeta(provider).charLimit);
-  let isOverLimit = $derived(plainText.length > charLimit);
+  // The provider's rule, measured by the shared counter (not `length`, which
+  // counts UTF-16 code units) and cropped on the PLAIN text (not the escaped
+  // string) — see $lib/composer/preview-crop.
+  let charLimit = $derived(charLimitFor(provider));
 
-  // Highlight mentions and hashtags in the plain text.
+  // Highlight mentions, hashtags and URLs in the plain text.
   // Returns HTML with <span> wrappers for colored text.
-  let highlightedHtml = $derived.by(() => {
-    // Escape HTML first to prevent injection.
-    let escaped = plainText
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+  let highlightedHtml = $derived(
+    cropForPreview(provider, plainText, {
+      accent: '#a855f7',
+      highlightUrls: true,
+      urlAccent: '#6366f1',
+      markerTitle: 'This text will be cropped',
+    }).html
+  );
 
-    // Highlight @mentions (purple)
-    escaped = escaped.replace(
-      /@(\w+)/g,
-      '<span style="color: #a855f7;">@$1</span>'
-    );
-    // Highlight #hashtags (blue)
-    escaped = escaped.replace(
-      /#(\w+)/g,
-      '<span style="color: #3b82f6;">#$1</span>'
-    );
-    // Highlight URLs (indigo)
-    escaped = escaped.replace(
-      /(https?:\/\/[^\s]+)/g,
-      '<span style="color: #6366f1;">$1</span>'
-    );
-
-    // If over the char limit, wrap the overflow in a red <mark>.
-    if (isOverLimit) {
-      const before = escaped.slice(0, charLimit);
-      const after = escaped.slice(charLimit);
-      return `${before}<mark style="background-color: rgba(239, 68, 68, 0.2); color: #f87171;" title="This text will be cropped">${after}</mark>`;
-    }
-    return escaped;
-  });
+  let overCount = $derived(cropForPreview(provider, plainText, { accent: '#a855f7' }));
 
   // Media grid layout: 1=full, 2=side-by-side, 3=side-by-side, 4+=2-col grid
   let mediaGridClass = $derived(
@@ -116,8 +97,8 @@
   <!-- Content -->
   <div class="px-4 pb-3">
     <p class="text-sm text-content whitespace-pre-wrap break-words leading-relaxed">{@html highlightedHtml}</p>
-    {#if isOverLimit}
-      <p class="text-[10px] text-red-400 mt-1">{plainText.length}/{charLimit} - text beyond {charLimit} will be cropped</p>
+    {#if overCount.over}
+      <p class="text-[10px] text-red-400 mt-1">{overCount.count}/{overCount.limit} - text beyond {overCount.limit} will be cropped</p>
     {/if}
   </div>
 

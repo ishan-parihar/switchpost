@@ -2257,8 +2257,46 @@ async fn refresh_cache_cycle(
                 .await
             {
                 Ok(posts) => {
+                    // The per-post fetches go through the PROVIDER'S
+                    // SEMAPHORE and run CONCURRENTLY.
+                    //
+                    // They used to be awaited one at a time: 20 channels x
+                    // (1 account call + 25 post calls) is ~500 SERIAL
+                    // provider calls per cycle — about 17 minutes at two
+                    // seconds a call, holding the refresher (and the
+                    // provider's rate-limit budget) the whole time.
+                    //
+                    // The semaphore is the same limiter the publish path
+                    // uses, so the refresher cannot exceed a platform's
+                    // concurrent-call budget — the limit is the platform's,
+                    // not this loop's.
+                    let semaphore = providers.concurrency(&integration.provider_identifier);
+                    let mut fetches = Vec::with_capacity(posts.len());
                     for (post_id, platform_post_id) in posts {
-                        match provider.post_analytics(&tok, &platform_post_id).await {
+                        let provider = provider.clone();
+                        let tok = tok.clone();
+                        let semaphore = semaphore.clone();
+                        fetches.push(tokio::spawn(async move {
+                            // Hold a permit for the call, not for the
+                            // upsert: the database write is not the
+                            // platform's budget.
+                            let _permit = match semaphore.as_ref() {
+                                Some(sem) => sem.acquire().await.ok(),
+                                None => None,
+                            };
+                            let outcome = provider.post_analytics(&tok, &platform_post_id).await;
+                            (post_id, platform_post_id, outcome)
+                        }));
+                    }
+                    for fetch in fetches {
+                        let (post_id, platform_post_id, outcome) = match fetch.await {
+                            Ok(v) => v,
+                            Err(e) => {
+                                tracing::warn!("Per-post analytics task failed: {e}");
+                                continue;
+                            }
+                        };
+                        match outcome {
                             Ok(analytics) => {
                                 let data = serde_json::to_value(&analytics)
                                     .unwrap_or(serde_json::Value::Null);
