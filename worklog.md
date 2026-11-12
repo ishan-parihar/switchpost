@@ -8060,3 +8060,78 @@ Known issues / follow-ups:
   path, and the parity test lists them explicitly so a THIRD one has to be a decision.
 - `farcaster` is Tier-3 and opt-in (`ENABLE_ARCHIVE_PROVIDERS`), so it has no CLI family and
   no shim; it is not in the registry on a normal boot.
+
+---
+Task ID: v12-deploy
+Agent: deepseek-harness
+Task: Deploy the five audit weeks to the RackNerd VPS (ssh racknerd) and verify them live
+
+Work Log:
+- Read the topology before touching anything: the unit is a USER unit
+  (`switchpost.service`), `ExecStart=/home/nerd/.local/bin/switchpost serve`,
+  `WorkingDirectory=/home/nerd/switchpost` (which holds ONLY `data/`, `.env`
+  and `uploads/` — it is not a checkout, so no `git pull` there), the public
+  route is `https://switchpost.ishanparihar.com` → `https://127.0.0.1:6543`
+  through cloudflared, and the VPS is Debian 12 with a glibc 2.36 ceiling.
+- Built from a CLEAN WORKTREE (`git worktree add --detach .deploy/src
+  github/master`), not from the working tree: the working tree carries
+  another agent's 44 uncommitted files, and shipping those would be shipping
+  work nobody asked to ship. The frontend was built in that worktree too, so
+  the embedded assets are the ones from `3a6227f`.
+- Cross-built for the target, not the host:
+  `cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.36`.
+  The Zig-linker shim is at `.deploy/shimdir/zig` (it strips the
+  `--no-keep-memory` flag that Zig's LLD rejects by name) and Zig 0.14.1 is
+  at `.deploy/zig-x86_64-linux-0.14.1` — both kept for the next deploy.
+  Two environment facts cost time and are worth writing down:
+  `~/.cache` is read-only under the sandbox (so `XDG_CACHE_HOME`,
+  `ZIG_GLOBAL_CACHE_DIR` and `ZIG_LOCAL_CACHE_DIR` all point into `.deploy/`),
+  and the `cargo-zigbuild` on PATH is a broken wrapper — the working one is
+  `/home/ishanp/.cargo/bin/cargo-zigbuild`, reached by calling
+  `/usr/bin/cargo zigbuild` rather than the `cargo` on PATH.
+  The worktree also needs `SQLX_OFFLINE=true`, or the `query!` macros try to
+  open a database that does not exist there.
+- Gates before the swap: `objdump -T` says the highest glibc symbol is
+  2.34 (≤ 2.36 ✓), `ldd` resolves everything, and the artifact contains
+  "channel to publish again" — a string that is in the new code and NOT in
+  the live binary (0 hits) ✓.
+- Backups first: `~/.local/bin/switchpost.bak-20261113-0332` (the binary) and
+  `/home/nerd/switchpost/data/pre-deploy-20261113-0332.db` (a consistent
+  `sqlite3 .backup` snapshot, not a `cp` of a live DB).
+- Shipped under a new name (`switchpost.new`), verified the sha256 matched
+  locally, then `mv` + `chmod 755` + `systemctl --user restart switchpost`.
+
+Stage Summary:
+- The service is ACTIVE with a new MainPID (4038764), and the public URL
+  answers 200 on `/health`, `/ready` and `/`.
+- The deployed binary is the new one (sha256 03f8de20…, byte-identical to
+  the local artifact), and the page it serves references
+  `_app/immutable/entry/app.c3cfsguZ.js` — an asset name that exists ONLY in
+  the new build (the old one served `app.jyJ5bRcy.js`), so the FRONTEND is
+  the new frontend and not a stale embed.
+- The migrations that shipped with it ran on boot: `api_keys.scopes` exists
+  (migration 0009) and the `auth_codes` table exists (0010).
+- The new CLI verb is live: `switchpost sets --help` answers with the
+  `list` / `create` / `delete` commands — the parity hole the audit's own
+  measurement found.
+- The journal since the restart is clean of errors. Two WARNs appear, and
+  BOTH are pre-existing, not the deploy: the Facebook insights warning
+  (#100, an invalid metric name) appeared 6 times in the 13 minutes BEFORE
+  the restart as well, and so did the LinkedIn `invalid_grant` (6 times —
+  a revoked grant on the founder's LinkedIn channel, which needs a
+  reconnect, not a rebuild). The new classifier is visible in that second
+  one: it is now reported as an `Auth error` rather than a plain API error.
+
+Known issues / follow-ups:
+- The LinkedIn and LinkedIn Page channels hold revoked grants
+  (`invalid_grant`). They need a reconnect from the Channels screen; no
+  deploy can fix that.
+- The Facebook insights metric (#100) is a provider-side metric name the
+  API rejects. It predates this work and is not part of the audit plan.
+- Switchpost still has no installer, no checksum-verifying deploy script
+  and no watchdog unit (aroute has all three). The next deploy would be
+  faster with one; the procedure above is the fallback until then.
+- Rollback: `ssh racknerd 'cp ~/.local/bin/switchpost.bak-20261113-0332
+  ~/.local/bin/switchpost && systemctl --user restart switchpost'` (and
+  restore `data/pre-deploy-20261113-0332.db` with the unit stopped, if the
+  fault turns out to be data).
