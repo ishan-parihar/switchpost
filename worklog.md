@@ -7849,3 +7849,80 @@ Known issues / follow-ups:
 - Nothing executed this pass — cargo test/clippy not run. Each fix needs one failing-first test.
 - The 5-connect-path plaintext finding needs a migration to re-encrypt rows already stored.
 
+
+---
+Task ID: v12-phase-1-security
+Agent: deepseek-harness
+Task: Execute audit phase 1 — security (encryption writer, SSRF guard, media proxy, upload path, API-key scopes, setup-link codes)
+
+Work Log:
+- Read the audit's §7 phase 1 and re-read every cited line before touching it.
+- Created `crypto::looks_encrypted` / `is_encrypted_with` and made `create_integration` THE
+  encrypting writer: it now takes `token_key`, encrypts access + refresh internally, and returns
+  `TokenUpdateError` — an encryption failure aborts the write and never falls back to plaintext
+  (AGENTS §6.3). All 32 call sites pass their key and hand over PLAINTEXT; the per-caller
+  encryption in services/integrations.rs is deleted.
+- Added `queries::reencrypt_plaintext_tokens` and called it at boot: rows written before the
+  writer existed are encrypted once. It is conservative — a value that merely LOOKS encrypted
+  (wrong key) is left alone rather than double-encrypted.
+- Created `src/net_guard.rs`: one outbound-URL rule for webhooks and RSS (scheme, host literal,
+  every DNS answer, every redirect hop). Clients are built with `redirect(Policy::none())` so
+  the hops can be validated by hand. `ALLOW_PRIVATE_OUTBOUND_URLS=1` is the operator's opt-in
+  for a receiver on their own machine.
+- Hardened `/api/proxy-media`: the served type comes from the SNIFFED bytes (an SVG is no
+  longer a document on the app origin), the host allowlist is exact names plus two
+  non-spoofable suffix rules, the anonymous upload hosts are gone, and the body is capped.
+- Extracted `api::media::finish_upload` + `store_upload_bytes`: REST, MCP and CLI now share
+  ONE upload path (MIME allowlist + sniff + size cap + the active storage backend).
+- Added API-key scopes (migration 0009): read / write / admin, enforced in ONE place
+  (`auth::middleware::scope_allows`). The key console is session-only at every level, so a
+  leaked key can never mint another key. `verify_api_key` now SELECTs and stamps
+  `last_used_at` at most once a minute instead of writing on every request.
+- Replaced the 30-day JWT in setup links with a 30-minute code (migration 0010) — a URL is
+  history, a log line and a Referer header, and none of those should hold a month-long
+  credential.
+
+Stage Summary:
+- Six commits, each pushed: 2f4ad9c, c0cd99d, 69021bd, 03c10e1, ebd25ca, 61176d1.
+- cargo check --lib --bin switchpost: 0 errors; cargo test: 602 lib tests + every integration
+  suite green; frontend pnpm build succeeds.
+- 18 new tests (encryption writer, re-encryption pass, SSRF rules, proxy allowlist, shared
+  upload path, API-key scopes, setup codes).
+
+Known issues / follow-ups:
+- The deployment on the RackNerd VPS still runs the PREVIOUS binary; nothing was deployed in
+  this pass (the user asked for implementation, not a release).
+- Migration 0009/0010 are additive; the production DB migrates on the next boot.
+
+---
+Task ID: v12-phase-2-wrong-destination
+Agent: deepseek-harness
+Task: Execute audit phase 2 — the wrong-destination findings (Meta page token, LinkedIn org, honest feed insert)
+
+Work Log:
+- Threaded the channel's identity into the ONE publish entry point: `SocialProvider::post_pending`
+  now carries `internal_id` and the scheduler passes it. Facebook, Instagram and LinkedIn Page
+  override it to resolve the CONNECTED channel and publish there.
+- Created `services::integrations::refresh_channel_credentials` — THE ONE REFRESH PATH. The
+  REST refresh, the MCP refresh tool, the scheduler's pre-publish refresh and the mid-publish
+  TokenExpired retry all route through it. A sub-account channel re-derives its PAGE token from
+  the refreshed user token; a page that cannot be re-derived keeps the working page token.
+- `connect_page` now stores the REAL expiry (60 days) so the pre-publish refresh fires.
+- `insert_external_post` answers "is this new?" honestly, and the two per-row `info!` logs are
+  gone (the feed reported the whole feed as new on every poll).
+- Fixed two pre-existing doctest failures (unindented code blocks in doc comments that rustdoc
+  compiled as Rust), so `cargo test` is green end to end for the first time.
+
+Stage Summary:
+- One commit, pushed: d5a1a76.
+- cargo check --all-targets: 0 errors; cargo test --lib: 608 passed, 0 failed; every
+  integration suite and the doctests pass; frontend pnpm build succeeds.
+- 6 new tests (page token kept across a refresh, plain channel refreshed, unresolvable page
+  keeps its token, Meta expiry, new vs already-imported external post).
+
+Known issues / follow-ups:
+- The provider overrides only cover the scheduler path. The REST/CLI/MCP direct publish calls
+  `publish` (no channel identity available there) — the page picker always records the channel
+  in the integration row, so the scheduler path is the one that matters for scheduled posts.
+- A live roundtrip against a real Meta account is still the honest proof of the page-token
+  contract; the unit tests pin the storage shape, not Meta's API.
