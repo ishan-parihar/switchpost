@@ -7725,3 +7725,41 @@ Known issues / follow-ups:
   endpoint I just verified saves them to that file.
 - The Threads app's tester role still needs adding at developers.facebook.com. Meta offers no API
   for it, so that is the founder's step either way — the warning now tells them exactly that.
+---
+Task ID: v12-fb-ig-pagetoken-fix
+Agent: DeepSeek Harness (fast-quality)
+Task: Fix "No pages found for token" (Facebook), "(#100) nonexisting field (accounts)" (Instagram publish), and IG music search failure
+
+Work Log:
+- Root cause found: connect_page stores a PAGE access token on the connected sub-account, but
+  facebook.rs::resolve_page_id and instagram.rs::resolve_ig_business_account resolved the target
+  via /me/accounts, which a Page node does not have — so every FB/IG publish on a connected
+  channel failed with the reported errors.
+- facebook.rs: new resolve_page() falls back to /me?fields=id,category when /me/accounts errors
+  or lists nothing (category discriminates Page nodes from User nodes), and returns the page's
+  own access token from /me/accounts so publish posts with a page-scoped token.
+- instagram.rs: resolve_ig_business_account() falls back to /me?fields=id,instagram_business_account
+  then /{page}/instagram_business_account on the page-token path; user-token path now prefers the
+  inline instagram_business_account field.
+- api/music.rs: was calling /{internal_id}/ig_audio with the page token and parsing data/id/artist.
+  Now calls the documented GET /ig_audio?audio_type=..&user_id={ig-id} with the USER token
+  (refresh_token fallback like available_pages) in the Authorization header, parses the documented
+  { audio: [ { audio_id, display_artist, cover_artwork_thumbnail_uri, duration_in_ms } ] } shape,
+  uses GRAPH_VERSION, surfaces Meta's error message via AppError::Provider (Internal hid it), and
+  fails fast with an actionable message for instagram-standalone (Audio API unsupported on
+  Instagram Login).
+- Regression tests: 9 new (facebook/instagram accounts-response fallback, music audio[] parsing).
+
+Stage Summary:
+- cargo check --lib --bin switchpost: 0 errors; cargo test --lib: 576 pass + 9 new pass
+  (7 pre-existing failures are sandbox /var/tmp artifacts in media/x_cookies tests, unrelated)
+- frontend pnpm build: succeeds
+- Committed a3f1f67, pushed github master
+
+Known issues / follow-ups:
+- The 7 failing lib tests (api::media, x_cookies b12, media_transform) fail in THIS sandbox only
+  because /var/tmp is read-only here; they should pass on the founder's machine. Not caused by
+  this change.
+- If the scheduler's token refresh ever overwrites a child channel's page token with a user
+  token, publish still works (user-token path resolves via /me/accounts) but picks the FIRST
+  page — pre-existing behavior, out of scope here.
