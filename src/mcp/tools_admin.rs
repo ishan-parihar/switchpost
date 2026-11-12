@@ -216,36 +216,23 @@ pub async fn handle_integrations_refresh(
             )
         })?;
 
-    // Decrypt the refresh token if encryption is configured
-    let refresh_token = crate::crypto::maybe_decrypt_token(
-        integration.refresh_token.as_deref().unwrap_or(""),
-        state.token_key.as_ref(),
-    );
-
-    let token = provider
-        .refresh_token(&refresh_token)
-        .await
-        .map_err(|e| format!("Token refresh failed: {e}"))?;
-
-    // B8: update_integration_token encrypts internally (and its
-    // refresh_needed=false write makes the explicit UPDATE below redundant).
-    queries::update_integration_token(
+    // THE ONE REFRESH PATH — the same one the REST refresh, the scheduler's
+    // pre-publish refresh and the mid-publish retry use. It preserves the
+    // sub-account contract: a Facebook Page channel keeps its PAGE token
+    // and re-derives it from the refreshed user token, instead of storing
+    // the user token (which sends later posts to the wrong page).
+    let outcome = crate::services::integrations::refresh_channel_credentials(
         &state.db,
-        integration_id,
-        &token.access_token,
-        token.refresh_token.as_deref(),
-        token
-            .expires_in
-            .map(|e| chrono::Utc::now() + chrono::Duration::seconds(e as i64)),
+        provider.as_ref(),
+        &integration,
         state.token_key,
     )
-    .await
-    .map_err(|e| format!("Failed to save refreshed token: {e}"))?;
+    .await?;
 
     Ok(Json(serde_json::json!({
         "integration_id": integration_id.to_string(),
         "refreshed": true,
-        "expires_in": token.expires_in,
+        "expires_at": outcome.expires_at.map(|e| e.to_rfc3339()),
     })))
 }
 

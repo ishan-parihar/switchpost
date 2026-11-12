@@ -529,9 +529,10 @@ pub trait SocialProvider: Send + Sync {
     /// `.env.example:21-24` documents it — but nothing ENFORCED it. The
     /// server happily generated
     ///
-    ///     https://www.threads.net/oauth/authorize?...
-    ///         &redirect_uri=http%3A%2F%2F127.0.0.1%3A6543%2Fapi%2Fauth%2Fcallback
-    ///
+    /// ```text
+    /// https://www.threads.net/oauth/authorize?...
+    ///     &redirect_uri=http%3A%2F%2F127.0.0.1%3A6543%2Fapi%2Fauth%2Fcallback
+    /// ```
     /// when `APP_URL` was `http://…`, the founder completed the consent
     /// screen, and Meta answered the callback with
     /// `?error=invalid_request&error_description=…redirect_uri…`. That came
@@ -613,11 +614,20 @@ pub trait SocialProvider: Send + Sync {
     /// Default: plain `publish`, so the 23 synchronous providers are
     /// untouched. Async providers override this and keep `publish` for the
     /// CLI/REST/MCP paths that want the immediate, unpolled answer.
+    ///
+    /// `internal_id` is the CHANNEL the post belongs to — the connected
+    /// page, the connected organization. A token that can administer SEVERAL
+    /// sub-accounts resolves one from the API, and the natural answer (the
+    /// first in the list) is often not the one the founder picked. A
+    /// provider with that shape (Facebook Page, Instagram, LinkedIn Page)
+    /// overrides this so it publishes to the channel the post is for.
     async fn post_pending(
         &self,
         access_token: &str,
         post: &PostContent,
+        internal_id: &str,
     ) -> Result<PublishResult, ProviderError> {
+        let _ = internal_id;
         self.publish(access_token, post).await
     }
 
@@ -2644,6 +2654,7 @@ mod insights_tests {
             &self,
             t: &str,
             p: &PostContent,
+            _internal_id: &str,
         ) -> Result<PublishResult, ProviderError> {
             // `pending_times == 0` is the synchronous case: delegate to
             // `publish` and report published, exactly as the trait default does.
@@ -2727,7 +2738,10 @@ mod insights_tests {
         // scheduler's `if result.is_pending()` is false. This is the
         // 23-provider no-change path.
         let p = fake(0, "published");
-        let accepted = p.post_pending("", &PostContent::default()).await.unwrap();
+        let accepted = p
+            .post_pending("", &PostContent::default(), "")
+            .await
+            .unwrap();
         assert!(
             accepted.is_published(),
             "default post_pending must delegate to publish"

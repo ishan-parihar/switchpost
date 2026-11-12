@@ -1339,7 +1339,15 @@ pub(crate) async fn publish_post(
         // this at the attempt that failed) or `continue`s to the next one, so
         // natural exhaustion ends on MAX_RETRIES — the true call count either way.
         final_attempt = attempt;
-        match provider.post_pending(&access_token, &content).await {
+        // `internal_id` is the channel this post belongs to: a Facebook
+        // Page or an Instagram business account is a SUB-account of the
+        // OAuth user, and the token can administer several of them. Sending
+        // it lets the provider publish to the connected one instead of the
+        // first the token can reach.
+        match provider
+            .post_pending(&access_token, &content, &post.internal_id)
+            .await
+        {
             Ok(result) => {
                 // A provider that only *accepted* the post (Instagram reel
                 // still transcoding, async Reddit submit, X video still
@@ -1605,27 +1613,19 @@ pub(crate) async fn publish_post(
                     attempt
                 );
                 did_refresh = true;
-                // B8: refresh tokens are encrypted at rest — decrypt first.
-                let old_refresh = crate::crypto::maybe_decrypt_token(
-                    post.refresh_token.as_deref().unwrap_or(""),
-                    token_key.as_ref(),
-                );
-                let new_token = match provider.refresh_token(&old_refresh).await {
-                    Ok(t) => {
-                        // B8: update_integration_token encrypts internally
-                        // and fails (never downgrades) on encrypt error.
-                        queries::update_integration_token(
-                            db,
-                            post.integration_id,
-                            &t.access_token,
-                            t.refresh_token.as_deref(),
-                            t.expires_in
-                                .map(|e| Utc::now() + chrono::Duration::seconds(e as i64)),
-                            token_key,
-                        )
-                        .await?;
-                        t.access_token
-                    }
+                // THE ONE REFRESH PATH — the same one the pre-publish
+                // refresh uses. It preserves the sub-account contract: a
+                // page channel keeps its PAGE token and re-derives it from
+                // the refreshed user token.
+                let new_token = match crate::services::integrations::refresh_channel_credentials(
+                    db,
+                    provider,
+                    &integration_from_post(post),
+                    token_key,
+                )
+                .await
+                {
+                    Ok(outcome) => outcome.access_token,
                     Err(e) => {
                         tracing::error!("Token refresh failed for post {}: {e}", post.id);
                         // Mark the integration as needing re-auth so the
@@ -1839,6 +1839,34 @@ fn dispatch_webhook_background(
 /// AES-256-GCM encrypted before being written to the DB. Previously
 /// this path stored the raw token — a silent at-rest encryption
 /// downgrade on every scheduler-triggered refresh.
+/// The integration row a post belongs to, rebuilt from the joined row.
+///
+/// The refresh path takes an `Integration` (it needs `root_internal_id`,
+/// the sub-account marker) and the scheduler works with the joined
+/// `PostWithIntegration`. This is the one place the two meet.
+fn integration_from_post(post: &PostWithIntegration) -> crate::db::models::Integration {
+    crate::db::models::Integration {
+        id: post.integration_id,
+        user_id: post.user_id,
+        provider_identifier: post.provider_identifier.clone(),
+        provider_name: post.provider_identifier.clone(),
+        internal_id: post.internal_id.clone(),
+        access_token: post.access_token.clone(),
+        refresh_token: post.refresh_token.clone(),
+        token_expires_at: post.token_expires_at,
+        profile_name: None,
+        profile_picture: None,
+        profile_url: None,
+        disabled: post.integration_disabled,
+        refresh_needed: post.integration_refresh_needed,
+        root_internal_id: post.root_internal_id.clone(),
+        posting_times: serde_json::json!({}),
+        auth_method: "oauth".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
 async fn resolve_token(
     db: &SqlitePool,
     provider: &dyn SocialProvider,
@@ -1852,31 +1880,21 @@ async fn resolve_token(
 
     if needs_refresh {
         tracing::info!("Token for post {} is expiring, refreshing", post.id);
-        // B8: refresh tokens are encrypted at rest once a key is
-        // configured — decrypt before handing to the provider.
-        let old_refresh = crate::crypto::maybe_decrypt_token(
-            post.refresh_token.as_deref().unwrap_or(""),
-            token_key.as_ref(),
-        );
-        let token = provider.refresh_token(&old_refresh).await.map_err(|e| {
-            crate::error::annotate_scope_loss(&post.provider_identifier, &e.to_string())
-        })?;
-
-        // B8: update_integration_token encrypts internally and fails
-        // (never downgrades) on encrypt error.
-        queries::update_integration_token(
+        // THE ONE REFRESH PATH. It knows the sub-account contract: a
+        // Facebook Page channel stores a PAGE token and the parent's USER
+        // token, so the refresh re-derives the page token instead of
+        // writing the user token over it — which would send every later
+        // post to whichever page the token lists first.
+        let integration = integration_from_post(post);
+        let outcome = crate::services::integrations::refresh_channel_credentials(
             db,
-            post.integration_id,
-            &token.access_token,
-            token.refresh_token.as_deref(),
-            token
-                .expires_in
-                .map(|e| Utc::now() + chrono::Duration::seconds(e as i64)),
+            provider,
+            &integration,
             token_key,
         )
-        .await?;
-
-        Ok(token.access_token)
+        .await
+        .map_err(|e| crate::error::annotate_scope_loss(&post.provider_identifier, &e))?;
+        Ok(outcome.access_token)
     } else {
         Ok(crate::crypto::maybe_decrypt_token(
             &post.access_token,

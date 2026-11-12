@@ -21,6 +21,150 @@ pub struct InstagramProvider {
 }
 
 impl InstagramProvider {
+    /// Publish to a SPECIFIC Instagram business account.
+    ///
+    /// `publish` resolves one (the first page that carries an IG account)
+    /// and calls this; `post_pending` resolves the one the CHANNEL is
+    /// connected to and calls the same body. One publish body, two
+    /// resolutions — and the channel one is the right one.
+    async fn publish_to_ig(
+        &self,
+        access_token: &str,
+        ig_id: &str,
+        post: &PostContent,
+    ) -> Result<PublishResult, ProviderError> {
+        if post.media.len() == 1 {
+            // Single image: simpler IMAGE container
+            //
+            // A REEL with a music track is different: Instagram needs
+            // `media_type=REELS`, the VIDEO (not the image) as the
+            // source, and an `audio_configuration` naming the track.
+            //
+            // The composer collected the music - the MusicPicker is
+            // shown for Instagram and the pick is written to
+            // `settings.audio_id` - and it was DISCARDED: neither
+            // instagram.rs nor instagram_standalone.rs read it, so the
+            // reel went out with no music while the composer showed a
+            // "Change/Browse" control that implied it had been applied.
+            let audio_id = post
+                .settings
+                .get("audio_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty());
+
+            let is_video = post.media[0].mime_type.starts_with("video/");
+
+            let container_id = if let Some(audio_id) = audio_id {
+                if !is_video {
+                    return Err(ProviderError::InvalidRequest(
+                        "Instagram music can only be attached to a video (Reel), not to an image."
+                            .into(),
+                    ));
+                }
+                self.create_reel_container(
+                    &ig_id,
+                    access_token,
+                    &post.media[0].url,
+                    &post.content,
+                    audio_id,
+                )
+                .await?
+            } else {
+                self.create_single_media_container(
+                    &ig_id,
+                    access_token,
+                    &post.media[0].url,
+                    &post.content,
+                    false,
+                )
+                .await?
+            };
+
+            self.await_container_ready(access_token, &container_id)
+                .await?;
+            let platform_post_id = self
+                .publish_container(&ig_id, access_token, &container_id)
+                .await?;
+            Ok(PublishResult {
+                platform_post_url: Some(format!("https://instagram.com/p/{platform_post_id}")),
+                platform_post_id,
+                status: "published".into(),
+            })
+        } else {
+            // Multiple images: CAROUSEL flow
+            let mut children_ids = Vec::with_capacity(post.media.len());
+            for media in &post.media {
+                let child_id = self
+                    .create_single_media_container(&ig_id, access_token, &media.url, "", true)
+                    .await?;
+                children_ids.push(child_id);
+            }
+
+            // Create CAROUSEL container with children
+            let children_str = children_ids.join(",");
+            let carousel_resp = self
+                .http
+                .post(format!("{}/{}/media", self.graph_url(), ig_id))
+                .form(&[
+                    ("media_type", "CAROUSEL"),
+                    ("children", &children_str),
+                    ("caption", &post.content),
+                    ("access_token", access_token),
+                ])
+                .send()
+                .await?;
+
+            let carousel_status = carousel_resp.status();
+            let carousel_json: serde_json::Value = carousel_resp.json().await?;
+
+            if let Some(err) = carousel_json["error"].as_object() {
+                let msg = err["message"]
+                    .as_str()
+                    .unwrap_or("Carousel creation failed");
+                let code = err["code"].as_u64().unwrap_or(0);
+                let raw = format!("Instagram carousel creation failed (code {code}): {msg}");
+                return Err(ProviderError::Api(friendly_error(
+                    self.map_error(msg, carousel_status.as_u16()),
+                    &raw,
+                )));
+            }
+
+            let carousel_id = carousel_json["id"]
+                .as_str()
+                .ok_or_else(|| {
+                    ProviderError::Api(format!(
+                        "Instagram did not return carousel container ID: {carousel_json:?}"
+                    ))
+                })?
+                .to_string();
+
+            // Polling the CAROUSEL container also covers the children: Instagram
+            // only marks a carousel FINISHED once every child has finished its
+            // own processing, so one wait replaces N per-child waits.
+            self.await_container_ready(access_token, &carousel_id)
+                .await?;
+            let platform_post_id = self
+                .publish_container(&ig_id, access_token, &carousel_id)
+                .await?;
+            Ok(PublishResult {
+                platform_post_url: Some(format!("https://instagram.com/p/{platform_post_id}")),
+                platform_post_id,
+                status: "published".into(),
+            })
+        }
+    }
+
+    /// Same container → ready → `media_publish` path as [`Self::publish`], but
+    /// honest about what `media_publish` returns.
+    ///
+    /// `media_publish` hands back a media id as soon as the container is
+    /// accepted — for a video reel that id comes back with
+    /// `status_code: PUBLISHED`, meaning "live, still transcoding". Treating
+    /// that as published leaves the user with a post whose video does not
+    /// play, so the extra status read routes it through the pending
+    /// lifecycle instead. Images are `FINISHED` on the first read, which is
+    /// the same published result `publish` returns today.
     pub fn new(config: &Config) -> Self {
         // Instagram Graph API uses Facebook Login OAuth — needs Facebook App credentials
         let (client_id, client_secret) =
@@ -237,143 +381,16 @@ impl SocialProvider for InstagramProvider {
             .await
             .map_err(|e| ProviderError::Api(format!("Cannot resolve IG business account: {e}")))?;
 
-        if post.media.len() == 1 {
-            // Single image: simpler IMAGE container
-            //
-            // A REEL with a music track is different: Instagram needs
-            // `media_type=REELS`, the VIDEO (not the image) as the
-            // source, and an `audio_configuration` naming the track.
-            //
-            // The composer collected the music - the MusicPicker is
-            // shown for Instagram and the pick is written to
-            // `settings.audio_id` - and it was DISCARDED: neither
-            // instagram.rs nor instagram_standalone.rs read it, so the
-            // reel went out with no music while the composer showed a
-            // "Change/Browse" control that implied it had been applied.
-            let audio_id = post
-                .settings
-                .get("audio_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty());
-
-            let is_video = post.media[0].mime_type.starts_with("video/");
-
-            let container_id = if let Some(audio_id) = audio_id {
-                if !is_video {
-                    return Err(ProviderError::InvalidRequest(
-                        "Instagram music can only be attached to a video (Reel), not to an image."
-                            .into(),
-                    ));
-                }
-                self.create_reel_container(
-                    &ig_id,
-                    access_token,
-                    &post.media[0].url,
-                    &post.content,
-                    audio_id,
-                )
-                .await?
-            } else {
-                self.create_single_media_container(
-                    &ig_id,
-                    access_token,
-                    &post.media[0].url,
-                    &post.content,
-                    false,
-                )
-                .await?
-            };
-
-            self.await_container_ready(access_token, &container_id)
-                .await?;
-            let platform_post_id = self
-                .publish_container(&ig_id, access_token, &container_id)
-                .await?;
-            Ok(PublishResult {
-                platform_post_url: Some(format!("https://instagram.com/p/{platform_post_id}")),
-                platform_post_id,
-                status: "published".into(),
-            })
-        } else {
-            // Multiple images: CAROUSEL flow
-            let mut children_ids = Vec::with_capacity(post.media.len());
-            for media in &post.media {
-                let child_id = self
-                    .create_single_media_container(&ig_id, access_token, &media.url, "", true)
-                    .await?;
-                children_ids.push(child_id);
-            }
-
-            // Create CAROUSEL container with children
-            let children_str = children_ids.join(",");
-            let carousel_resp = self
-                .http
-                .post(format!("{}/{}/media", self.graph_url(), ig_id))
-                .form(&[
-                    ("media_type", "CAROUSEL"),
-                    ("children", &children_str),
-                    ("caption", &post.content),
-                    ("access_token", access_token),
-                ])
-                .send()
-                .await?;
-
-            let carousel_status = carousel_resp.status();
-            let carousel_json: serde_json::Value = carousel_resp.json().await?;
-
-            if let Some(err) = carousel_json["error"].as_object() {
-                let msg = err["message"]
-                    .as_str()
-                    .unwrap_or("Carousel creation failed");
-                let code = err["code"].as_u64().unwrap_or(0);
-                let raw = format!("Instagram carousel creation failed (code {code}): {msg}");
-                return Err(ProviderError::Api(friendly_error(
-                    self.map_error(msg, carousel_status.as_u16()),
-                    &raw,
-                )));
-            }
-
-            let carousel_id = carousel_json["id"]
-                .as_str()
-                .ok_or_else(|| {
-                    ProviderError::Api(format!(
-                        "Instagram did not return carousel container ID: {carousel_json:?}"
-                    ))
-                })?
-                .to_string();
-
-            // Polling the CAROUSEL container also covers the children: Instagram
-            // only marks a carousel FINISHED once every child has finished its
-            // own processing, so one wait replaces N per-child waits.
-            self.await_container_ready(access_token, &carousel_id)
-                .await?;
-            let platform_post_id = self
-                .publish_container(&ig_id, access_token, &carousel_id)
-                .await?;
-            Ok(PublishResult {
-                platform_post_url: Some(format!("https://instagram.com/p/{platform_post_id}")),
-                platform_post_id,
-                status: "published".into(),
-            })
-        }
+        self.publish_to_ig(access_token, &ig_id, post).await
     }
 
-    /// Same container → ready → `media_publish` path as [`Self::publish`], but
-    /// honest about what `media_publish` returns.
-    ///
-    /// `media_publish` hands back a media id as soon as the container is
-    /// accepted — for a video reel that id comes back with
-    /// `status_code: PUBLISHED`, meaning "live, still transcoding". Treating
-    /// that as published leaves the user with a post whose video does not
-    /// play, so the extra status read routes it through the pending
-    /// lifecycle instead. Images are `FINISHED` on the first read, which is
-    /// the same published result `publish` returns today.
     async fn post_pending(
         &self,
         access_token: &str,
         post: &PostContent,
+        internal_id: &str,
     ) -> Result<PublishResult, ProviderError> {
+        let _ = internal_id;
         let published = self.publish(access_token, post).await?;
         self.media_publish_state(access_token, &published.platform_post_id)
             .await
@@ -1279,6 +1296,23 @@ impl InstagramProvider {
     ///   for `instagram_business_account`, then the
     ///   `/{page_id}/instagram_business_account` edge.
     async fn resolve_ig_business_account(&self, access_token: &str) -> Result<String, String> {
+        self.resolve_ig_business_account_for(access_token, None)
+            .await
+    }
+
+    /// Resolve the Instagram business account, preferring the page this
+    /// CHANNEL is connected to.
+    ///
+    /// A token can administer several Facebook pages and more than one may
+    /// carry an Instagram business account, so "the first page with an IG
+    /// account" is arbitrary — a channel connected to page B posts to page
+    /// A's Instagram. The scheduler hands us the channel's `internal_id`
+    /// (the page the founder picked), so we use it.
+    async fn resolve_ig_business_account_for(
+        &self,
+        access_token: &str,
+        internal_id: Option<&str>,
+    ) -> Result<String, String> {
         // Get the user's Facebook pages (user-token path).
         let resp = self
             .http
@@ -1300,6 +1334,15 @@ impl InstagramProvider {
             for page in pages {
                 let page_id = page["id"].as_str().unwrap_or("");
                 let page_token = page["access_token"].as_str().unwrap_or(access_token);
+
+                // A page this channel is NOT connected to is only worth a
+                // look when no connected page is found at all — that is the
+                // fallback at the end of the loop.
+                if let Some(want) = internal_id.filter(|w| !w.is_empty()) {
+                    if want != page_id {
+                        continue;
+                    }
+                }
 
                 // Prefer the inline field — one less request.
                 if let Some(ig_id) = page["instagram_business_account"]["id"].as_str() {
@@ -1356,6 +1399,19 @@ impl InstagramProvider {
                 "Facebook API error: {}",
                 err["message"].as_str().unwrap_or("unknown")
             ));
+        }
+
+        // A stored PAGE token answers /me with the page itself. If the
+        // channel names a DIFFERENT page, this token cannot publish to it —
+        // say so rather than posting to the wrong Instagram account.
+        if let Some(want) = internal_id.filter(|w| !w.is_empty()) {
+            let token_page = me["id"].as_str().unwrap_or("");
+            if !token_page.is_empty() && want != token_page {
+                return Err(format!(
+                    "This channel is connected to page {want}, but its stored token is a token for \
+                     page {token_page}. Reconnect the channel from the page picker."
+                ));
+            }
         }
 
         if let Some(ig_id) = me["instagram_business_account"]["id"].as_str() {

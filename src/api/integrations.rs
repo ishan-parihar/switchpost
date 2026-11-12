@@ -631,30 +631,22 @@ pub async fn refresh(
         .ok_or_else(|| AppError::BadRequest("Provider not found in registry".into()))?;
 
     let mut new_access_token = None;
-    if let Some(ref refresh_token_encrypted) = integration.refresh_token {
-        let refresh_token =
-            crypto::maybe_decrypt_token(refresh_token_encrypted, state.token_key.as_ref());
-        match provider_obj.refresh_token(&refresh_token).await {
-            Ok(new_token) => {
-                // B8: update_integration_token is the single encrypting
-                // writer — pass plaintext and let it encrypt. Keeping the
-                // plaintext here also means reconnect() below receives a
-                // usable token (it previously got the encrypted blob).
-                let expires_at = new_token
-                    .expires_in
-                    .map(|e| chrono::Utc::now() + chrono::Duration::seconds(e as i64));
-
-                queries::update_integration_token(
-                    &state.db,
-                    id,
-                    &new_token.access_token,
-                    new_token.refresh_token.as_deref(),
-                    expires_at,
-                    state.token_key,
-                )
-                .await?;
-
-                new_access_token = Some(new_token.access_token.clone());
+    if integration.refresh_token.is_some() {
+        // THE ONE REFRESH PATH. It preserves the sub-account contract: a
+        // Facebook Page channel stores a PAGE token and the parent's USER
+        // token, so the refresh re-derives the page token instead of
+        // writing the user token over it — which sent every later post to
+        // whichever page the token happened to list first.
+        match crate::services::integrations::refresh_channel_credentials(
+            &state.db,
+            provider_obj.as_ref(),
+            &integration,
+            state.token_key,
+        )
+        .await
+        {
+            Ok(outcome) => {
+                new_access_token = Some(outcome.access_token.clone());
 
                 if provider_obj.refresh_wait() {
                     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
@@ -2014,6 +2006,14 @@ pub async fn connect_page(
         )
     })?;
 
+    // Store the REAL expiry. The page token came from the parent's OAuth
+    // exchange, so the API reports no `expires_in` for it — and
+    // `token_expires_at = None` told the scheduler "never refresh", which
+    // meant a page channel died silently the day its token expired. A page
+    // token derived from a long-lived user token lives 60 days.
+    let page_token_expires_at =
+        crate::services::integrations::meta_page_token_expiry(&parent.provider_identifier);
+
     let integration = queries::create_integration(
         &state.db,
         auth.user_id,
@@ -2022,7 +2022,7 @@ pub async fn connect_page(
         &page.id,
         &page_token,
         parent.refresh_token.as_deref(),
-        None,
+        page_token_expires_at,
         Some(&page.name),
         page.picture.as_deref(),
         None,

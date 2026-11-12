@@ -356,7 +356,9 @@ impl SocialProvider for ThreadsProvider {
         &self,
         access_token: &str,
         post: &PostContent,
+        internal_id: &str,
     ) -> Result<PublishResult, ProviderError> {
+        let _ = internal_id;
         let user_id = self.resolve_user_id(access_token).await?;
 
         if post.media.len() > 1 {

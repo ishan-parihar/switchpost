@@ -1530,9 +1530,7 @@ impl XProvider {
                                     .get("quoted_status_result")
                                     .and_then(|q| q.pointer("/result/result/legacy"))
                             })
-                            .or_else(|| {
-                                legacy.pointer("/quoted_status_result/result/legacy")
-                            });
+                            .or_else(|| legacy.pointer("/quoted_status_result/result/legacy"));
                         if let Some(qt) = qt_legacy {
                             Self::extract_media_from_legacy(qt, &mut media);
                         }
@@ -1864,7 +1862,9 @@ impl SocialProvider for XProvider {
         &self,
         access_token: &str,
         post: &PostContent,
+        internal_id: &str,
     ) -> Result<PublishResult, ProviderError> {
+        let _ = internal_id;
         let (result, media_ready) = self.publish_with_media_state(access_token, post).await?;
         if media_ready {
             Ok(result)

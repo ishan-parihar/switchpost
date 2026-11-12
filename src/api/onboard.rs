@@ -37,8 +37,6 @@ pub struct PublicConnectQuery {
 pub struct OnboardQuery {
     pub pending: Option<String>,
     pub integration_id: Option<String>,
-    /// A one-time setup code minted by `/setup` (preferred over `token`).
-    pub code: Option<String>,
     /// A session JWT from an in-flight OAuth chain (kept for compatibility).
     pub token: Option<String>,
     pub connected: Option<String>,

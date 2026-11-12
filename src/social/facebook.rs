@@ -283,39 +283,27 @@ impl SocialProvider for FacebookProvider {
         // token, in which case /me IS the page; a user token lists pages via
         // /me/accounts and the page's own token is required to post to it.
         let (page_id, page_token) = self.resolve_page(access_token).await?;
-        let token = page_token.as_deref().unwrap_or(access_token);
+        self.publish_to_page(access_token, page_id, page_token, post)
+            .await
+    }
 
-        let params = vec![("message", post.content.as_str()), ("access_token", token)];
-
-        let resp = self
-            .http
-            .post(format!("{}/{page_id}/feed", self.graph_url()))
-            .form(&params)
-            .send()
+    /// Publish to the page this channel is CONNECTED to.
+    ///
+    /// The scheduler knows the channel; `publish` alone does not, and a
+    /// founder with three pages would have every scheduled post land on the
+    /// first one their token happens to list. This override is what makes
+    /// the channel identity reach the publish.
+    async fn post_pending(
+        &self,
+        access_token: &str,
+        post: &PostContent,
+        internal_id: &str,
+    ) -> Result<PublishResult, ProviderError> {
+        let (page_id, page_token) = self
+            .resolve_page_for(access_token, Some(internal_id))
             .await?;
-
-        let status = resp.status();
-        let json: serde_json::Value = resp.json().await?;
-
-        if status == 200 {
-            let post_id = json["id"].as_str().unwrap_or("").to_string();
-            Ok(PublishResult {
-                platform_post_id: post_id,
-                platform_post_url: None,
-                status: "published".into(),
-            })
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
-        } else {
-            let msg = json["error"]["message"]
-                .as_str()
-                .unwrap_or("Facebook publish failed");
-            let raw = format!("Facebook publish failed (HTTP {status}): {msg}");
-            Err(ProviderError::Api(friendly_error(
-                self.map_error(msg, status.as_u16()),
-                &raw,
-            )))
-        }
+        self.publish_to_page(access_token, page_id, page_token, post)
+            .await
     }
 
     async fn pages(&self, access_token: &str) -> Result<Vec<PageInfo>, ProviderError> {
@@ -783,6 +771,53 @@ impl SocialProvider for FacebookProvider {
 }
 
 impl FacebookProvider {
+    /// Publish to a SPECIFIC page.
+    ///
+    /// `publish` resolves a page (the first the token can manage) and calls
+    /// this; `post_pending` resolves the page the channel is connected to
+    /// and calls the same body. One publish body, two resolutions.
+    async fn publish_to_page(
+        &self,
+        access_token: &str,
+        page_id: String,
+        page_token: Option<String>,
+        post: &PostContent,
+    ) -> Result<PublishResult, ProviderError> {
+        let token = page_token.as_deref().unwrap_or(access_token);
+
+        let params = vec![("message", post.content.as_str()), ("access_token", token)];
+
+        let resp = self
+            .http
+            .post(format!("{}/{page_id}/feed", self.graph_url()))
+            .form(&params)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        let json: serde_json::Value = resp.json().await?;
+
+        if status == 200 {
+            let post_id = json["id"].as_str().unwrap_or("").to_string();
+            Ok(PublishResult {
+                platform_post_id: post_id,
+                platform_post_url: None,
+                status: "published".into(),
+            })
+        } else if status == 401 {
+            Err(ProviderError::TokenExpired)
+        } else {
+            let msg = json["error"]["message"]
+                .as_str()
+                .unwrap_or("Facebook publish failed");
+            let raw = format!("Facebook publish failed (HTTP {status}): {msg}");
+            Err(ProviderError::Api(friendly_error(
+                self.map_error(msg, status.as_u16()),
+                &raw,
+            )))
+        }
+    }
+
     /// Resolve the page to act on from the stored token, plus the token the
     /// action should use when the listing returned a page-scoped one.
     ///
@@ -808,6 +843,25 @@ impl FacebookProvider {
         &self,
         access_token: &str,
     ) -> Result<(String, Option<String>), ProviderError> {
+        self.resolve_page_for(access_token, None).await
+    }
+
+    /// Resolve the page to post to, preferring the one the channel is
+    /// CONNECTED to.
+    ///
+    /// A token that administers several pages returns them all from
+    /// `/me/accounts`, and the first in that list is arbitrary. When the
+    /// scheduler hands us the channel's `internal_id` (the page the founder
+    /// picked in the page picker) we publish to THAT one — otherwise a
+    /// channel connected to page B quietly sends every post to page A.
+    ///
+    /// `internal_id = None` (the REST/CLI/MCP direct path, which has no
+    /// channel identity) keeps the old behaviour: the first page listed.
+    async fn resolve_page_for(
+        &self,
+        access_token: &str,
+        internal_id: Option<&str>,
+    ) -> Result<(String, Option<String>), ProviderError> {
         let me: serde_json::Value = self
             .http
             .get(format!(
@@ -821,6 +875,16 @@ impl FacebookProvider {
             .await?;
 
         if let Some((id, page_token)) = first_page_from_accounts(&me) {
+            // A connected channel names its page. Prefer it over the first
+            // row of the list, which is arbitrary.
+            if let Some(want) = internal_id.filter(|w| !w.is_empty()) {
+                if let Some((id, page_token)) = find_page_by_id(&me, want) {
+                    return Ok((id, page_token));
+                }
+                tracing::warn!(
+                    "Facebook channel {want} is no longer in /me/accounts — falling back to the                      first page the token can manage"
+                );
+            }
             return Ok((id, page_token));
         } else {
             tracing::debug!(
@@ -840,8 +904,24 @@ impl FacebookProvider {
             .await?;
 
         if page["error"].is_null() {
-            if let Some(id) = page["id"].as_str().filter(|s| !s.is_empty()) {
-                return Ok((id.to_string(), None));
+            let page_id = page["id"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            if let Some(id) = page_id {
+                // The stored token is a PAGE token (that is what
+                // `connect_page` writes), so `/me` IS the connected page.
+                // If the caller named a DIFFERENT page, the stored token
+                // cannot publish to it — say so rather than publishing to
+                // the wrong audience.
+                if let Some(want) = internal_id.filter(|w| !w.is_empty()) {
+                    if want != id.as_str() {
+                        return Err(ProviderError::Auth(format!(
+                            "This channel is connected to page {want}, but its stored token is a                              token for page {id}. Reconnect the channel from the page picker."
+                        )));
+                    }
+                }
+                return Ok((id, None));
             }
         }
 
@@ -851,6 +931,22 @@ impl FacebookProvider {
                 .into(),
         ))
     }
+}
+
+/// The entry for `want` in a `/me/accounts` response, if it is there.
+fn find_page_by_id(me: &serde_json::Value, want: &str) -> Option<(String, Option<String>)> {
+    me["data"]
+        .as_array()?
+        .iter()
+        .find(|p| p["id"].as_str() == Some(want))
+        .map(|p| {
+            let id = want.to_string();
+            let token = p["access_token"]
+                .as_str()
+                .filter(|t| !t.is_empty())
+                .map(str::to_string);
+            (id, token)
+        })
 }
 
 /// Interpret a `/me/accounts` response: `Some((page_id, page_token))` when it

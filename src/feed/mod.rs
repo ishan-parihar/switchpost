@@ -204,8 +204,10 @@ pub async fn try_refresh_and_fetch_for_test(
 /// rewritten nightly, so the refresh was succeeding and writing a good token
 /// every time. The trigger was a log line, not a schedule:
 ///
-///     WARN feed: LinkedIn get_posts failed ... 404: No virtual resource found.
-///
+/// ```text
+/// WARN feed: LinkedIn get_posts failed ... 404: No virtual resource found.
+/// ```
+
 /// "No virtual resource found" is LinkedIn's phrasing for "the page/resource
 /// you named is not there". It is NOT a scope error, and it is definitely NOT
 /// a token error - the same token had just been used successfully.

@@ -1715,7 +1715,7 @@ pub async fn get_post_with_integration(
              p.created_at, p.updated_at,
              p.repeat_interval_days, p.repeat_end_date, p.group_id,
              p.first_comment, p.sequence, p.idempotency_key,
-             i.provider_identifier, i.access_token,
+             i.provider_identifier, i.internal_id, i.root_internal_id, i.access_token,
              i.refresh_token, i.token_expires_at,
              i.disabled as "integration_disabled",
              i.refresh_needed as "integration_refresh_needed"
@@ -1906,7 +1906,7 @@ pub async fn get_due_posts(
         p.created_at, p.updated_at,
         p.repeat_interval_days, p.repeat_end_date, p.group_id,
         p.first_comment, p.sequence, p.idempotency_key,
-        i.provider_identifier, i.access_token,
+        i.provider_identifier, i.internal_id, i.root_internal_id, i.access_token,
         i.refresh_token, i.token_expires_at,
         i.disabled as integration_disabled,
         i.refresh_needed as integration_refresh_needed
@@ -3677,10 +3677,21 @@ pub async fn insert_external_post(
     media: &serde_json::Value,
     metadata: &serde_json::Value,
 ) -> Result<Option<ExternalPost>, sqlx::Error> {
-    tracing::info!(
-        "insert_external_post: provider={} post_id={} text_len={} name={:?} handle={:?} avatar_present={} url_present={}",
-        provider, platform_post_id, text.len(), author_name, author_handle, author_avatar.is_some(), url.is_some(),
-    );
+    // Did this post already exist? The upsert below refreshes the row
+    // either way, but the RETURNING clause cannot tell an INSERT from an
+    // UPDATE, so the honest "is this new?" question is answered first.
+    //
+    // It matters: the feed importer counts `Some` as a NEW post, and the
+    // old code always returned `Some`, so every refresh reported the whole
+    // feed as new. The founder saw "37 new posts" on every poll.
+    let existed: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM external_posts WHERE provider = ? AND platform_post_id = ?",
+    )
+    .bind(provider)
+    .bind(platform_post_id)
+    .fetch_optional(pool)
+    .await?;
+
     let result = sqlx::query_as::<_, ExternalPost>(
         "INSERT INTO external_posts \
          (id, user_id, provider, platform_post_id, text, author_name, author_handle, author_avatar, created_at, url, media, metadata) \
@@ -3718,18 +3729,11 @@ pub async fn insert_external_post(
     .bind(metadata)
     .fetch_optional(pool)
     .await?;
-    if let Some(ref post) = result {
-        tracing::info!(
-            "insert_external_post RETURNED: id={} name={:?} handle={:?} avatar_present={}",
-            post.id,
-            post.author_name,
-            post.author_handle,
-            post.author_avatar.is_some(),
-        );
-    } else {
-        tracing::info!("insert_external_post RETURNED: None");
-    }
-    Ok(result)
+
+    // A row that was already there is NOT a new post: the caller counts
+    // new posts, and the old behaviour (always `Some`) made every refresh
+    // report the whole feed as new.
+    Ok(if existed.is_some() { None } else { result })
 }
 
 /// Update the metadata JSON of an external post (used for engagement updates).
@@ -5195,6 +5199,58 @@ pub async fn prune_auth_codes(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
 /// picker) left a PLAINTEXT working credential in the row. These tests
 /// pin the new contract: the writer encrypts, and the startup pass that
 /// re-encrypts older rows is idempotent and never double-encrypts.
+#[cfg(test)]
+mod v12_external_post_tests {
+    use super::*;
+
+    async fn fixture() -> (SqlitePool, Uuid) {
+        let pool = crate::db::create_pool("sqlite::memory:").await.unwrap();
+        let user_id = crate::auth::middleware::DEFAULT_USER_ID;
+        crate::db::ensure_local_user(&pool).await.unwrap();
+        (pool, user_id)
+    }
+
+    async fn insert(pool: &SqlitePool, user_id: Uuid, platform_post_id: &str) -> bool {
+        insert_external_post(
+            pool,
+            user_id,
+            "x",
+            platform_post_id,
+            "hello",
+            Some("Author"),
+            Some("@author"),
+            None,
+            chrono::Utc::now(),
+            None,
+            &serde_json::json!([]),
+            &serde_json::json!({}),
+        )
+        .await
+        .expect("insert")
+        .is_some()
+    }
+
+    #[tokio::test]
+    async fn a_new_external_post_is_reported_as_new() {
+        let (pool, user_id) = fixture().await;
+        assert!(insert(&pool, user_id, "post-1").await);
+    }
+
+    #[tokio::test]
+    async fn an_existing_external_post_is_not_reported_as_new() {
+        // The feed importer counts `Some` as a new post. The old code
+        // ALWAYS returned Some, so every refresh reported the whole feed as
+        // new — the founder saw "37 new posts" on every poll.
+        let (pool, user_id) = fixture().await;
+        assert!(insert(&pool, user_id, "post-1").await);
+        assert!(
+            !insert(&pool, user_id, "post-1").await,
+            "a post that was already imported is not new"
+        );
+        assert!(insert(&pool, user_id, "post-2").await);
+    }
+}
+
 #[cfg(test)]
 mod v12_auth_code_tests {
     use super::*;

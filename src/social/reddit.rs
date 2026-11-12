@@ -1785,7 +1785,9 @@ impl SocialProvider for RedditProvider {
         &self,
         access_token: &str,
         post: &PostContent,
+        internal_id: &str,
     ) -> Result<PublishResult, ProviderError> {
+        let _ = internal_id;
         let result = self.publish(access_token, post).await?;
         if result.platform_post_url.as_deref().unwrap_or("").is_empty() {
             Ok(PublishResult {

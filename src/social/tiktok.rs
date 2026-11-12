@@ -594,7 +594,9 @@ impl SocialProvider for TikTokProvider {
         &self,
         access_token: &str,
         post: &PostContent,
+        internal_id: &str,
     ) -> Result<PublishResult, ProviderError> {
+        let _ = internal_id;
         let media = post.media.first().ok_or_else(|| {
             ProviderError::InvalidRequest("TikTok posts require a video attachment".into())
         })?;

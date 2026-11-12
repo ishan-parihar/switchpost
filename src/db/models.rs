@@ -303,6 +303,16 @@ pub struct PostWithIntegration {
     pub idempotency_key: Uuid,
     // Joined from integrations
     pub provider_identifier: String,
+    /// The CHANNEL inside the provider: the connected Facebook Page, the
+    /// connected LinkedIn organization, the connected subreddit-free account.
+    /// A token can administer several sub-accounts, so a provider that
+    /// resolves one from the API needs to know which one this post is for.
+    pub internal_id: String,
+    /// Set when the channel is a SUB-ACCOUNT of the OAuth user (a Facebook
+    /// Page, for instance): it stores a PAGE token and the parent's USER
+    /// token, so a refresh must re-derive the page token rather than
+    /// overwrite it with the user one.
+    pub root_internal_id: Option<String>,
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub token_expires_at: Option<DateTime<Utc>>,

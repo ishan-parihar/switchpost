@@ -16,6 +16,75 @@ pub struct LinkedInPageProvider {
 }
 
 impl LinkedInPageProvider {
+    async fn publish_to_org(
+        &self,
+        access_token: &str,
+        org_id: &str,
+        post: &PostContent,
+    ) -> Result<PublishResult, ProviderError> {
+        let body = serde_json::json!({
+            "author": format!("urn:li:organization:{org_id}"),
+            "lifecycleState": "PUBLISHED",
+            "specificContent": {
+                "com.linkedin.ugc.ShareContent": {
+                    "shareCommentary": {
+                        "text": post.content,
+                    },
+                    "shareMediaCategory": if post.media.is_empty() { "NONE" } else { "IMAGE" },
+                }
+            },
+            "visibility": {
+                "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
+            }
+        });
+
+        let resp = self
+            .http
+            .post("https://api.linkedin.com/v2/ugcPosts")
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("X-Restli-Protocol-Version", "2.0.0")
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = resp.status();
+
+        if status == 201 {
+            let location = resp
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            let post_id = location.rsplit('/').next().unwrap_or("").to_string();
+            return Ok(PublishResult {
+                platform_post_id: post_id,
+                platform_post_url: None,
+                status: "published".into(),
+            });
+        }
+
+        let json: serde_json::Value = resp.json().await?;
+
+        if status == 401 {
+            Err(ProviderError::TokenExpired)
+        } else {
+            let msg = json["message"]
+                .as_str()
+                .unwrap_or("LinkedIn Page publish failed")
+                .to_string();
+            let raw = format!("LinkedIn Page publish failed (HTTP {status}): {msg}");
+            Err(ProviderError::Api(friendly_error(
+                self.map_error(&msg, status.as_u16()),
+                &raw,
+            )))
+        }
+    }
+    /// Publish to a SPECIFIC organization.
+    ///
+    /// `publish` resolves one (the first the token can reach) and calls
+    /// this; `post_pending` resolves the one the CHANNEL is connected to
+    /// and calls the same body.
     pub fn new(config: &Config) -> Self {
         let (client_id, client_secret) =
             config.provider_credentials("linkedin").unwrap_or_default();
@@ -290,6 +359,25 @@ impl SocialProvider for LinkedInPageProvider {
     }
 
     /// List organizations the user can administer
+    /// Publish to the organization this channel is CONNECTED to.
+    ///
+    /// A LinkedIn token can administer several organizations, and
+    /// `resolve_org_id` takes the first one it lists — so a channel
+    /// connected to organization B had every scheduled post land in
+    /// organization A. The scheduler knows the channel; this override is
+    /// what carries it into the publish.
+    async fn post_pending(
+        &self,
+        access_token: &str,
+        post: &PostContent,
+        internal_id: &str,
+    ) -> Result<PublishResult, ProviderError> {
+        let org_id = self
+            .resolve_org_id_for(access_token, Some(internal_id))
+            .await?;
+        self.publish_to_org(access_token, &org_id, post).await
+    }
+
     async fn pages(&self, access_token: &str) -> Result<Vec<PageInfo>, ProviderError> {
         let resp = self
             .http
@@ -450,64 +538,7 @@ impl SocialProvider for LinkedInPageProvider {
     ) -> Result<PublishResult, ProviderError> {
         // Resolve org ID — internal_id tells us which org to post as
         let org_id = self.resolve_org_id(access_token).await?;
-
-        let body = serde_json::json!({
-            "author": format!("urn:li:organization:{org_id}"),
-            "lifecycleState": "PUBLISHED",
-            "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": {
-                        "text": post.content,
-                    },
-                    "shareMediaCategory": if post.media.is_empty() { "NONE" } else { "IMAGE" },
-                }
-            },
-            "visibility": {
-                "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
-            }
-        });
-
-        let resp = self
-            .http
-            .post("https://api.linkedin.com/v2/ugcPosts")
-            .header("Authorization", format!("Bearer {access_token}"))
-            .header("X-Restli-Protocol-Version", "2.0.0")
-            .json(&body)
-            .send()
-            .await?;
-
-        let status = resp.status();
-
-        if status == 201 {
-            let location = resp
-                .headers()
-                .get("location")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("")
-                .to_string();
-            let post_id = location.rsplit('/').next().unwrap_or("").to_string();
-            return Ok(PublishResult {
-                platform_post_id: post_id,
-                platform_post_url: None,
-                status: "published".into(),
-            });
-        }
-
-        let json: serde_json::Value = resp.json().await?;
-
-        if status == 401 {
-            Err(ProviderError::TokenExpired)
-        } else {
-            let msg = json["message"]
-                .as_str()
-                .unwrap_or("LinkedIn Page publish failed")
-                .to_string();
-            let raw = format!("LinkedIn Page publish failed (HTTP {status}): {msg}");
-            Err(ProviderError::Api(friendly_error(
-                self.map_error(&msg, status.as_u16()),
-                &raw,
-            )))
-        }
+        self.publish_to_org(access_token, &org_id, post).await
     }
 
     fn map_error(&self, body: &str, status: u16) -> Option<String> {
@@ -986,6 +1017,38 @@ impl LinkedInPageProvider {
     }
 
     async fn resolve_org_id(&self, access_token: &str) -> Result<String, ProviderError> {
+        self.resolve_org_id_for(access_token, None).await
+    }
+
+    /// Resolve the organization to post as, preferring the CHANNEL's org.
+    ///
+    /// `resolve_org_id` takes `pages.first()` — the first organization the
+    /// token can post to — which is arbitrary for a token that administers
+    /// several. The founder picks one in the connect flow and the channel's
+    /// `internal_id` records it, so a post aimed at channel B went to
+    /// organization A. This override is what closes that.
+    ///
+    /// `internal_id = None` (the REST/CLI/MCP direct path, which has no
+    /// channel identity) keeps the old behaviour.
+    async fn resolve_org_id_for(
+        &self,
+        access_token: &str,
+        internal_id: Option<&str>,
+    ) -> Result<String, ProviderError> {
+        if let Some(want) = internal_id.filter(|w| !w.is_empty()) {
+            // The channel names its org. Trust it, but only once it is
+            // still reachable: an org the token lost (an admin removed
+            // them, a role changed) must fail loudly rather than be
+            // silently resolved to a different one.
+            let pages = self.pages(access_token).await?;
+            if pages.iter().any(|p| p.id == want) {
+                return Ok(want.to_string());
+            }
+            return Err(ProviderError::Auth(format!(
+                "This channel is connected to organization {want}, which the token can no longer \
+                 post to. Reconnect the channel."
+            )));
+        }
         let pages = self.pages(access_token).await?;
         pages
             .first()
