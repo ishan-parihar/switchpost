@@ -65,7 +65,7 @@ switchpost posts find-slot --integration <UUID>  # for one account → {ok, sche
 switchpost posts create "text" --integrations <UUID> --schedule "2026-11-01T09:00:00Z"
 switchpost posts create "text" --integrations <UUID> --first-comment "Context thread…"  # auto-comment right after publish — works on providers that implement comment (FB/Reddit/Slack/Dev.to/Hashnode/Medium/GMB); a failed first comment NEVER fails the post
 switchpost posts get <POST_ID>                   # one post: id, content, state, integration_id, scheduled_at, …
-switchpost posts schedule <POST_ID> "2026-11-02T09:00:00Z"    # reschedule
+switchpost posts schedule <POST_ID> "2026-11-02T09:00:00Z"    # reschedule (a PUBLISHED post needs --republish; otherwise the answer names the reason)
 switchpost posts update <POST_ID> --content "new text"        # omitted fields kept
 switchpost posts tags <POST_ID> <TAG_ID1> <TAG_ID2>           # replace tags (none = clear)
 switchpost posts validate "text" --integrations <UUID>       # check limits w/o creating

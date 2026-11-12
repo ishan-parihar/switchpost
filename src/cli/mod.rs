@@ -698,7 +698,23 @@ pub enum PostsAction {
         state: Option<String>,
     },
     /// Re-schedule an existing post
-    Schedule { id: String, scheduled_at: String },
+    Schedule {
+        id: String,
+        scheduled_at: String,
+        /// A PUBLISHED post needs this to be re-scheduled: it resets the
+        /// post to `queued` and the scheduler publishes it AGAIN — a NEW
+        /// post on the platform, next to the one that is already live.
+        ///
+        /// Without the flag the command refuses, because the old answer
+        /// ("Post not found after scheduling") was a lie: the post exists,
+        /// it is simply published, and the founder was left hunting for a
+        /// post that was never missing.
+        #[arg(long)]
+        republish: bool,
+        /// Move the whole thread/campaign group by the same delta.
+        #[arg(long)]
+        move_group: bool,
+    },
     /// Publish a queued or errored post immediately via the provider
     Publish { id: String },
     /// Delete a post

@@ -448,6 +448,19 @@ pub struct GetPostOutput {
 pub struct SchedulePostInput {
     pub id: String,
     pub scheduled_at: String,
+    /// What a PUBLISHED post means:
+    /// - `schedule` → reset to `queued` and publish AGAIN (a NEW post on
+    ///   the platform, next to the live one);
+    /// - `update`   → re-date only, for the archive.
+    ///
+    /// Omitted on a published post is an ERROR — never a silent
+    /// re-publish. The same rule the calendar's drag and the CLI's
+    /// `--republish` follow.
+    #[serde(default)]
+    pub action: Option<String>,
+    /// Move the whole thread/campaign group by the same delta.
+    #[serde(default)]
+    pub move_group: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -714,14 +727,53 @@ pub async fn schedule_post(
         .map_err(|_| "Invalid date format, use ISO8601".to_string())?
         .with_timezone(&Utc);
 
-    let post =
-        PostService::schedule(&state.db, &state.broadcast, user_id, post_id, scheduled_at).await?;
+    // The REST reschedule is the ONE core (AGENTS §9.21): it owns the
+    // published-post rules, the group move and the state transitions.
+    //
+    // The tool used `PostService::schedule`, whose UPDATE only touches a
+    // post in `idea|draft|queued|error` — so a PUBLISHED post matched
+    // nothing and the answer was "Post not found after scheduling". The
+    // post was there; it was published.
+    let value = super::rest_bridge::rest_result(
+        crate::api::posts::reschedule(
+            axum::extract::State(state.clone()),
+            crate::auth::middleware::AuthenticatedUser { user_id },
+            axum::extract::Path(post_id),
+            axum::Json(crate::api::posts::RescheduleRequest {
+                scheduled_at: scheduled_at.to_rfc3339(),
+                move_group: input.move_group,
+                action: input.action.clone(),
+            }),
+        )
+        .await,
+    )?;
+
+    let value = value.0;
+    let id = value
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let state = value
+        .get("state")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let platform_post_url = value
+        .get("platform_post_url")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let scheduled_at_out = value
+        .get("scheduled_at")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| scheduled_at.to_rfc3339());
 
     Ok(Json(SchedulePostOutput {
-        id: post.id.to_string(),
-        state: post.state.to_string(),
-        scheduled_at: scheduled_at.to_rfc3339(),
-        platform_post_url: None,
+        id,
+        state,
+        scheduled_at: scheduled_at_out,
+        platform_post_url,
     }))
 }
 

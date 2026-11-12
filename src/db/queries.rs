@@ -956,6 +956,31 @@ pub async fn get_posts_by_group_id(
     .await
 }
 
+/// The state vocabulary a LIST filter accepts.
+///
+/// `idea | draft | queued | published | error` — plus `errored`, the word
+/// the CLI's help used to advertise, as an alias for `error`.
+///
+/// The list query used to fall back to "no filter" for anything it did not
+/// recognise, so a typo (`--state publishd`) silently listed EVERY post.
+/// The browser's filter dropdown cannot produce a typo, but a shell can,
+/// and "37 posts" for a filter that should have matched none is a silent
+/// wrong answer. The public surfaces validate against this list FIRST.
+pub fn parse_post_state_filter(raw: &str) -> Option<crate::db::models::PostState> {
+    use crate::db::models::PostState;
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "idea" => Some(PostState::Idea),
+        "draft" => Some(PostState::Draft),
+        "queued" => Some(PostState::Queued),
+        "published" => Some(PostState::Published),
+        "error" | "errored" => Some(PostState::Error),
+        _ => None,
+    }
+}
+
+/// The state vocabulary, as a sentence an error can carry.
+pub const POST_STATE_VOCABULARY: &str = "idea|draft|queued|published|error";
+
 pub async fn list_posts(
     pool: &SqlitePool,
     user_id: Uuid,

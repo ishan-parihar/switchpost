@@ -4488,8 +4488,21 @@ async fn handle_posts_with_state(state: &AppState, action: PostsAction) -> anyho
             limit,
             offset,
         } => {
-            let limit = limit.min(200) as i64;
+            // The SAME limit clamp the REST path uses (`clamp(1, 200)`), so
+            // `--limit 0` does not return an empty list on one surface and
+            // one post on the other.
+            let limit = (limit as i64).clamp(1, 200);
             let offset = offset as i64;
+            // A typo in `--state` used to list EVERY post silently. The
+            // vocabulary is named instead.
+            if let Some(raw) = post_state.as_deref() {
+                if crate::db::queries::parse_post_state_filter(raw).is_none() {
+                    return output_error(&format!(
+                        "Unknown post state `{raw}`. Use {}.",
+                        crate::db::queries::POST_STATE_VOCABULARY
+                    ));
+                }
+            }
             match crate::services::posts::PostService::list(
                 &state.db,
                 user_id,
@@ -4586,7 +4599,12 @@ async fn handle_posts_with_state(state: &AppState, action: PostsAction) -> anyho
             )
             .await
         }
-        PostsAction::Schedule { id, scheduled_at } => {
+        PostsAction::Schedule {
+            id,
+            scheduled_at,
+            republish,
+            move_group,
+        } => {
             let post_id = match id.parse::<uuid::Uuid>() {
                 Ok(id) => id,
                 Err(_) => return output_error("Invalid post ID"),
@@ -4594,23 +4612,41 @@ async fn handle_posts_with_state(state: &AppState, action: PostsAction) -> anyho
             let dt = chrono::DateTime::parse_from_rfc3339(&scheduled_at)
                 .map_err(|e: chrono::ParseError| anyhow::anyhow!("Invalid scheduled_at: {}", e))?
                 .with_timezone(&chrono::Utc);
-            crate::services::posts::PostService::schedule(
-                &state.db,
-                &state.broadcast,
-                user_id,
-                post_id,
-                dt,
+            // The REST reschedule is the ONE core (AGENTS §9.21): it owns
+            // the published-post rules, the group move and the state
+            // transitions.
+            //
+            // The CLI used `PostService::schedule`, whose UPDATE only
+            // touches a post in `idea|draft|queued|error` — so a PUBLISHED
+            // post matched nothing and the error said "Post not found
+            // after scheduling". The post was there; it was published. The
+            // message sent the founder looking for a post that was never
+            // missing.
+            //
+            // `action` decides what a published post means:
+            //   - `schedule` → reset to queued and publish AGAIN (a NEW
+            //     post on the platform, next to the live one) — so it
+            //     needs the explicit `--republish`;
+            //   - `update`   → re-date only, for the archive.
+            let action = if republish {
+                Some("schedule".to_string())
+            } else {
+                None
+            };
+            let value = crate::api::posts::reschedule(
+                axum::extract::State(state.clone()),
+                crate::auth::middleware::AuthenticatedUser { user_id },
+                axum::extract::Path(post_id),
+                axum::Json(crate::api::posts::RescheduleRequest {
+                    scheduled_at: dt.to_rfc3339(),
+                    move_group: Some(move_group),
+                    action,
+                }),
             )
             .await
-            .map(|post| {
-                serde_json::json!({
-                    "ok": true,
-                    "id": post.id.to_string(),
-                    "state": post.state.to_string(),
-                    "scheduled_at": post.scheduled_at.map(|d| d.to_rfc3339()),
-                })
-            })
-            .map_err(|e| anyhow::anyhow!("Schedule failed: {e}"))
+            .map_err(|e| anyhow::anyhow!("Schedule failed: {e}"))?;
+            let axum::Json(value) = value;
+            Ok(value)
         }
         PostsAction::Publish { id } => {
             let post_id = match id.parse::<uuid::Uuid>() {

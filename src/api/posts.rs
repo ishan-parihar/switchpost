@@ -374,6 +374,17 @@ pub async fn list(
     Query(query): Query<ListPostsQuery>,
 ) -> Result<Json<PostsListResponse>, crate::error::AppError> {
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    // An unknown state filter used to fall back to "no filter" and list
+    // EVERY post. A typo in the URL is now a 400 that names the
+    // vocabulary.
+    if let Some(raw) = query.state.as_deref() {
+        if crate::db::queries::parse_post_state_filter(raw).is_none() {
+            return Err(crate::error::AppError::BadRequest(format!(
+                "Unknown post state `{raw}`. Use {}.",
+                crate::db::queries::POST_STATE_VOCABULARY
+            )));
+        }
+    }
     let offset = query.offset.unwrap_or(0);
 
     // Phase 5: parse the new search/filter/sort params.
