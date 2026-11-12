@@ -192,7 +192,7 @@ impl SocialProvider for MediumProvider {
                 .as_str()
                 .unwrap_or("Medium publish failed")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         } else {
             Err(ProviderError::Api(
                 json["errors"][0]["message"]
@@ -279,7 +279,7 @@ impl SocialProvider for MediumProvider {
                 .as_str()
                 .unwrap_or("Failed to fetch Medium posts")
                 .to_string();
-            return Err(ProviderError::Api(msg));
+            return Err(self.provider_error(&msg, status_code.as_u16()));
         }
 
         let posts: Vec<ExternalPostData> = json["data"]

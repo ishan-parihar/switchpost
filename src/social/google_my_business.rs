@@ -244,7 +244,7 @@ impl SocialProvider for GoogleMyBusinessProvider {
                 .as_str()
                 .unwrap_or("Failed to create GMB local post")
                 .to_string();
-            return Err(ProviderError::Api(msg));
+            return Err(self.provider_error(&msg, post_status.as_u16()));
         }
 
         let result: serde_json::Value = post_resp.json().await?;
@@ -277,7 +277,7 @@ impl SocialProvider for GoogleMyBusinessProvider {
                 .as_str()
                 .unwrap_or("Failed to fetch GMB accounts")
                 .to_string();
-            return Err(ProviderError::Api(msg));
+            return Err(self.provider_error(&msg, status.as_u16()));
         }
 
         let accounts = json["accounts"].as_array().cloned().unwrap_or_default();
@@ -327,7 +327,7 @@ impl SocialProvider for GoogleMyBusinessProvider {
                 .as_str()
                 .unwrap_or("Failed to fetch GMB account")
                 .to_string();
-            return Err(ProviderError::Api(msg));
+            return Err(self.provider_error(&msg, status.as_u16()));
         }
 
         Ok(PageInfo {

@@ -42,14 +42,12 @@ impl TikTokProvider {
 
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
                 .unwrap_or("Unknown TikTok API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -156,14 +154,12 @@ impl TikTokProvider {
 
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
                 .unwrap_or("Unknown TikTok API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -212,7 +208,7 @@ impl TikTokProvider {
                 }
                 "PUBLISH_FAILED" => {
                     let raw = format!("TikTok did not publish video {post_id}: PUBLISH_FAILED");
-                    return Err(ProviderError::Api(friendly_error(None, &raw)));
+                    return Err(self.provider_error(&raw, 0));
                 }
                 other => {
                     last_seen = other.to_string();
@@ -229,7 +225,7 @@ impl TikTokProvider {
              of the same video can be rejected as duplicate content.",
             ATTEMPTS as u64 * INTERVAL.as_secs()
         );
-        Err(ProviderError::Api(friendly_error(None, &raw)))
+        Err(self.provider_error(&raw, 0))
     }
 
     /// B11: one fetch-status call. Returns the raw publish status string

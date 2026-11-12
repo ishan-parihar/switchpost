@@ -165,10 +165,7 @@ impl BlueskyProvider {
             return Ok(());
         }
         let raw = format!("Bluesky {operation} failed (HTTP {status}): {body}");
-        Err(ProviderError::Api(friendly_error(
-            self.map_error(body, status),
-            &raw,
-        )))
+        Err(self.provider_error(&raw, status))
     }
 
     fn parse_body(body: &str, operation: &str) -> Result<serde_json::Value, ProviderError> {
@@ -635,9 +632,10 @@ impl SocialProvider for BlueskyProvider {
             // belong in the feed: a repost's `post.author` is the ORIGINAL
             // author, so importing every item showed strangers' posts under
             // the founder's account - the exact "hallucinated feed" report.
-            if item.get("reason").is_some_and(|r| {
-                r["$type"].as_str() == Some("app.bsky.feed.defs#reasonRepost")
-            }) {
+            if item
+                .get("reason")
+                .is_some_and(|r| r["$type"].as_str() == Some("app.bsky.feed.defs#reasonRepost"))
+            {
                 continue;
             }
             let post = &item["post"];
@@ -1000,12 +998,37 @@ mod tests {
     }
 
     #[test]
-    fn check_status_annotates_401_with_friendly_copy() {
+    fn check_status_classifies_401_as_a_token_expiry() {
+        // A 401 is the ONE error the scheduler refreshes and retries. It
+        // used to arrive as a plain API error on the providers that
+        // hand-rolled their mapping — so the scheduler gave up on the
+        // first try on some platforms and retried on others, for the
+        // same failure.
         let err = provider()
             .check_status(401, "Expired token", "getProfile")
             .unwrap_err();
+        assert!(
+            matches!(err, ProviderError::TokenExpired),
+            "a 401 must be a token expiry, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn check_status_keeps_the_raw_text_on_an_ordinary_failure() {
+        let err = provider()
+            .check_status(500, "Internal Server Error", "getProfile")
+            .unwrap_err();
         let msg = format!("{err}");
-        assert!(msg.contains("expired"), "got: {msg}");
+        assert!(msg.contains("Internal Server Error"), "got: {msg}");
+    }
+
+    #[test]
+    fn check_status_keeps_the_raw_text_beside_the_friendly_copy() {
+        let err = provider()
+            .check_status(403, "not permitted", "getProfile")
+            .unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("denied"), "got: {msg}");
         assert!(msg.contains("raw:"), "raw text must be preserved: {msg}");
     }
 

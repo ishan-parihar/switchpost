@@ -102,14 +102,12 @@ impl LinkedInProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("LinkedIn API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -208,7 +206,7 @@ impl LinkedInProvider {
                 msg,
                 json
             );
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -233,8 +231,6 @@ impl LinkedInProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["message"]
@@ -263,14 +259,12 @@ impl LinkedInProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("LinkedIn API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -292,14 +286,12 @@ impl LinkedInProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("LinkedIn API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -323,8 +315,6 @@ impl LinkedInProvider {
         let status = resp.status();
         if status.is_success() || status.as_u16() == 204 {
             Ok(())
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let body = resp.text().await.unwrap_or_default();
             Err(ProviderError::Api(format!(
@@ -352,14 +342,12 @@ impl LinkedInProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("LinkedIn API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -381,14 +369,12 @@ impl LinkedInProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("LinkedIn API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -420,14 +406,12 @@ impl LinkedInProvider {
         let json: serde_json::Value = resp.json().await?;
         if status == 201 {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("LinkedIn API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -1356,7 +1340,7 @@ impl SocialProvider for LinkedInProvider {
             .or_else(|| json["error_description"].as_str())
             .unwrap_or("LinkedIn reply failed")
             .to_string();
-        Err(ProviderError::Api(msg))
+        Err(self.provider_error(&msg, status.as_u16()))
     }
 
     async fn send_dm(
@@ -1409,7 +1393,7 @@ impl SocialProvider for LinkedInProvider {
             .or_else(|| json["error_description"].as_str())
             .unwrap_or("LinkedIn send DM failed")
             .to_string();
-        Err(ProviderError::Api(msg))
+        Err(self.provider_error(&msg, status.as_u16()))
     }
 
     // This provider has a DM surface, so `dm_capable()` reports true, which is what

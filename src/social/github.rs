@@ -81,7 +81,7 @@ impl GithubProvider {
             if msg.to_lowercase().contains("rate limit") {
                 Err(ProviderError::RateLimited(msg))
             } else {
-                Err(ProviderError::Api(msg))
+                Err(self.provider_error(&msg, status.as_u16()))
             }
         } else if status == StatusCode::NOT_FOUND {
             Err(ProviderError::Api(
@@ -139,7 +139,7 @@ impl GithubProvider {
             if msg.to_lowercase().contains("rate limit") {
                 Err(ProviderError::RateLimited(msg))
             } else {
-                Err(ProviderError::Api(msg))
+                Err(self.provider_error(&msg, status.as_u16()))
             }
         } else if status == StatusCode::NOT_FOUND {
             Err(ProviderError::Api(
@@ -198,7 +198,7 @@ impl GithubProvider {
             if msg.to_lowercase().contains("rate limit") {
                 Err(ProviderError::RateLimited(msg))
             } else {
-                Err(ProviderError::Api(msg))
+                Err(self.provider_error(&msg, status.as_u16()))
             }
         } else if status == StatusCode::UNPROCESSABLE_ENTITY {
             Err(ProviderError::InvalidRequest(

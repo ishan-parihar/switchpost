@@ -522,8 +522,6 @@ impl SocialProvider for LinkedInPageProvider {
         let status = resp.status();
         if status.is_success() || status.as_u16() == 204 {
             Ok(())
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(format!(
                 "LinkedIn Page delete failed (HTTP {status})"
@@ -739,9 +737,11 @@ impl SocialProvider for LinkedInPageProvider {
         // Try fetching with the given page_id; if it fails, resolve the correct org ID
         let json = match self.get_page_posts(access_token, &page_id, limit).await {
             Ok(json) => json,
-            Err(ProviderError::Api(msg))
-                if msg.contains("No virtual resource") || msg.contains("not found") =>
+            Err(e)
+                if e.to_string().contains("No virtual resource")
+                    || e.to_string().contains("not found") =>
             {
+                let msg = e.to_string();
                 tracing::warn!(
                     "LinkedIn page posts failed with '{}' for page_id={}, resolving correct org ID...",
                     msg, page_id,
@@ -1080,15 +1080,13 @@ impl LinkedInPageProvider {
 
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("LinkedIn Page API error")
                 .to_string();
             tracing::warn!("LinkedIn get_page_posts HTTP {status} for page_id={page_id}: {msg}");
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -1130,7 +1128,7 @@ impl LinkedInPageProvider {
                     .as_str()
                     .unwrap_or("LinkedIn Page API error")
                     .to_string();
-                Err(ProviderError::Api(msg))
+                Err(self.provider_error(&msg, status.as_u16()))
             }
         }
     }

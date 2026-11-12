@@ -936,8 +936,6 @@ impl SocialProvider for InstagramProvider {
                 platform_post_url: None,
                 status: "published".into(),
             })
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -975,8 +973,6 @@ impl SocialProvider for InstagramProvider {
                 platform_post_url: None,
                 status: "sent".into(),
             })
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1259,7 +1255,7 @@ impl InstagramProvider {
                 "ERROR" | "EXPIRED" | "MEDIA_ERROR" => {
                     let reason = json["status"].as_str().unwrap_or("no reason given");
                     let raw = format!("Instagram container {container_id} is {seen}: {reason}");
-                    return Err(ProviderError::Api(friendly_error(None, &raw)));
+                    return Err(self.provider_error(&raw, 0));
                 }
                 // IN_PROGRESS and anything Instagram adds later.
                 "" => "not reported yet".to_string(),
@@ -1277,7 +1273,7 @@ impl InstagramProvider {
              re-uploading the media, or the same container will time out again.",
             CONTAINER_READY_ATTEMPTS as u64 * CONTAINER_READY_INTERVAL.as_secs()
         );
-        Err(ProviderError::Api(friendly_error(None, &raw)))
+        Err(self.provider_error(&raw, 0))
     }
 
     /// Resolve the Instagram Business Account ID from the stored token.
@@ -1473,8 +1469,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1505,8 +1499,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1537,8 +1529,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1570,8 +1560,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1605,8 +1593,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1639,8 +1625,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1673,8 +1657,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1709,8 +1691,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1754,8 +1734,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1787,8 +1765,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1820,8 +1796,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1858,8 +1832,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1890,8 +1862,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1956,8 +1926,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -1989,8 +1957,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -2024,8 +1990,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()
@@ -2062,8 +2026,6 @@ impl InstagramProvider {
             Err(ProviderError::RateLimited(
                 "Instagram API rate limit".into(),
             ))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let detail = json["error"]["message"]
                 .as_str()

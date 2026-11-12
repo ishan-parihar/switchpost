@@ -804,8 +804,6 @@ impl FacebookProvider {
                 platform_post_url: None,
                 status: "published".into(),
             })
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
@@ -1002,8 +1000,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1036,8 +1032,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1069,8 +1063,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1103,8 +1095,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1141,8 +1131,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1179,8 +1167,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1219,8 +1205,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1251,8 +1235,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1284,8 +1266,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1359,8 +1339,6 @@ impl FacebookProvider {
             ))
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1393,8 +1371,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1437,8 +1413,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1471,8 +1445,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1505,8 +1477,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1538,8 +1508,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1627,8 +1595,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]
@@ -1661,8 +1627,6 @@ impl FacebookProvider {
             Ok(json)
         } else if status == 429 {
             Err(ProviderError::RateLimited("Facebook API rate limit".into()))
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             Err(ProviderError::Api(
                 json["error"]["message"]

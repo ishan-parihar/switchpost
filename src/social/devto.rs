@@ -163,7 +163,7 @@ impl SocialProvider for DevtoProvider {
                 .as_str()
                 .unwrap_or(json["message"].as_str().unwrap_or("Dev.to publish failed"))
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         } else {
             Err(ProviderError::Api(
                 json["error"]

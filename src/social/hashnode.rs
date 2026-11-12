@@ -222,7 +222,7 @@ impl SocialProvider for HashnodeProvider {
                 .or_else(|| json["error"].as_str())
                 .unwrap_or("Hashnode publish failed")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         } else {
             Err(ProviderError::Api("Hashnode API error".into()))
         }

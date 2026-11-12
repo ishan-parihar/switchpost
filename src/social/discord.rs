@@ -52,7 +52,7 @@ impl DiscordProvider {
                 .as_str()
                 .unwrap_or("Discord API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -82,7 +82,7 @@ impl DiscordProvider {
                 .as_str()
                 .unwrap_or("Discord API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -131,7 +131,7 @@ impl DiscordProvider {
                     .as_str()
                     .unwrap_or("Discord API error")
                     .to_string();
-                return Err(ProviderError::Api(msg));
+                return Err(self.provider_error(&msg, status.as_u16()));
             }
             let batch_json: Vec<serde_json::Value> = resp.json().await?;
             let n = batch_json.len();
@@ -221,7 +221,7 @@ impl DiscordProvider {
                 .as_str()
                 .unwrap_or("Discord API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -247,7 +247,7 @@ impl DiscordProvider {
                 .as_str()
                 .unwrap_or("Discord API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -275,7 +275,7 @@ impl DiscordProvider {
                 .as_str()
                 .unwrap_or("Discord API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 

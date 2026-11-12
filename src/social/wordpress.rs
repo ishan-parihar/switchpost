@@ -327,7 +327,7 @@ impl SocialProvider for WordPressProvider {
                 .as_str()
                 .unwrap_or("WordPress API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -434,13 +434,13 @@ impl SocialProvider for WordPressProvider {
                 .as_str()
                 .unwrap_or("WordPress publish failed")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status_code.as_u16()))
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("WordPress API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status_code.as_u16()))
         }
     }
 
@@ -486,7 +486,7 @@ impl SocialProvider for WordPressProvider {
                 .as_str()
                 .unwrap_or("Failed to fetch WordPress user info")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -542,7 +542,7 @@ impl SocialProvider for WordPressProvider {
                 .as_str()
                 .unwrap_or("Failed to fetch WordPress user info")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 

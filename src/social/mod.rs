@@ -815,6 +815,42 @@ pub trait SocialProvider: Send + Sync {
         None
     }
 
+    /// The ONE translation from an HTTP failure to the error the app acts on.
+    ///
+    /// ## Why this exists
+    ///
+    /// Every provider decided the error CATEGORY in its own error branch:
+    /// a 429 was `RateLimited` on some platforms (the scheduler backs off
+    /// and retries) and a plain `Api` error on others (the scheduler gives
+    /// up on the first try). The same failure therefore behaved
+    /// differently depending on which platform the founder posted to, and
+    /// the RETRY POLICY keys on the category.
+    ///
+    /// The category now comes from `classify_error` — the one classifier —
+    /// and this method is its only translation into the error type the app
+    /// reacts to. The provider's own `map_error` still supplies the
+    /// WORDING ("Invalid Dev.to API key. Check DEVTO_API_KEY in .env."),
+    /// so nothing about the message the founder reads changes.
+    fn provider_error(&self, body: &str, status: u16) -> ProviderError {
+        match classify_error(body, status) {
+            // A rate limit is retryable: the scheduler backs off and tries
+            // again. Reporting it as a plain API error meant the post
+            // failed on the first try and the founder had to re-queue it.
+            Some(ErrorKind::RateLimited) => {
+                ProviderError::RateLimited(friendly_error(self.map_error(body, status), body))
+            }
+            // An expired or revoked token is the one error the scheduler
+            // refreshes and retries — once.
+            Some(ErrorKind::AuthExpired) => ProviderError::TokenExpired,
+            // A forbidden request is a grant problem, not a transient
+            // fault: retrying it changes nothing.
+            Some(ErrorKind::Forbidden) => {
+                ProviderError::Auth(friendly_error(self.map_error(body, status), body))
+            }
+            _ => ProviderError::Api(friendly_error(self.map_error(body, status), body)),
+        }
+    }
+
     /// Import recent posts from this platform (for the External Post Import CLI).
     async fn get_recent_posts(
         &self,
@@ -2808,5 +2844,132 @@ mod insights_tests {
         let out = p.finalize_post("", "post-1", Duration::ZERO).await.unwrap();
         assert!(out.is_published());
         assert_eq!(out.platform_post_id, "post-1");
+    }
+}
+
+#[cfg(test)]
+mod provider_error_tests {
+    use super::*;
+
+    /// A provider with a provider-specific message, to prove the wording
+    /// survives the shared classification.
+    struct TestProvider;
+
+    #[async_trait]
+    impl SocialProvider for TestProvider {
+        fn identifier(&self) -> &'static str {
+            "test"
+        }
+        fn name(&self) -> &'static str {
+            "Test"
+        }
+        fn scopes(&self) -> Vec<String> {
+            vec![]
+        }
+        fn max_content_length(&self) -> usize {
+            3000
+        }
+        async fn generate_auth_url(
+            &self,
+            _state: &str,
+            _code_verifier: &str,
+            _redirect_uri: &str,
+        ) -> Result<AuthUrlResponse, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn exchange_code(
+            &self,
+            _code: &str,
+            _code_verifier: &str,
+            _redirect_uri: &str,
+        ) -> Result<AuthToken, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn refresh_token(&self, _r: &str) -> Result<AuthToken, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn publish(
+            &self,
+            _t: &str,
+            _p: &PostContent,
+        ) -> Result<PublishResult, ProviderError> {
+            unreachable!("not used")
+        }
+        async fn fetch_page_info(
+            &self,
+            _access_token: &str,
+            _page_id: &str,
+        ) -> Result<PageInfo, ProviderError> {
+            unreachable!("not used")
+        }
+        fn map_error(&self, _body: &str, status: u16) -> Option<String> {
+            if status == 401 {
+                Some("Check the API key in .env".into())
+            } else {
+                None
+            }
+        }
+    }
+
+    #[test]
+    fn a_rate_limit_is_retryable_whatever_the_provider() {
+        // The scheduler backs off and retries a RateLimited error and gives
+        // up on a plain Api error. The same 429 used to be one on some
+        // platforms and the other on the rest.
+        let err = TestProvider.provider_error("slow down", 429);
+        assert!(
+            matches!(err, ProviderError::RateLimited(_)),
+            "a 429 must be a rate limit, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn a_rate_limit_in_the_body_counts_even_on_a_200() {
+        let err = TestProvider.provider_error("{\"error\":\"rate limit exceeded\"}", 400);
+        assert!(
+            matches!(err, ProviderError::RateLimited(_)),
+            "the body signal wins, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn an_expired_token_is_the_one_error_the_scheduler_refreshes() {
+        let err = TestProvider.provider_error("token expired", 401);
+        assert!(
+            matches!(err, ProviderError::TokenExpired),
+            "a 401 must be a token expiry, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn a_forbidden_request_is_not_retried() {
+        let err = TestProvider.provider_error("no permission", 403);
+        assert!(
+            matches!(err, ProviderError::Auth(_)),
+            "a 403 is a grant problem, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn the_provider_wording_survives_the_shared_classification() {
+        // A token expiry carries no message (the scheduler writes its own),
+        // so the wording shows up on the errors that do carry one.
+        let err = TestProvider.provider_error("whatever", 500);
+        match err {
+            ProviderError::Api(msg) => assert!(
+                msg.contains("whatever"),
+                "the raw body must survive, got {msg}"
+            ),
+            other => panic!("expected an API error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_ordinary_failure_keeps_its_body() {
+        let err = TestProvider.provider_error("weird failure", 500);
+        match err {
+            ProviderError::Api(msg) => assert!(msg.contains("weird failure"), "got {msg}"),
+            other => panic!("expected an API error, got {other:?}"),
+        }
     }
 }

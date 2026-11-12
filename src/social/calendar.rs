@@ -57,14 +57,12 @@ impl CalendarProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
                 .unwrap_or("Unknown error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -99,14 +97,12 @@ impl CalendarProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
                 .unwrap_or("Unknown error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -129,14 +125,12 @@ impl CalendarProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
                 .unwrap_or("Unknown error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -155,14 +149,12 @@ impl CalendarProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
                 .unwrap_or("Unknown error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -195,14 +187,12 @@ impl CalendarProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
                 .unwrap_or("Unknown error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -233,7 +223,7 @@ impl CalendarProvider {
                 .as_str()
                 .unwrap_or("Unknown error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 }

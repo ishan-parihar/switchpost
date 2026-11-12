@@ -587,7 +587,18 @@ impl PostService {
                 Err(err)
             }
             Err(e) => {
-                let err = e.to_string();
+                // A token expiry has no payload (the scheduler writes its
+                // own message), so the founder would read a bare "Token
+                // expired" with no channel and no fix. Name both.
+                let err = match &e {
+                    crate::scheduler::PublishError::Provider(
+                        crate::social::ProviderError::TokenExpired,
+                    ) => format!(
+                        "Token expired — reconnect the {} channel to publish again",
+                        post.provider_identifier
+                    ),
+                    other => other.to_string(),
+                };
                 // The engine already recorded the failed attempt audit row
                 // and fired the post.failed WEBHOOK. It did NOT fire the
                 // EVENT, so the failure was PERMANENTLY ABSENT from

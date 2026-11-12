@@ -52,14 +52,12 @@ impl DriveProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
                 .unwrap_or("Unknown error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -85,14 +83,12 @@ impl DriveProvider {
         let json: serde_json::Value = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]["message"]
                 .as_str()
                 .unwrap_or("Unknown error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -157,7 +153,7 @@ impl DriveProvider {
                 .as_str()
                 .unwrap_or("Export failed")
                 .to_string();
-            return Err(ProviderError::Api(msg));
+            return Err(self.provider_error(&msg, status.as_u16()));
         }
         let bytes = resp.bytes().await?.to_vec();
         let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);

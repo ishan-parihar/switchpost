@@ -41,14 +41,12 @@ impl PinterestProvider {
         let json = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("Pinterest API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -69,14 +67,12 @@ impl PinterestProvider {
         let json = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("Pinterest API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -99,14 +95,12 @@ impl PinterestProvider {
         let json = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("Pinterest API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -127,14 +121,12 @@ impl PinterestProvider {
         let json = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("Pinterest API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -158,14 +150,12 @@ impl PinterestProvider {
         let json = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("Pinterest API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -189,14 +179,12 @@ impl PinterestProvider {
         let json = resp.json().await?;
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["message"]
                 .as_str()
                 .unwrap_or("Pinterest API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 

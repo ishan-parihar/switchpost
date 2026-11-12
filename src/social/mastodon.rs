@@ -63,14 +63,12 @@ impl MastodonProvider {
 
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]
                 .as_str()
                 .unwrap_or("Unknown Mastodon API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -92,14 +90,12 @@ impl MastodonProvider {
 
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]
                 .as_str()
                 .unwrap_or("Unknown Mastodon API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -134,14 +130,12 @@ impl MastodonProvider {
 
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]
                 .as_str()
                 .unwrap_or("Unknown Mastodon API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -163,14 +157,12 @@ impl MastodonProvider {
 
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]
                 .as_str()
                 .unwrap_or("Unknown Mastodon API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -198,14 +190,12 @@ impl MastodonProvider {
 
         if status.is_success() {
             Ok(json)
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]
                 .as_str()
                 .unwrap_or("Unknown Mastodon API error")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 
@@ -264,7 +254,7 @@ impl MastodonProvider {
                 .as_str()
                 .unwrap_or("Media upload failed")
                 .to_string();
-            return Err(ProviderError::Api(msg));
+            return Err(self.provider_error(&msg, status.as_u16()));
         }
 
         let id = json["id"]
@@ -605,7 +595,7 @@ impl SocialProvider for MastodonProvider {
                 .as_str()
                 .unwrap_or("Publish failed")
                 .to_string();
-            return Err(ProviderError::Api(msg));
+            return Err(self.provider_error(&msg, status.as_u16()));
         }
 
         let post_id = json["id"].as_str().unwrap_or("").to_string();
@@ -673,7 +663,7 @@ impl SocialProvider for MastodonProvider {
                 .as_str()
                 .unwrap_or("Failed to fetch statuses")
                 .to_string();
-            return Err(ProviderError::Api(msg));
+            return Err(self.provider_error(&msg, status.as_u16()));
         }
 
         let posts: Vec<ExternalPostData> = json
@@ -766,14 +756,12 @@ Some(                        ExternalPostData {
                 platform_post_url: post_url,
                 status: "published".into(),
             })
-        } else if status == 401 {
-            Err(ProviderError::TokenExpired)
         } else {
             let msg = json["error"]
                 .as_str()
                 .unwrap_or("Mastodon reply failed")
                 .to_string();
-            Err(ProviderError::Api(msg))
+            Err(self.provider_error(&msg, status.as_u16()))
         }
     }
 }
