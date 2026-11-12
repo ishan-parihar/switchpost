@@ -834,21 +834,53 @@ pub async fn serve_media(
 
 /// Hosts `proxy_media` may fetch. Checked on the request URL and on every
 /// redirect hop, so a redirect cannot carry the fetch off the list.
+/// Hosts the media proxy may fetch from.
+///
+/// EXACT host names only, plus two suffix rules that cannot be spoofed:
+///
+/// - `scontent-*.cdninstagram.com` — Instagram's CDN;
+/// - `*.fbcdn.net` — Facebook's CDN (a leading-dot suffix rule, so
+///   `evil-fbcdn.net` does not match and `x.fbcdn.net.attacker.com`
+///   does not either).
+///
+/// The old rule was `host.starts_with("scontent-") && host.contains(".fbcdn.")`,
+/// which `scontent-evil.fbcdn.attacker.com` satisfies — an attacker who
+/// controls a domain could put an arbitrary response behind an allowlisted
+/// name.
+///
+/// `files.catbox.moe` and `i.imgur.com` were REMOVED: both are anonymous
+/// upload hosts, so an attacker could put a file there and have the app
+/// serve it. The proxy is for CONTENT the app already trusts (a tweet's
+/// video, an Instagram post's image); it is not a general fetcher.
 fn is_proxyable_media_host(scheme: &str, host: &str) -> bool {
-    scheme == "https"
-        && (matches!(
-            host,
-            "video.twimg.com"
-                | "pbs.twimg.com"
-                | "media.tenor.com"
-                | "www.instagram.com"
-                | "i.ytimg.com"
-                | "files.catbox.moe"
-                | "i.imgur.com"
-        ) || (host.starts_with("scontent-") && host.contains(".fbcdn.")))
+    if scheme != "https" {
+        return false;
+    }
+    let host = host.to_ascii_lowercase();
+    if matches!(
+        host.as_str(),
+        "video.twimg.com"
+            | "pbs.twimg.com"
+            | "media.tenor.com"
+            | "www.instagram.com"
+            | "i.ytimg.com"
+    ) {
+        return true;
+    }
+    // Instagram content CDN: `scontent-<hash>.cdninstagram.com`.
+    if host.starts_with("scontent-") && host.ends_with(".cdninstagram.com") {
+        return true;
+    }
+    // Facebook CDN: anything under `fbcdn.net`, matched on the dot so a
+    // lookalike domain cannot pass.
+    host.ends_with(".fbcdn.net")
 }
 
 const PROXY_MAX_REDIRECTS: usize = 5;
+
+/// The proxy reads the whole upstream body into memory, so it is capped.
+/// The hosts are trusted CDNs and their media is well under this.
+const PROXY_MAX_BODY_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Redirect policy for the reqwest proxy client: follow only allowlisted hops.
 fn reqwest_proxy_redirects() -> reqwest::redirect::Policy {
@@ -962,6 +994,13 @@ pub async fn proxy_media(
             .get("content-range")
             .and_then(|v| v.to_str().ok())
             .map(String::from);
+        if let Some(len) = cl {
+            if len > PROXY_MAX_BODY_BYTES {
+                return Err(AppError::BadRequest(format!(
+                    "upstream media is {len} bytes, over the {PROXY_MAX_BODY_BYTES}-byte limit"
+                )));
+            }
+        }
         let bytes = resp
             .bytes()
             .await
@@ -995,20 +1034,39 @@ pub async fn proxy_media(
             .get("content-range")
             .and_then(|v| v.to_str().ok())
             .map(String::from);
+        if let Some(len) = cl {
+            if len > PROXY_MAX_BODY_BYTES {
+                return Err(AppError::BadRequest(format!(
+                    "upstream media is {len} bytes, over the {PROXY_MAX_BODY_BYTES}-byte limit"
+                )));
+            }
+        }
         let bytes = resp.bytes().await.map_err(|e| {
             AppError::Internal(format!("Failed to read upstream body (reqwest): {e}"))
         })?;
         (status, ct, cl, cr, bytes)
     };
 
-    // Only image and video types are served inline. Anything else (an HTML
-    // page uploaded to an allowlisted host, say) is returned as an opaque
-    // download, so it cannot run on the app origin. Same rule as serve_media.
-    let inline_media = content_type.starts_with("image/") || content_type.starts_with("video/");
-    let served_type = if inline_media {
-        content_type.as_str()
-    } else {
-        "application/octet-stream"
+    // Only a SNIFFED image or video is served inline.
+    //
+    // The upstream `Content-Type` is the attacker's to choose. `image/svg+xml`
+    // is an `image/*` type and an SVG is a DOCUMENT: served inline on the app
+    // origin, its `<script>` runs with the founder's `sf_session` cookie, and
+    // same-origin means CSRF and SameSite do not apply. A link in a chat
+    // message would be account takeover.
+    //
+    // So the BYTES decide, using the same sniffer the upload path uses. An
+    // SVG (or anything else the sniffer does not recognise) is returned as an
+    // opaque download: `application/octet-stream` + `Content-Disposition:
+    // attachment` + `nosniff`, so it cannot execute on the app origin.
+    let sniffed = sniff_mime(&bytes);
+    let inline_media = sniffed
+        .as_deref()
+        .map(|m| m.starts_with("image/") || m.starts_with("video/"))
+        .unwrap_or(false);
+    let served_type = match (&sniffed, inline_media) {
+        (Some(m), true) => m.as_str(),
+        _ => "application/octet-stream",
     };
 
     // Build response headers — forward status (200 or 206 for Range)
@@ -1116,6 +1174,43 @@ fn sniff_mime(data: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_proxy_allowlist_is_exact_or_a_real_suffix() {
+        // The CDNs the app actually serves.
+        assert!(is_proxyable_media_host("https", "video.twimg.com"));
+        assert!(is_proxyable_media_host("https", "pbs.twimg.com"));
+        assert!(is_proxyable_media_host("https", "i.ytimg.com"));
+        assert!(is_proxyable_media_host(
+            "https",
+            "scontent-abc123.cdninstagram.com"
+        ));
+        assert!(is_proxyable_media_host("https", "x.fbcdn.net"));
+
+        // Lookalikes: an attacker who controls a domain must not pass.
+        assert!(!is_proxyable_media_host(
+            "https",
+            "scontent-evil.fbcdn.attacker.com"
+        ));
+        assert!(!is_proxyable_media_host("https", "evil-fbcdn.net"));
+        assert!(!is_proxyable_media_host(
+            "https",
+            "x.fbcdn.net.attacker.com"
+        ));
+        assert!(!is_proxyable_media_host("https", "notcdninstagram.com"));
+        assert!(!is_proxyable_media_host(
+            "https",
+            "video.twimg.com.attacker.com"
+        ));
+
+        // Anonymous upload hosts are gone: they let an attacker choose
+        // the bytes the app serves.
+        assert!(!is_proxyable_media_host("https", "files.catbox.moe"));
+        assert!(!is_proxyable_media_host("https", "i.imgur.com"));
+
+        // http is not allowed.
+        assert!(!is_proxyable_media_host("http", "video.twimg.com"));
+    }
 
     #[test]
     fn sniff_png_signature() {
