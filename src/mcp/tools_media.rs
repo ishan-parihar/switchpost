@@ -65,48 +65,29 @@ pub async fn upload_media(
     let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &input.data)
         .map_err(|e| format!("Invalid base64 data: {e}"))?;
 
-    if data.len() > 50 * 1024 * 1024 {
-        return Err("File too large (max 50 MB)".into());
-    }
-
-    let file_id = Uuid::new_v4();
-    let ext = std::path::Path::new(&input.filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("bin");
-    let filename = format!("{file_id}.{ext}");
-
-    let upload_dir = std::path::Path::new(&state.config.media_dir);
-    tokio::fs::create_dir_all(upload_dir)
-        .await
-        .map_err(|e| format!("Failed to create upload dir: {e}"))?;
-
-    let filepath = upload_dir.join(&filename);
-    tokio::fs::write(&filepath, &data)
-        .await
-        .map_err(|e| format!("Failed to write file: {e}"))?;
-
-    let entry = crate::db::queries::create_media(
-        &state.db,
+    // The ONE upload path: MIME allowlist, magic-byte sniff, size cap and
+    // the ACTIVE storage backend. This tool used to write the bytes straight
+    // to `config.media_dir` with the caller's MIME string — on an S3/R2
+    // deployment that produced a URL which 404s, and any file (a `.env`)
+    // could be copied into the media store.
+    let media = crate::api::media::store_upload_bytes(
+        state,
         user_id,
         &input.filename,
-        &filename,
         &input.mime_type,
-        data.len() as i64,
-        None,
-        None,
+        &data,
         None,
     )
     .await
-    .map_err(|e| format!("DB error: {e}"))?;
+    .map_err(|e| e.to_string())?;
 
     Ok(Json(MediaUploadOutput {
-        id: entry.id.to_string(),
-        url: format!("/api/media/{}", entry.id),
-        mime_type: input.mime_type.clone(),
-        filename: input.filename.clone(),
-        size: data.len() as i64,
-        alt: entry.alt_text.clone(),
+        id: media.id.to_string(),
+        url: media.url.clone(),
+        mime_type: media.mime_type.clone(),
+        filename: media.original_name.clone(),
+        size: media.file_size,
+        alt: media.alt.clone(),
     }))
 }
 
@@ -156,41 +137,26 @@ pub async fn upload_from_path_with_alt(
         _ => "application/octet-stream",
     };
 
-    let file_id = Uuid::new_v4();
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-    let stored_name = format!("{file_id}.{ext}");
-
-    let upload_dir = std::path::Path::new(&state.config.media_dir);
-    tokio::fs::create_dir_all(upload_dir)
+    // Read the file and run it through the ONE upload path. A local file
+    // that is not a media file is REFUSED by the sniff, so
+    // `media upload ~/.switchpost/.env` no longer copies a secret into the
+    // media store (and `GET /api/media/<uuid>` is a public route).
+    let bytes = tokio::fs::read(path)
         .await
-        .map_err(|e| format!("Failed to create upload dir: {e}"))?;
+        .map_err(|e| format!("Failed to read file: {e}"))?;
 
-    let dest = upload_dir.join(&stored_name);
-    tokio::fs::copy(path, &dest)
-        .await
-        .map_err(|e| format!("Failed to copy file: {e}"))?;
-
-    let entry = crate::db::queries::create_media(
-        &state.db,
-        user_id,
-        &original_name,
-        &stored_name,
-        mime,
-        file_size as i64,
-        None,
-        None,
-        alt,
-    )
-    .await
-    .map_err(|e| format!("DB error: {e}"))?;
+    let media =
+        crate::api::media::store_upload_bytes(state, user_id, &original_name, mime, &bytes, alt)
+            .await
+            .map_err(|e| e.to_string())?;
 
     Ok(Json(MediaUploadOutput {
-        id: entry.id.to_string(),
-        url: format!("/api/media/{}", entry.id),
-        mime_type: mime.to_string(),
-        filename: original_name,
-        size: file_size as i64,
-        alt: entry.alt_text.clone(),
+        id: media.id.to_string(),
+        url: media.url.clone(),
+        mime_type: media.mime_type.clone(),
+        filename: media.original_name.clone(),
+        size: media.file_size,
+        alt: media.alt.clone(),
     }))
 }
 

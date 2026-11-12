@@ -563,64 +563,162 @@ pub async fn upload(
     let filepath = upload_dir.join(&filename);
     let (size, head) = stream_to_disk(&mut field, &filepath, MAX_FILE_SIZE).await?;
 
+    // The MIME validation, the storage-backend push and the DB row all
+    // happen in `finish_upload` — ONE implementation, shared with the MCP
+    // and CLI uploaders. `head` carries the first SNIFF_HEAD_BYTES of the
+    // stream: enough for every signature in `sniff_mime` and for the JPEG
+    // SOF scan.
+    finish_upload(
+        &state,
+        auth.user_id,
+        &original_name,
+        &filepath,
+        &filename,
+        &declared_mime,
+        &head,
+        size,
+        None,
+    )
+    .await
+    .map(Json)
+}
+
+/// Validate, store and record an upload whose bytes are already on local disk.
+///
+/// THE ONE upload path. The REST handler streams a multipart field to disk
+/// and calls this; the MCP tools and the CLI, which hold the bytes in
+/// memory, write the same staging file and call this too. That is the point:
+/// before it, the MCP/CLI uploaders wrote straight to `config.media_dir`
+/// with the caller's MIME string and no sniff, so:
+///
+/// - on an S3/R2 deployment they wrote to the LOCAL directory while
+///   `serve_media` read through the S3 backend, and an agent's upload
+///   returned a URL that 404s — the image never reached the platform;
+/// - `switchpost media upload ~/.switchpost/.env` copied a SECRET into the
+///   media store, and `GET /api/media/<uuid>` is a public route.
+///
+/// The MIME allowlist and the magic-byte sniff run here, so every uploader
+/// gets them.
+pub(crate) async fn finish_upload(
+    state: &AppState,
+    user_id: Uuid,
+    original_name: &str,
+    filepath: &FsPath,
+    filename: &str,
+    declared_mime: &str,
+    head: &[u8],
+    size: u64,
+    alt: Option<&str>,
+) -> Result<MediaPublic, AppError> {
+    if size > MAX_FILE_SIZE {
+        let _ = tokio::fs::remove_file(filepath).await;
+        return Err(AppError::BadRequest(format!(
+            "File too large (max {} MB)",
+            MAX_FILE_SIZE / (1024 * 1024)
+        )));
+    }
+
     // ── MIME validation: allowlist + magic-byte sniff ────────
-    // The client-supplied Content-Type is never trusted alone.
-    // We sniff the actual file bytes and require the sniffed MIME to
-    // (a) be in the allowlist and (b) match the declared Content-Type
-    // when one was supplied. Mismatches are rejected with 400.
-    //
-    // `head` carries the first SNIFF_HEAD_BYTES of the stream — enough for
-    // every signature in `sniff_mime` and for the JPEG SOF scan.
-    let mime_type = match resolve_mime(&declared_mime, &head) {
+    // The caller's Content-Type is never trusted alone.
+    let mime_type = match resolve_mime(declared_mime, head) {
         Ok(mime) => mime,
         Err(err) => {
-            // Nothing legitimate references this object key (no DB row), so
-            // the partial bytes are dead — drop them rather than orphaning a
-            // file on disk.
-            let _ = tokio::fs::remove_file(&filepath).await;
+            let _ = tokio::fs::remove_file(filepath).await;
             return Err(err);
         }
     };
 
     // Get dimensions for images
     let (width, height) = if mime_type.starts_with("image/") {
-        detect_image_dimensions(&head)
+        detect_image_dimensions(head)
     } else {
         (None, None)
     };
 
-    // Remote backend: the stream above landed on local disk (memory-bounded
-    // by design). Push the completed object to the active backend and drop
-    // the local copy, so serve/delete resolve against the same backend that
-    // holds the bytes. Local backend: no-op, the file is already home.
-    let backend = storage(&state);
+    // Remote backend: the staging copy is on local disk. Push the completed
+    // object to the active backend and drop the local copy, so serve/delete
+    // resolve against the same backend that holds the bytes. Local backend:
+    // no-op, the file is already home.
+    let backend = storage(state);
     if backend.backend() != "local" {
-        let bytes = tokio::fs::read(&filepath).await.map_err(|e| {
+        let bytes = tokio::fs::read(filepath).await.map_err(|e| {
             AppError::Internal(format!("Failed to stage upload for remote backend: {e}"))
         })?;
-        if let Err(e) = backend.store(&filename, &bytes, &mime_type).await {
-            let _ = tokio::fs::remove_file(&filepath).await;
+        if let Err(e) = backend.store(filename, &bytes, &mime_type).await {
+            let _ = tokio::fs::remove_file(filepath).await;
             return Err(AppError::Internal(format!(
                 "Remote backend store failed: {e}"
             )));
         }
-        let _ = tokio::fs::remove_file(&filepath).await;
+        let _ = tokio::fs::remove_file(filepath).await;
     }
 
     let entry = queries::create_media(
         &state.db,
-        auth.user_id,
-        &original_name,
-        &filename,
+        user_id,
+        original_name,
+        filename,
         &mime_type,
         size as i64,
         width,
         height,
-        None,
+        alt,
     )
     .await?;
 
-    Ok(Json(MediaPublic::from(entry)))
+    Ok(MediaPublic::from(entry))
+}
+
+/// Write in-memory bytes to the staging path and run them through the one
+/// upload path. Used by the MCP and CLI uploaders, which hold the bytes.
+pub(crate) async fn store_upload_bytes(
+    state: &AppState,
+    user_id: Uuid,
+    original_name: &str,
+    declared_mime: &str,
+    bytes: &[u8],
+    alt: Option<&str>,
+) -> Result<MediaPublic, AppError> {
+    if bytes.len() as u64 > MAX_FILE_SIZE {
+        return Err(AppError::BadRequest(format!(
+            "File too large (max {} MB)",
+            MAX_FILE_SIZE / (1024 * 1024)
+        )));
+    }
+    let ext = FsPath::new(original_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin");
+    let filename = format!("{}.{}", Uuid::new_v4(), ext);
+    let upload_dir = FsPath::new(&state.config.media_dir);
+    tokio::fs::create_dir_all(upload_dir)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to create upload dir: {e}")))?;
+    let filepath = upload_dir.join(&filename);
+    tokio::fs::write(&filepath, bytes)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to write file: {e}")))?;
+
+    let head: Vec<u8> = bytes.iter().take(SNIFF_HEAD_BYTES).copied().collect();
+    match finish_upload(
+        state,
+        user_id,
+        original_name,
+        &filepath,
+        &filename,
+        declared_mime,
+        &head,
+        bytes.len() as u64,
+        alt,
+    )
+    .await
+    {
+        Ok(media) => Ok(media),
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&filepath).await;
+            Err(e)
+        }
+    }
 }
 
 /// Drain `field` into `dest`, aborting with "File too large" the moment the
@@ -963,8 +1061,11 @@ pub async fn proxy_media(
     const UPSTREAM_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
     // Fetch from upstream and extract common fields.
-    // Both branches produce identical (status, content_type, content_length, content_range, bytes).
-    let (upstream_status, content_type, content_length, content_range, bytes) = if is_x_cdn {
+    // Both branches produce identical (status, content_length, content_range, bytes).
+    // The upstream's Content-Type is deliberately NOT carried out of here:
+    // the served type comes from the SNIFFED bytes, so an attacker-chosen
+    // `image/svg+xml` cannot put a document on the app origin.
+    let (upstream_status, content_length, content_range, bytes) = if is_x_cdn {
         let mut req = state
             .media_wreq_client
             .get(url)
@@ -982,12 +1083,6 @@ pub async fn proxy_media(
         if !status.is_success() && status.as_u16() != 206 {
             return Err(AppError::Internal(format!("Upstream returned {status}")));
         }
-        let ct = resp
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("application/octet-stream")
-            .to_string();
         let cl = resp.content_length();
         let cr = resp
             .headers()
@@ -1005,7 +1100,7 @@ pub async fn proxy_media(
             .bytes()
             .await
             .map_err(|e| AppError::Internal(format!("Failed to read upstream body (wreq): {e}")))?;
-        (status, ct, cl, cr, bytes)
+        (status, cl, cr, bytes)
     } else {
         let mut req = PROXY_HTTP_CLIENT
             .get(url)
@@ -1022,12 +1117,6 @@ pub async fn proxy_media(
         if !status.is_success() && status.as_u16() != 206 {
             return Err(AppError::Internal(format!("Upstream returned {status}")));
         }
-        let ct = resp
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("application/octet-stream")
-            .to_string();
         let cl = resp.content_length();
         let cr = resp
             .headers()
@@ -1044,7 +1133,7 @@ pub async fn proxy_media(
         let bytes = resp.bytes().await.map_err(|e| {
             AppError::Internal(format!("Failed to read upstream body (reqwest): {e}"))
         })?;
-        (status, ct, cl, cr, bytes)
+        (status, cl, cr, bytes)
     };
 
     // Only a SNIFFED image or video is served inline.
@@ -1174,6 +1263,99 @@ fn sniff_mime(data: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A state whose media dir is a scratch directory, so the shared upload
+    /// path can be exercised without touching the real store.
+    async fn upload_state(media_dir: &std::path::Path) -> AppState {
+        crate::config::load_dotenv_for_tests();
+        let mut config = crate::config::Config::from_env().expect("config");
+        config.media_dir = media_dir.to_string_lossy().into_owned();
+        let pool = crate::db::create_pool(&config.database_url)
+            .await
+            .expect("pool");
+        crate::db::ensure_local_user(&pool)
+            .await
+            .expect("local user");
+        let registry = crate::social::registry::ProviderRegistry::new(&config, None, None);
+        AppState {
+            db: pool,
+            config,
+            broadcast: crate::realtime::Broadcaster::new(),
+            providers: registry,
+            token_key: None,
+            telegram_client_manager: None,
+            wa_client: None,
+            media_http_client: reqwest::Client::new(),
+            media_wreq_client: wreq::Client::new(),
+        }
+    }
+
+    fn upload_scratch_dir(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("switchpost-media-{tag}-{}", Uuid::new_v4()))
+    }
+
+    #[tokio::test]
+    async fn the_shared_upload_path_refuses_a_file_that_is_not_media() {
+        // The MCP/CLI upload used to copy ANY local file into the media
+        // store — `media upload ~/.switchpost/.env` put a secret at a
+        // PUBLIC url (`GET /api/media/<uuid>` is not auth-gated).
+        let dir = upload_scratch_dir("reject");
+        let state = upload_state(&dir).await;
+        let secret = b"APP_PASSWORD=hunter2\nTOKEN_ENCRYPTION_KEY=deadbeef\n";
+
+        let err = store_upload_bytes(
+            &state,
+            crate::auth::middleware::DEFAULT_USER_ID,
+            ".env",
+            "application/octet-stream",
+            secret,
+            None,
+        )
+        .await
+        .expect_err("a text file is not media and must be refused");
+
+        assert!(
+            err.to_string().to_lowercase().contains("file type")
+                || err.to_string().to_lowercase().contains("unsupported"),
+            "the error must name the problem, got: {err}"
+        );
+        let mut entries = tokio::fs::read_dir(&dir).await.expect("read dir");
+        let stored = entries.next_entry().await.expect("read entry").is_some();
+        assert!(!stored, "the refused file must not be left on disk");
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn the_shared_upload_path_accepts_a_png_and_records_it() {
+        let dir = upload_scratch_dir("accept");
+        let state = upload_state(&dir).await;
+        let mut png = vec![137, 80, 78, 71, 13, 10, 26, 10];
+        png.extend_from_slice(&[0u8; 64]);
+
+        let media = store_upload_bytes(
+            &state,
+            crate::auth::middleware::DEFAULT_USER_ID,
+            "shot.png",
+            "image/png",
+            &png,
+            None,
+        )
+        .await
+        .expect("a PNG must be accepted");
+
+        assert_eq!(media.mime_type, "image/png");
+        assert_eq!(media.original_name, "shot.png");
+        assert!(media.url.starts_with("/api/media/"), "got {}", media.url);
+
+        // The row exists and the bytes are on disk.
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media WHERE id = ?")
+            .bind(media.id)
+            .fetch_one(&state.db)
+            .await
+            .expect("count");
+        assert_eq!(count, 1);
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
 
     #[test]
     fn the_proxy_allowlist_is_exact_or_a_real_suffix() {
