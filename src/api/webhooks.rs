@@ -273,6 +273,15 @@ pub async fn create(
             "Webhook URL is required".into(),
         ));
     }
+    // The app FETCHES this URL on the founder's behalf, so it is an SSRF
+    // target: a webhook pointed at the cloud metadata service would read
+    // the instance credentials and hand them back through the test
+    // endpoint. The guard checks the scheme, the host literal and every
+    // DNS answer; `ALLOW_PRIVATE_OUTBOUND_URLS=1` is the operator's opt-in
+    // for a receiver on their own machine.
+    crate::net_guard::validate_outbound_url(&body.url)
+        .await
+        .map_err(|e| crate::error::AppError::BadRequest(format!("Webhook URL rejected: {e}")))?;
 
     // The event types are a second table now, so the row and its
     // `webhook_event_types` lines go in one transaction — a partial write

@@ -51,33 +51,72 @@ pub async fn send_webhook(
     event_type: &str,
     payload: &Value,
 ) -> Result<(u16, String), String> {
+    send_webhook_with(
+        url,
+        secret,
+        event_type,
+        payload,
+        crate::net_guard::private_targets_allowed(),
+    )
+    .await
+}
+
+/// The same send with the private-target decision passed in.
+///
+/// The test receiver is on 127.0.0.1, so the test asks for it explicitly
+/// instead of flipping an environment variable that every other test in
+/// the process would see.
+#[cfg_attr(not(test), allow(dead_code))]
+async fn send_webhook_with(
+    url: &str,
+    secret: Option<&str>,
+    event_type: &str,
+    payload: &Value,
+    allow_private: bool,
+) -> Result<(u16, String), String> {
+    // Redirects are followed BY HAND in `net_guard::send_guarded`, so
+    // every hop can be validated. A client that follows them itself would
+    // skip the check on every hop but the first — which is how a public
+    // URL reached 127.0.0.1 before the guard existed.
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
     let body =
         serde_json::to_string(payload).map_err(|e| format!("Failed to serialize payload: {e}"))?;
 
-    let mut request = client
-        .post(url)
-        .header("Content-Type", "application/json")
-        .header("X-Webhook-Event", event_type);
-
+    let mut headers: Vec<(String, String)> = vec![
+        ("Content-Type".to_string(), "application/json".to_string()),
+        ("X-Webhook-Event".to_string(), event_type.to_string()),
+    ];
     if let Some(secret_key) = secret {
         let signature = hmac_sha256(secret_key.as_bytes(), body.as_bytes());
         let sig_hex = hex::encode(signature);
-        request = request.header("X-Webhook-Signature", format!("sha256={sig_hex}"));
+        headers.push((
+            "X-Webhook-Signature".to_string(),
+            format!("sha256={sig_hex}"),
+        ));
     }
+    let header_refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
 
-    let response = request
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {e}"))?;
+    let response = crate::net_guard::send_guarded_with(
+        &client,
+        reqwest::Method::POST,
+        url,
+        &header_refs,
+        Some(body),
+        MAX_RESPONSE_BYTES,
+        allow_private,
+    )
+    .await?;
 
-    let status_code = response.status().as_u16();
-    let response_body = read_capped_body(response).await;
+    let status_code = response.status;
+    let response_body = response.body;
 
     Ok((status_code, response_body))
 }
@@ -88,25 +127,6 @@ const MAX_RESPONSE_BYTES: usize = 4096;
 
 /// Attempts per webhook before a delivery is recorded as failed.
 const WEBHOOK_ATTEMPTS: u32 = 3;
-
-async fn read_capped_body(mut response: reqwest::Response) -> String {
-    let mut buf = Vec::new();
-    loop {
-        match response.chunk().await {
-            Ok(Some(chunk)) => {
-                let room = MAX_RESPONSE_BYTES.saturating_sub(buf.len());
-                buf.extend_from_slice(&chunk[..chunk.len().min(room)]);
-                if buf.len() >= MAX_RESPONSE_BYTES {
-                    break;
-                }
-            }
-            Ok(None) => break,
-            Err(_) if buf.is_empty() => return "Unable to read response body".into(),
-            Err(_) => break,
-        }
-    }
-    String::from_utf8_lossy(&buf).into_owned()
-}
 
 /// Dispatch an event to all active webhooks matching the event type for a user.
 /// Runs synchronously (caller should spawn in background task if needed).
@@ -241,11 +261,12 @@ mod tests {
             let _ = sock.write_all(resp.as_bytes()).await;
         });
 
-        let (code, body) = send_webhook(
+        let (code, body) = send_webhook_with(
             &format!("http://{addr}/hook"),
             None,
             "post_published",
             &serde_json::json!({}),
+            true,
         )
         .await
         .unwrap();

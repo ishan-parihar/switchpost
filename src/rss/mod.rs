@@ -11,6 +11,10 @@ use crate::poll::{spawn_poll, FirstTick};
 use crate::social::registry::ProviderRegistry;
 use sqlx::SqlitePool;
 
+/// A feed body larger than this is truncated: a hostile feed must not be
+/// able to stream megabytes into the single binary's memory.
+const RSS_MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+
 pub fn start_rss_poller(
     db: SqlitePool,
     _providers: Arc<ProviderRegistry>,
@@ -40,28 +44,34 @@ async fn poll_all_feeds(
     config: &Config,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let feeds = crate::db::queries::get_feeds_due_for_polling(db).await?;
-    // One stalled feed host must not hang the whole poll.
+    // One stalled feed host must not hang the whole poll. Redirects are
+    // followed by hand so every hop can be validated — a feed URL is a
+    // server-side fetch target and must not be able to reach the LAN.
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
         .build()?;
 
     for feed in feeds {
         tracing::info!("Polling RSS feed: {} ({})", feed.title, feed.feed_url);
 
-        let response = match client.get(&feed.feed_url).send().await {
+        let response = match crate::net_guard::send_guarded(
+            &client,
+            reqwest::Method::GET,
+            &feed.feed_url,
+            &[],
+            None,
+            RSS_MAX_BODY_BYTES,
+        )
+        .await
+        {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!("Failed to fetch RSS feed {}: {e}", feed.feed_url);
                 continue;
             }
         };
-        let xml = match response.text().await {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!("Failed to read RSS response {}: {e}", feed.feed_url);
-                continue;
-            }
-        };
+        let xml = response.body;
 
         let parsed = match feed_rs::parser::parse(xml.as_bytes()) {
             Ok(p) => p,

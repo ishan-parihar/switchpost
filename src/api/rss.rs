@@ -58,6 +58,10 @@ pub async fn list_feeds(
     Ok(Json(feeds))
 }
 
+/// A feed body larger than this is truncated: a hostile feed must not be able
+/// to stream megabytes into the single binary's memory.
+const RSS_MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+
 // POST /api/rss/feeds
 pub async fn create_feed(
     State(state): State<AppState>,
@@ -76,6 +80,13 @@ pub async fn create_feed(
     let title = body.title.unwrap_or_default();
     let use_ai_summary = body.use_ai_summary.unwrap_or(false);
     let enabled = body.enabled.unwrap_or(true);
+
+    // The poller FETCHES this URL, so it is an SSRF target for the same
+    // reason a webhook URL is: the parsed title/link/content come back to
+    // the founder. Refuse a private/loopback host at the door.
+    crate::net_guard::validate_outbound_url(&body.feed_url)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Feed URL rejected: {e}")))?;
 
     let feed = queries::create_rss_feed(
         &state.db,
@@ -126,13 +137,24 @@ pub async fn poll_feed(
         .await?
         .ok_or_else(|| AppError::NotFound("RSS feed not found".into()))?;
 
-    let response = reqwest::get(&feed.feed_url)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to fetch RSS feed: {e}")))?;
-    let xml = response
-        .text()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to read RSS response: {e}")))?;
+    // Guarded fetch: the URL and every redirect hop are validated, and the
+    // body is capped so a hostile feed cannot stream megabytes into memory.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {e}")))?;
+    let response = crate::net_guard::send_guarded(
+        &client,
+        reqwest::Method::GET,
+        &feed.feed_url,
+        &[],
+        None,
+        RSS_MAX_BODY_BYTES,
+    )
+    .await
+    .map_err(|e| AppError::BadRequest(format!("Failed to fetch RSS feed: {e}")))?;
+    let xml = response.body;
 
     let parsed = feed_rs::parser::parse(xml.as_bytes())
         .map_err(|e| AppError::Internal(format!("Failed to parse RSS XML: {e}")))?;

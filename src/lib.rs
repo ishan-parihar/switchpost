@@ -9,6 +9,7 @@ pub mod db;
 pub mod error;
 pub mod feed;
 pub mod mcp;
+pub mod net_guard;
 pub mod poll;
 pub mod realtime;
 pub mod rss;
