@@ -269,9 +269,32 @@ impl SocialProvider for FacebookProvider {
                 "post has no platform_post_id — nothing to delete on Facebook".into(),
             ));
         }
-        self.delete_post(access_token, platform_post_id)
-            .await
-            .map(|_| ())
+
+        // A PAGE post can only be deleted with a PAGE token.
+        //
+        // Graph answers a user token with "(#200) Page token is required to
+        // delete posts on page" — measured live on 2026-11-13, on a channel
+        // whose stored token is the parent's user token. The publish path
+        // already resolves the page token (`resolve_page_for`); the delete
+        // path did not, so the founder could publish to a page and then not
+        // remove the post.
+        //
+        // The page id is IN the platform_post_id: Graph returns a page post
+        // as "<page_id>_<post_id>".
+        let page_id = page_id_from_platform_post_id(platform_post_id);
+        let token = match page_id {
+            Some(page_id) => {
+                match self.page_token_for(access_token, page_id).await? {
+                    Some(t) => t,
+                    // No page token to be had: try the token we were given.
+                    // It may already BE a page token.
+                    None => access_token.to_string(),
+                }
+            }
+            None => access_token.to_string(),
+        };
+
+        self.delete_post(&token, platform_post_id).await.map(|_| ())
     }
 
     async fn publish(
@@ -855,6 +878,36 @@ impl FacebookProvider {
     ///
     /// `internal_id = None` (the REST/CLI/MCP direct path, which has no
     /// channel identity) keeps the old behaviour: the first page listed.
+    /// The PAGE-scoped token for a page id, if the token can produce one.
+    ///
+    /// `GET /{page_id}?fields=access_token` answers with the page's own
+    /// token when the caller's token administers the page. `None` means it
+    /// cannot — the caller then tries with what it has.
+    async fn page_token_for(
+        &self,
+        access_token: &str,
+        page_id: &str,
+    ) -> Result<Option<String>, ProviderError> {
+        let page: serde_json::Value = self
+            .http
+            .get(format!(
+                "{}/{page_id}?fields=access_token",
+                self.graph_url()
+            ))
+            .query(&[("access_token", access_token)])
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if page["error"].is_null() {
+            if let Some(token) = page["access_token"].as_str().filter(|t| !t.is_empty()) {
+                return Ok(Some(token.to_string()));
+            }
+        }
+        Ok(None)
+    }
+
     async fn resolve_page_for(
         &self,
         access_token: &str,
@@ -952,6 +1005,19 @@ fn find_page_by_id(me: &serde_json::Value, want: &str) -> Option<(String, Option
 /// `accounts` edge — #100) or listed none. The `None` case is what drives the
 /// `/me` fallback in `resolve_page`; the old code turned the #100 error into
 /// the misleading "No pages found for token" on every connected page channel.
+/// The page id inside a Facebook platform_post_id.
+///
+/// Graph returns a page post as "<page_id>_<post_id>". The delete path
+/// needs the page id: a PAGE post can only be deleted with a PAGE token,
+/// and Graph answers a user token with "(#200) Page token is required to
+/// delete posts on page" (measured live on 2026-11-13).
+pub fn page_id_from_platform_post_id(platform_post_id: &str) -> Option<&str> {
+    platform_post_id
+        .split_once('_')
+        .map(|(page, _)| page)
+        .filter(|s| !s.is_empty())
+}
+
 fn first_page_from_accounts(me: &serde_json::Value) -> Option<(String, Option<String>)> {
     if !me["error"].is_null() {
         return None;
@@ -1878,5 +1944,26 @@ mod tests {
     fn parse_should_emit_no_facebook_comments_for_error_body() {
         let raw = serde_json::json!({ "error": { "message": "Unsupported get request." } });
         assert!(super::parse_graph_comments(&raw).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod facebook_delete_shape_tests {
+    use super::*;
+
+    #[test]
+    fn the_page_id_comes_out_of_the_platform_post_id() {
+        assert_eq!(
+            page_id_from_platform_post_id("17841401967663331_122109278631530797"),
+            Some("17841401967663331")
+        );
+    }
+
+    #[test]
+    fn a_post_id_without_a_page_prefix_has_no_page_id() {
+        // A profile post (no page) has no underscore; the delete then tries
+        // with the token it has.
+        assert_eq!(page_id_from_platform_post_id("12345"), None);
+        assert_eq!(page_id_from_platform_post_id("_12345"), None);
     }
 }

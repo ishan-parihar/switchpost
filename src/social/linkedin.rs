@@ -792,19 +792,30 @@ impl SocialProvider for LinkedInProvider {
         access_token: &str,
         post: &PostContent,
     ) -> Result<PublishResult, ProviderError> {
-        // Get user profile ID for posting
-        let profile = self
+        // Get user profile ID for posting.
+        //
+        // The HTTP STATUS IS READ. The old code parsed the JSON and looked
+        // for `sub`, so a 401 (or a revoked token) arrived as "Could not get
+        // user profile" — an ordinary API error the scheduler does NOT
+        // retry, and the founder is told nothing about the token. Measured
+        // live on 2026-11-13: this channel's token IS expired, the CLI
+        // answers "Token expired" for the same call, and the publish
+        // answered "Could not get user profile".
+        let resp = self
             .http
             .get("https://api.linkedin.com/v2/userinfo")
             .header("Authorization", format!("Bearer {access_token}"))
             .send()
-            .await?
-            .json::<serde_json::Value>()
             .await?;
+        let http_status = resp.status();
+        let body = resp.text().await?;
+        let profile: serde_json::Value =
+            serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
 
-        let user_id = profile["sub"]
-            .as_str()
-            .ok_or_else(|| ProviderError::Api("Could not get user profile".into()))?;
+        let user_id = linkedin_member_id(http_status.as_u16(), &body).map_err(|e| match e {
+            LinkedInProfileError::Auth => ProviderError::TokenExpired,
+            LinkedInProfileError::Other(msg) => self.provider_error(&msg, http_status.as_u16()),
+        })?;
 
         let body = serde_json::json!({
             "author": format!("urn:li:person:{user_id}"),
@@ -1538,6 +1549,45 @@ fn find_first_url(val: &serde_json::Value) -> Option<String> {
     }
 }
 
+/// Why a `/v2/userinfo` response did not yield a member id.
+///
+/// `Auth` means the TOKEN is the problem (401/403) — the scheduler refreshes
+/// it and retries, and the founder is told to reconnect. `Other` carries
+/// the provider's own words for anything else.
+///
+/// The old code parsed the JSON and looked for `sub`, so an expired token
+/// arrived as "Could not get user profile": an ordinary API error the
+/// scheduler does NOT retry, with nothing telling the founder that the
+/// channel needs a reconnect. Measured live on 2026-11-13 — the same
+/// channel answered "Token expired" from the CLI and "Could not get user
+/// profile" from the publish.
+#[derive(Debug, PartialEq)]
+pub enum LinkedInProfileError {
+    Auth,
+    Other(String),
+}
+
+/// The member id (`sub`) from a LinkedIn `/v2/userinfo` response.
+pub fn linkedin_member_id(status: u16, body: &str) -> Result<String, LinkedInProfileError> {
+    if status == 401 || status == 403 {
+        return Err(LinkedInProfileError::Auth);
+    }
+    if !status_is_success(status) {
+        return Err(LinkedInProfileError::Other(body.to_string()));
+    }
+    let profile: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    profile["sub"]
+        .as_str()
+        .map(str::to_string)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| LinkedInProfileError::Other(body.to_string()))
+}
+
+/// Is this a 2xx status?
+fn status_is_success(status: u16) -> bool {
+    (200..300).contains(&status)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1678,5 +1728,47 @@ mod tests {
     fn map_error_returns_none_for_server_error() {
         let p = LinkedInProvider::new(&test_config());
         assert!(p.map_error("Internal Server Error", 503).is_none());
+    }
+}
+
+#[cfg(test)]
+mod linkedin_profile_rule_tests {
+    use super::*;
+
+    #[test]
+    fn an_expired_token_is_an_auth_error_not_a_missing_profile() {
+        // A 401 on /v2/userinfo means the TOKEN expired. The publish path
+        // used to report "Could not get user profile", so the scheduler
+        // never refreshed it.
+        assert_eq!(
+            linkedin_member_id(401, r#"{"error":"invalid_token"}"#),
+            Err(LinkedInProfileError::Auth)
+        );
+        assert_eq!(
+            linkedin_member_id(403, r#"{"error":"forbidden"}"#),
+            Err(LinkedInProfileError::Auth)
+        );
+    }
+
+    #[test]
+    fn a_good_response_yields_the_member_id() {
+        assert_eq!(
+            linkedin_member_id(200, r#"{"sub":"abc123","name":"Ishan"}"#),
+            Ok("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn a_success_without_a_sub_is_the_providers_own_words() {
+        let err = linkedin_member_id(200, r#"{"name":"Ishan"}"#).unwrap_err();
+        assert!(matches!(err, LinkedInProfileError::Other(_)));
+    }
+
+    #[test]
+    fn a_server_error_is_not_an_auth_error() {
+        // A 500 is not a token problem — retrying the refresh would not
+        // help, and the founder must not be told to reconnect.
+        let err = linkedin_member_id(500, "oops").unwrap_err();
+        assert!(matches!(err, LinkedInProfileError::Other(_)));
     }
 }

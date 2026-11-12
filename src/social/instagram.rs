@@ -384,6 +384,37 @@ impl SocialProvider for InstagramProvider {
         self.publish_to_ig(access_token, &ig_id, post).await
     }
 
+    /// Delete a published Instagram media item.
+    ///
+    /// The Graph API supports it: `DELETE /{media-id}` with the token that
+    /// administers the account. The provider had no implementation at all,
+    /// so `delete_published` fell through to the trait's default — "This
+    /// provider does not support deleting a published post" — and the
+    /// founder could publish a post but not remove it.
+    async fn delete_published(
+        &self,
+        access_token: &str,
+        platform_post_id: &str,
+    ) -> Result<(), ProviderError> {
+        if platform_post_id.trim().is_empty() {
+            return Err(ProviderError::Api(
+                "post has no platform_post_id — nothing to delete on Instagram".into(),
+            ));
+        }
+        let resp = self
+            .http
+            .delete(format!("{}/{platform_post_id}", self.graph_url()))
+            .query(&[("access_token", access_token)])
+            .send()
+            .await?;
+        let http_status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if http_status.is_success() {
+            return Ok(());
+        }
+        Err(self.provider_error(&body, http_status.as_u16()))
+    }
+
     async fn post_pending(
         &self,
         access_token: &str,
@@ -1102,16 +1133,7 @@ impl InstagramProvider {
         caption: &str,
         audio_id: &str,
     ) -> Result<String, ProviderError> {
-        let audio_configuration = serde_json::json!({
-            "audio_id": audio_id,
-        });
-        let params = vec![
-            ("media_type", "REELS".to_string()),
-            ("video", video_url.to_string()),
-            ("caption", caption.to_string()),
-            ("access_token", access_token.to_string()),
-            ("audio_configuration", audio_configuration.to_string()),
-        ];
+        let params = reel_container_params(video_url, caption, access_token, audio_id);
 
         let resp = self
             .http
@@ -2035,6 +2057,28 @@ impl InstagramProvider {
         }
     }
 
+    /// Read a media item's `status_code`.
+    ///
+    /// The object can be TWO different things, and they do not answer the
+    /// same question:
+    ///
+    ///   - a CONTAINER (`POST /{ig_id}/media` returned an id that is still
+    ///     being processed): it HAS a `status_code` — `IN_PROGRESS`,
+    ///     `FINISHED`, `ERROR`;
+    ///   - a PUBLISHED MEDIA item (the id `media_publish` returned): it has
+    ///     NO `status_code` field at all. Asking for it is answered with
+    ///     "(#100) Tried accessing nonexisting field (status_code)".
+    ///
+    /// The second case is what the publish path does: it publishes the
+    /// container, then asks for the MEDIA's status. Measured live on
+    /// 2026-11-13, that answer is a (#100) error, so EVERY scheduled
+    /// Instagram post published successfully and was then recorded as an
+    /// ERROR — the founder saw a failed post that was actually live, and
+    /// re-posting it published a second copy.
+    ///
+    /// So a field error on `status_code` is not a failure: it means the
+    /// object is a published media item, which IS live. The status is
+    /// `PUBLISHED` — accepted, and (for a video) still transcoding.
     pub async fn poll_container_status(
         &self,
         access_token: &str,
@@ -2044,16 +2088,30 @@ impl InstagramProvider {
         let resp = self
             .http
             .get(&url)
-            .query(&[("fields", "id,status_code")])
+            .query(&[("fields", "id,status_code,status,media_type,permalink")])
             .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .await?;
+        let http_status = resp.status();
         let json: serde_json::Value = resp.json().await?;
         if let Some(err) = json["error"].as_object() {
             let msg = err["message"]
                 .as_str()
                 .unwrap_or("Container status check failed");
-            return Err(ProviderError::Api(msg.to_string()));
+            // A field error on `status_code` means this is a published
+            // media item, not a container: the media is LIVE.
+            if is_published_media_item_error(msg) {
+                tracing::debug!(
+                    "IG media {creation_id} has no status_code — it is a published media item"
+                );
+                return Ok("PUBLISHED".to_string());
+            }
+            return Err(self.provider_error(msg, http_status.as_u16()));
+        }
+        // No status_code, but a media_type/permalink: a published media
+        // item that answered without the field.
+        if json.get("status_code").is_none() && json.get("media_type").is_some() {
+            return Ok("PUBLISHED".to_string());
         }
         let status_code = json["status_code"].as_str().unwrap_or("IN_PROGRESS");
         Ok(status_code.to_string())
@@ -2088,6 +2146,46 @@ impl InstagramProvider {
             status: status.into(),
         })
     }
+}
+
+/// The form fields that create an Instagram REEL container.
+///
+/// The parameter is `video_url`, NOT `video`. Measured against the live
+/// Graph API on 2026-11-13: `video` is answered with "(#100) The parameter
+/// video_url is required", and `video_url` creates the container. So every
+/// music Reel failed AT THE CONTAINER STEP — the music the composer
+/// collected was never applied to anything, because the container was
+/// never created.
+///
+/// One function, so the name is pinned by a test instead of by a comment.
+pub fn reel_container_params(
+    video_url: &str,
+    caption: &str,
+    access_token: &str,
+    audio_id: &str,
+) -> Vec<(&'static str, String)> {
+    let audio_configuration = serde_json::json!({
+        "audio_id": audio_id,
+    });
+    vec![
+        ("media_type", "REELS".to_string()),
+        ("video_url", video_url.to_string()),
+        ("caption", caption.to_string()),
+        ("access_token", access_token.to_string()),
+        ("audio_configuration", audio_configuration.to_string()),
+    ]
+}
+
+/// Is this Graph error the "this is not a container" answer?
+///
+/// A published MEDIA item has no `status_code` field, and asking for it
+/// is answered with "(#100) Tried accessing nonexisting field
+/// (status_code)". That is not a failure: the media is LIVE. The publish
+/// path asks for the media's status right after publishing it, so without
+/// this the founder saw every scheduled Instagram post as an ERROR after
+/// it had actually gone out — and re-posting it published a second copy.
+pub fn is_published_media_item_error(message: &str) -> bool {
+    message.contains("nonexisting field") && message.contains("status_code")
 }
 
 /// The page list from a `/me/accounts` response, or `None` when the response
@@ -2264,5 +2362,74 @@ mod tests {
     fn accounts_missing_data_is_not_a_page_listing() {
         assert!(accounts_page_list(&serde_json::json!({})).is_none());
         assert!(accounts_page_list(&serde_json::json!({ "data": [] })).is_some());
+    }
+}
+
+#[cfg(test)]
+mod instagram_publish_shape_tests {
+    use super::*;
+
+    #[test]
+    fn the_reel_container_sends_video_url_not_video() {
+        // Measured against the live Graph API: `video` is answered with
+        // "(#100) The parameter video_url is required". One assertion on
+        // the parameter NAME, not the value.
+        let params = reel_container_params(
+            "https://example.com/reel.mp4",
+            "caption",
+            "token",
+            "audio-123",
+        );
+        let names: Vec<&str> = params.iter().map(|(n, _)| *n).collect();
+        assert_eq!(
+            names,
+            vec![
+                "media_type",
+                "video_url",
+                "caption",
+                "access_token",
+                "audio_configuration"
+            ]
+        );
+        assert!(
+            !names.contains(&"video"),
+            "`video` is not a Graph parameter — it must be `video_url`"
+        );
+    }
+
+    #[test]
+    fn the_reel_container_carries_the_music_track() {
+        // The composer writes settings.audio_id; the container has to carry
+        // it or the reel goes out silent (the defect this replaced).
+        let params = reel_container_params(
+            "https://example.com/reel.mp4",
+            "caption",
+            "token",
+            "audio-123",
+        );
+        let audio = params
+            .iter()
+            .find(|(n, _)| *n == "audio_configuration")
+            .map(|(_, v)| v.clone())
+            .expect("audio_configuration present");
+        assert_eq!(
+            audio,
+            serde_json::json!({"audio_id": "audio-123"}).to_string()
+        );
+    }
+
+    #[test]
+    fn a_field_error_on_status_code_means_the_media_is_live() {
+        // Graph's answer when the object is a PUBLISHED MEDIA item.
+        assert!(is_published_media_item_error(
+            "(#100) Tried accessing nonexisting field (status_code)"
+        ));
+        // A terminal container state is not this.
+        assert!(!is_published_media_item_error(
+            "Instagram media 123 failed processing (ERROR)"
+        ));
+        assert!(!is_published_media_item_error(
+            "(#100) Tried accessing nonexisting field (media_type)"
+        ));
     }
 }
