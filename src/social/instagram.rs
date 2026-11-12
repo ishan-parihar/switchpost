@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use super::*;
 use super::common::extract_access_token;
+use super::*;
 use crate::config::Config;
 
 /// How long to wait for a media container to become publishable.
@@ -1263,12 +1263,29 @@ impl InstagramProvider {
         Err(ProviderError::Api(friendly_error(None, &raw)))
     }
 
-    /// Resolve the Instagram Business Account ID from a page-scoped token.
+    /// Resolve the Instagram Business Account ID from the stored token.
+    ///
+    /// TWO token shapes reach here, and the old code only handled one:
+    ///
+    /// - a **user token** (the root integration): `/me/accounts` lists the
+    ///   Facebook Pages, and each page's `instagram_business_account` edge
+    ///   (inline field or `/{page_id}/instagram_business_account`) gives the
+    ///   IG account.
+    /// - a **page token** (what `connect_page` stores on the connected
+    ///   sub-account): `/me` IS the page, and a Page node has no `accounts`
+    ///   edge, so `/me/accounts` fails with
+    ///   `(#100) Tried accessing nonexisting field (accounts)` — exactly the
+    ///   error every IG publish surfaced. The fallback asks `/me` directly
+    ///   for `instagram_business_account`, then the
+    ///   `/{page_id}/instagram_business_account` edge.
     async fn resolve_ig_business_account(&self, access_token: &str) -> Result<String, String> {
-        // Get the user's Facebook pages
+        // Get the user's Facebook pages (user-token path).
         let resp = self
             .http
-            .get(format!("{}/me/accounts", self.graph_url()))
+            .get(format!(
+                "{}/me/accounts?fields=id,access_token,instagram_business_account",
+                self.graph_url()
+            ))
             .query(&[("access_token", access_token)])
             .send()
             .await
@@ -1279,28 +1296,81 @@ impl InstagramProvider {
             .await
             .map_err(|e| format!("Failed to parse pages response: {e}"))?;
 
-        if let Some(err) = accounts["error"].as_object() {
+        if let Some(pages) = accounts_page_list(&accounts) {
+            for page in pages {
+                let page_id = page["id"].as_str().unwrap_or("");
+                let page_token = page["access_token"].as_str().unwrap_or(access_token);
+
+                // Prefer the inline field — one less request.
+                if let Some(ig_id) = page["instagram_business_account"]["id"].as_str() {
+                    return Ok(ig_id.to_string());
+                }
+
+                // Fallback: /{page_id}/instagram_business_account
+                let ig: serde_json::Value = self
+                    .http
+                    .get(format!(
+                        "{}/{page_id}/instagram_business_account",
+                        self.graph_url()
+                    ))
+                    .query(&[("access_token", page_token)])
+                    .send()
+                    .await
+                    .map_err(|e| format!("Failed to check IG for page {page_id}: {e}"))?
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse IG response: {e}"))?;
+
+                if ig["error"].is_null() {
+                    if let Some(ig_id) = ig["id"].as_str() {
+                        return Ok(ig_id.to_string());
+                    }
+                }
+            }
+            // A user token that lists pages but none linked to Instagram.
+            return Err(
+                "No Instagram Business account found. Link Instagram to a Facebook Page first."
+                    .to_string(),
+            );
+        }
+
+        // Page-token path: /me IS the page, so ask it directly. (When
+        // /me/accounts errored with #100 the token is a page token; when it
+        // answered with no data the token may still be one.)
+        let me: serde_json::Value = self
+            .http
+            .get(format!(
+                "{}/me?fields=id,instagram_business_account",
+                self.graph_url()
+            ))
+            .query(&[("access_token", access_token)])
+            .send()
+            .await
+            .map_err(|e| format!("Failed to query /me: {e}"))?
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse /me response: {e}"))?;
+
+        if let Some(err) = me["error"].as_object() {
             return Err(format!(
                 "Facebook API error: {}",
                 err["message"].as_str().unwrap_or("unknown")
             ));
         }
 
-        let pages = accounts["data"]
-            .as_array()
-            .ok_or_else(|| "No Facebook pages found for this token.".to_string())?;
+        if let Some(ig_id) = me["instagram_business_account"]["id"].as_str() {
+            return Ok(ig_id.to_string());
+        }
 
-        for page in pages {
-            let page_id = page["id"].as_str().unwrap_or("");
-            let page_token = page["access_token"].as_str().unwrap_or(access_token);
-
+        let page_id = me["id"].as_str().unwrap_or("").to_string();
+        if !page_id.is_empty() {
             let ig: serde_json::Value = self
                 .http
                 .get(format!(
                     "{}/{page_id}/instagram_business_account",
                     self.graph_url()
                 ))
-                .query(&[("access_token", page_token)])
+                .query(&[("access_token", access_token)])
                 .send()
                 .await
                 .map_err(|e| format!("Failed to check IG for page {page_id}: {e}"))?
@@ -1308,16 +1378,16 @@ impl InstagramProvider {
                 .await
                 .map_err(|e| format!("Failed to parse IG response: {e}"))?;
 
-            if let Some(ig_obj) = ig.as_object() {
-                if let Some(ig_id) = ig_obj.get("id").and_then(|v| v.as_str()) {
-                    // The IG Business Account API returns the ID at the top level
+            if ig["error"].is_null() {
+                if let Some(ig_id) = ig["id"].as_str() {
                     return Ok(ig_id.to_string());
                 }
             }
         }
 
         Err(
-            "No Instagram Business account found. Link Instagram to a Facebook Page first."
+            "No Instagram Business account found for this token. Link an Instagram \
+             Business/Creator account to the Facebook Page, then reconnect the channel."
                 .to_string(),
         )
     }
@@ -2002,6 +2072,20 @@ impl InstagramProvider {
     }
 }
 
+/// The page list from a `/me/accounts` response, or `None` when the response
+/// errored or carried no `data`. A PAGE token (what `connect_page` stores on
+/// a connected sub-account) has no `accounts` edge, so `/me/accounts` fails
+/// with `(#100) Tried accessing nonexisting field (accounts)` — the `None`
+/// case is what drives the `/me` fallback in `resolve_ig_business_account`.
+/// The old code returned that #100 message verbatim as the publish error.
+fn accounts_page_list(accounts: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    if accounts["error"].is_null() {
+        accounts["data"].as_array()
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2135,5 +2219,32 @@ mod tests {
         // Facebook-login tokens have no refresh endpoint; reconnect is the fix.
         let p = InstagramProvider::new(&test_config());
         assert!(!p.needs_cron_refresh());
+    }
+
+    /// Regression test for the publish bug: a page token calling
+    /// `/me/accounts` gets #100 "nonexisting field (accounts)" — that must
+    /// drive the /me fallback, not surface as the publish error.
+    #[test]
+    fn accounts_error_100_is_not_a_page_listing() {
+        let err = serde_json::json!({
+            "error": { "code": 100, "message": "Tried accessing nonexisting field (accounts)" }
+        });
+        assert!(accounts_page_list(&err).is_none());
+    }
+
+    #[test]
+    fn accounts_data_yields_the_page_list() {
+        let ok = serde_json::json!({
+            "data": [ { "id": "111", "instagram_business_account": { "id": "ig-1" } } ]
+        });
+        let pages = accounts_page_list(&ok).expect("a listed page");
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0]["instagram_business_account"]["id"], "ig-1");
+    }
+
+    #[test]
+    fn accounts_missing_data_is_not_a_page_listing() {
+        assert!(accounts_page_list(&serde_json::json!({})).is_none());
+        assert!(accounts_page_list(&serde_json::json!({ "data": [] })).is_some());
     }
 }

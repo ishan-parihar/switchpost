@@ -3,8 +3,8 @@
 
 use async_trait::async_trait;
 
-use super::*;
 use super::common::extract_access_token;
+use super::*;
 use crate::config::Config;
 use crate::social::GRAPH_VERSION;
 
@@ -279,14 +279,13 @@ impl SocialProvider for FacebookProvider {
         access_token: &str,
         post: &PostContent,
     ) -> Result<PublishResult, ProviderError> {
-        // Use the page-scoped token's associated page ID for posting.
-        // The page_id is stored in the token itself or resolved from /me/accounts.
-        let page_id = self.resolve_page_id(access_token).await?;
+        // Resolve the page to post to. A connected sub-account stores a PAGE
+        // token, in which case /me IS the page; a user token lists pages via
+        // /me/accounts and the page's own token is required to post to it.
+        let (page_id, page_token) = self.resolve_page(access_token).await?;
+        let token = page_token.as_deref().unwrap_or(access_token);
 
-        let params = vec![
-            ("message", post.content.as_str()),
-            ("access_token", access_token),
-        ];
+        let params = vec![("message", post.content.as_str()), ("access_token", token)];
 
         let resp = self
             .http
@@ -493,7 +492,7 @@ impl SocialProvider for FacebookProvider {
         _internal_id: &str,
         days: u32,
     ) -> Result<Vec<AnalyticsData>, ProviderError> {
-        let page_id = self.resolve_page_id(access_token).await?;
+        let (page_id, _) = self.resolve_page(access_token).await?;
 
         let since = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::days(days as i64))
@@ -567,7 +566,7 @@ impl SocialProvider for FacebookProvider {
         let page_id = if !_internal_id.is_empty() {
             _internal_id.to_string()
         } else {
-            self.resolve_page_id(access_token).await?
+            self.resolve_page(access_token).await?.0
         };
 
         // Fetch page info for author details (name, handle, avatar)
@@ -784,26 +783,93 @@ impl SocialProvider for FacebookProvider {
 }
 
 impl FacebookProvider {
-    /// Resolve the page ID associated with a page-scoped access token.
-    async fn resolve_page_id(&self, access_token: &str) -> Result<String, ProviderError> {
+    /// Resolve the page to act on from the stored token, plus the token the
+    /// action should use when the listing returned a page-scoped one.
+    ///
+    /// TWO token shapes reach here, and the old code only handled one:
+    ///
+    /// - a **user token** (the root integration minted by `exchange_code`):
+    ///   `/me/accounts` lists the Pages, each carrying its own `access_token`
+    ///   — and a user token cannot post to a Page, so the page token is
+    ///   returned alongside the id.
+    /// - a **page token** (what `connect_page` stores on the connected
+    ///   sub-account): `/me` IS the page, and `/me/accounts` has no `accounts`
+    ///   edge on a Page node, so it either errors (#100) or answers with no
+    ///   `data`. The old code reported the misleading "No pages found for
+    ///   token. Ensure you have a Facebook Page." for every page token —
+    ///   which is precisely the token shape a connected page channel holds,
+    ///   so every Facebook publish failed. The fallback asks `/me` directly.
+    ///
+    /// `category` is requested next to `id` on that fallback because it exists
+    /// on Page nodes but not on User nodes: a page token's `/me` answers with
+    /// it, a user-token-with-no-pages errors with #100, and the caller still
+    /// gets the actionable "connect a Page" message.
+    async fn resolve_page(
+        &self,
+        access_token: &str,
+    ) -> Result<(String, Option<String>), ProviderError> {
         let me: serde_json::Value = self
             .http
-            .get(format!("{}/me/accounts", self.graph_url()))
+            .get(format!(
+                "{}/me/accounts?fields=id,access_token",
+                self.graph_url()
+            ))
             .query(&[("access_token", access_token)])
             .send()
             .await?
             .json()
             .await?;
 
-        let pages = me["data"].as_array().ok_or_else(|| {
-            ProviderError::Auth("No pages found for token. Ensure you have a Facebook Page.".into())
-        })?;
+        if let Some((id, page_token)) = first_page_from_accounts(&me) {
+            return Ok((id, page_token));
+        } else {
+            tracing::debug!(
+                "Facebook /me/accounts failed or listed no page, trying /me: {:?}",
+                me["error"]["message"]
+            );
+        }
 
-        pages
-            .first()
-            .and_then(|page| page["id"].as_str().map(String::from))
-            .ok_or_else(|| ProviderError::Auth("Could not resolve page ID from token.".into()))
+        // Page-token path: /me returns the Page itself.
+        let page: serde_json::Value = self
+            .http
+            .get(format!("{}/me?fields=id,category", self.graph_url()))
+            .query(&[("access_token", access_token)])
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if page["error"].is_null() {
+            if let Some(id) = page["id"].as_str().filter(|s| !s.is_empty()) {
+                return Ok((id.to_string(), None));
+            }
+        }
+
+        Err(ProviderError::Auth(
+            "No pages found for token. Ensure you have a Facebook Page and the token was granted \
+             pages_show_list + pages_manage_posts when the channel was connected."
+                .into(),
+        ))
     }
+}
+
+/// Interpret a `/me/accounts` response: `Some((page_id, page_token))` when it
+/// lists at least one page, `None` when it errored (a Page token has no
+/// `accounts` edge — #100) or listed none. The `None` case is what drives the
+/// `/me` fallback in `resolve_page`; the old code turned the #100 error into
+/// the misleading "No pages found for token" on every connected page channel.
+fn first_page_from_accounts(me: &serde_json::Value) -> Option<(String, Option<String>)> {
+    if !me["error"].is_null() {
+        return None;
+    }
+    let page = me["data"]
+        .as_array()?
+        .iter()
+        .find(|p| p["id"].as_str().is_some_and(|s| !s.is_empty()))?;
+    Some((
+        page["id"].as_str().unwrap_or("").to_string(),
+        page["access_token"].as_str().map(String::from),
+    ))
 }
 
 // ── Inherent Graph API Methods ──────────────────────────────────
@@ -1544,6 +1610,37 @@ mod tests {
         assert!(scopes.contains(&"pages_show_list".to_string()));
         assert!(scopes.contains(&"pages_manage_posts".to_string()));
         assert!(scopes.contains(&"public_profile".to_string()));
+    }
+
+    /// A page token's `/me/accounts` answers #100 "nonexisting field
+    /// (accounts)" — that must NOT be read as "user has no pages"; it drives
+    /// the /me fallback instead. Regression test for the publish bug where
+    /// every connected Facebook page failed with "No pages found for token".
+    #[test]
+    fn accounts_error_100_is_not_a_page_listing() {
+        let err = serde_json::json!({
+            "error": { "code": 100, "message": "Tried accessing nonexisting field (accounts)" }
+        });
+        assert!(first_page_from_accounts(&err).is_none());
+    }
+
+    #[test]
+    fn accounts_data_yields_first_page_with_its_token() {
+        let ok = serde_json::json!({
+            "data": [
+                { "id": "111", "access_token": "PAGE_TOKEN_A" },
+                { "id": "222", "access_token": "PAGE_TOKEN_B" }
+            ]
+        });
+        let (id, tok) = first_page_from_accounts(&ok).expect("a listed page");
+        assert_eq!(id, "111");
+        assert_eq!(tok.as_deref(), Some("PAGE_TOKEN_A"));
+    }
+
+    #[test]
+    fn accounts_empty_data_is_not_a_page_listing() {
+        let empty = serde_json::json!({ "data": [] });
+        assert!(first_page_from_accounts(&empty).is_none());
     }
 
     #[test]
