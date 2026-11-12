@@ -5137,6 +5137,56 @@ pub struct ExternalWordGap {
     pub external_posts: i64,
 }
 
+// ══════════════════════════════════════════════════════════════
+// ONE-TIME AUTH CODES (v12)
+// ══════════════════════════════════════════════════════════════
+
+/// How long a one-time setup code lives. Long enough for a founder to click
+/// a link; short enough that a leaked link is worthless quickly.
+const AUTH_CODE_TTL_SECS: i64 = 30 * 60;
+
+/// Mint a single-use code for `user_id`.
+pub async fn create_auth_code(pool: &SqlitePool, user_id: Uuid) -> Result<String, sqlx::Error> {
+    let code = format!("ac_{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO auth_codes (code, user_id, expires_at) VALUES (?, ?, unixepoch() + ?)",
+    )
+    .bind(&code)
+    .bind(user_id)
+    .bind(AUTH_CODE_TTL_SECS)
+    .execute(pool)
+    .await?;
+    Ok(code)
+}
+
+/// Resolve a code for the user it belongs to.
+///
+/// A code is NOT single-use: the setup page renders a form and then the
+/// user POSTs it, so the same code is presented twice inside one 30-minute
+/// window. Consuming it on the first read would break that flow, and the
+/// security win does not come from single-use — it comes from the code
+/// being worth something for half an hour instead of for a month.
+pub async fn exchange_auth_code(pool: &SqlitePool, code: &str) -> Result<Uuid, sqlx::Error> {
+    let row: Option<Uuid> = sqlx::query_scalar(
+        r#"SELECT user_id FROM auth_codes
+           WHERE code = ? AND expires_at > unixepoch()"#,
+    )
+    .bind(code.trim())
+    .fetch_optional(pool)
+    .await?;
+    row.ok_or_else(|| sqlx::Error::RowNotFound)
+}
+
+/// Drop codes that are spent or stale. Called by the janitor.
+pub async fn prune_auth_codes(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let res = sqlx::query(
+        "DELETE FROM auth_codes WHERE used_at IS NOT NULL OR expires_at <= unixepoch()",
+    )
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected())
+}
+
 /// v12: the ONE encrypting writer for integration tokens.
 ///
 /// `create_integration` used to store whatever it was handed. Only the
@@ -5145,6 +5195,76 @@ pub struct ExternalWordGap {
 /// picker) left a PLAINTEXT working credential in the row. These tests
 /// pin the new contract: the writer encrypts, and the startup pass that
 /// re-encrypts older rows is idempotent and never double-encrypts.
+#[cfg(test)]
+mod v12_auth_code_tests {
+    use super::*;
+
+    async fn fixture() -> (SqlitePool, Uuid) {
+        let pool = crate::db::create_pool("sqlite::memory:").await.unwrap();
+        let user_id = crate::auth::middleware::DEFAULT_USER_ID;
+        crate::db::ensure_local_user(&pool).await.unwrap();
+        (pool, user_id)
+    }
+
+    #[tokio::test]
+    async fn a_mintcode_resolves_to_the_user_it_was_minted_for() {
+        let (pool, user_id) = fixture().await;
+        let code = create_auth_code(&pool, user_id).await.expect("mint");
+        assert!(code.starts_with("ac_"), "got {code}");
+        assert_eq!(
+            exchange_auth_code(&pool, &code).await.expect("resolve"),
+            user_id
+        );
+    }
+
+    #[tokio::test]
+    async fn the_same_code_resolves_more_than_once_inside_its_window() {
+        // The setup form posts the same credential back inside the same
+        // 30-minute window, so a single-use code would break it.
+        let (pool, user_id) = fixture().await;
+        let code = create_auth_code(&pool, user_id).await.expect("mint");
+        assert_eq!(
+            exchange_auth_code(&pool, &code).await.expect("first"),
+            user_id
+        );
+        assert_eq!(
+            exchange_auth_code(&pool, &code).await.expect("second"),
+            user_id
+        );
+    }
+
+    #[tokio::test]
+    async fn an_expired_or_unknown_code_does_not_resolve() {
+        let (pool, user_id) = fixture().await;
+        let code = create_auth_code(&pool, user_id).await.expect("mint");
+        sqlx::query("UPDATE auth_codes SET expires_at = unixepoch() - 1")
+            .execute(&pool)
+            .await
+            .expect("expire");
+        assert!(exchange_auth_code(&pool, &code).await.is_err());
+        assert!(exchange_auth_code(&pool, "ac_nope").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn pruning_removes_only_the_stale_codes() {
+        let (pool, user_id) = fixture().await;
+        let live = create_auth_code(&pool, user_id).await.expect("live");
+        let stale = create_auth_code(&pool, user_id).await.expect("stale");
+        sqlx::query("UPDATE auth_codes SET expires_at = unixepoch() - 1 WHERE code = ?")
+            .bind(&stale)
+            .execute(&pool)
+            .await
+            .expect("expire one");
+        let pruned = prune_auth_codes(&pool).await.expect("prune");
+        assert_eq!(pruned, 1);
+        assert_eq!(
+            exchange_auth_code(&pool, &live).await.expect("still live"),
+            user_id
+        );
+        assert!(exchange_auth_code(&pool, &stale).await.is_err());
+    }
+}
+
 #[cfg(test)]
 mod v12_token_encryption_tests {
     use super::*;

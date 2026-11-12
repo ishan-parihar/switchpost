@@ -37,6 +37,9 @@ pub struct PublicConnectQuery {
 pub struct OnboardQuery {
     pub pending: Option<String>,
     pub integration_id: Option<String>,
+    /// A one-time setup code minted by `/setup` (preferred over `token`).
+    pub code: Option<String>,
+    /// A session JWT from an in-flight OAuth chain (kept for compatibility).
     pub token: Option<String>,
     pub connected: Option<String>,
     pub error: Option<String>,
@@ -54,10 +57,11 @@ pub struct OnboardQuery {
 /// if neither credential is present/valid. This closes the "free JWT
 /// issuance" hole where /setup previously minted a fresh JWT for any
 /// anonymous visitor — that path bypassed APP_PASSWORD entirely.
-fn resolve_authed_user(
+async fn resolve_authed_user(
     headers: &HeaderMap,
-    query_token: Option<&str>,
+    credential: Option<&str>,
     jwt_secret: &str,
+    pool: &sqlx::SqlitePool,
 ) -> Result<Uuid, AppError> {
     // (a) Try the session cookie first.
     let cookie_header = headers
@@ -70,15 +74,25 @@ fn resolve_authed_user(
                 .map_err(|_| AppError::BadRequest("Invalid user ID in session".into()));
         }
     }
-    // (b) Fall back to ?token= query param (used by OAuth redirect chains).
-    if let Some(tok) = query_token {
-        if !tok.is_empty() {
-            let claims = jwt::validate_token(tok, jwt_secret).map_err(|_| {
-                AppError::BadRequest("Invalid or expired token. Log in via the WebUI first.".into())
-            })?;
-            return Uuid::parse_str(&claims.sub)
-                .map_err(|_| AppError::BadRequest("Invalid user ID in token".into()));
+    // (b) The credential in the URL. ONE parameter carrying either an
+    // `ac_…` one-time code or — for OAuth chains already in flight — a
+    // session JWT. A code works for 30 minutes; a JWT works for 30 days.
+    // A URL is browser history, a proxy log line and the Referer header the
+    // provider sends back, so it should carry the first.
+    if let Some(cred) = credential.filter(|c| !c.trim().is_empty()) {
+        if let Some(code) = cred.strip_prefix("ac_") {
+            return match queries::exchange_auth_code(pool, code).await {
+                Ok(user_id) => Ok(user_id),
+                Err(_) => Err(AppError::BadRequest(
+                    "This setup link has expired. Open /setup again for a fresh one.".into(),
+                )),
+            };
         }
+        let claims = jwt::validate_token(cred, jwt_secret).map_err(|_| {
+            AppError::BadRequest("Invalid or expired token. Log in via the WebUI first.".into())
+        })?;
+        return Uuid::parse_str(&claims.sub)
+            .map_err(|_| AppError::BadRequest("Invalid user ID in token".into()));
     }
     // Neither cookie nor token — require login.
     Err(AppError::Unauthorized(
@@ -88,8 +102,9 @@ fn resolve_authed_user(
 
 /// GET /setup — onboarding HTML dashboard
 ///
-/// AUTH: requires the `sf_session` cookie OR a `?token=<jwt>` query
-/// param (set by the WebUI after /api/auth/login). Anonymous visitors
+/// AUTH: requires the `sf_session` cookie OR a `?token=<credential>` query
+/// param — a 30-minute `ac_…` code minted by this page, or, for OAuth chains
+/// already in flight, a session JWT. Anonymous visitors
 /// are rejected with 401 and the frontend redirects them to /login.
 ///
 /// Supports query params:
@@ -106,15 +121,23 @@ pub async fn onboard_page(
     // returns the canonical DEFAULT_USER_ID which is what we bind
     // integrations to in single-user mode. The call here is purely
     // an auth check.
-    let _authed_user_id =
-        resolve_authed_user(&headers, query.token.as_deref(), &state.config.jwt_secret)?;
+    let authed_user_id = resolve_authed_user(
+        &headers,
+        query.token.as_deref(),
+        &state.config.jwt_secret,
+        &state.db,
+    )
+    .await?;
     let user = get_or_create_dev_user(&state).await?;
-    // Re-issue a fresh token ONLY for already-authenticated users —
-    // needed because the page embeds `?token=<jwt>` in provider-card
-    // links so the OAuth redirect chain can complete without the
-    // cookie being sent cross-origin (OAuth callback comes from the
-    // provider, not from us).
-    let token = jwt::create_token(user.id, &state.config.jwt_secret)?;
+    // Mint a 30-MINUTE code for this render. The provider-card links and the
+    // cookie forms below carry it instead of a 30-DAY session JWT: a URL is
+    // browser history, a proxy log line and the Referer header the provider
+    // sends back, and none of those should hold a credential that works for
+    // a month. It is NOT single-use — the form the founder lands on posts
+    // the same credential back inside the same 30-minute window.
+    let token = queries::create_auth_code(&state.db, authed_user_id)
+        .await
+        .unwrap_or_default();
 
     // ── Fetch existing integrations ───────────────────────────
     let integrations = queries::list_integrations(&state.db, user.id)
@@ -615,7 +638,13 @@ pub async fn public_connect(
     Path(provider): Path<String>,
     Query(query): Query<PublicConnectQuery>,
 ) -> Result<Response, AppError> {
-    let user_id = resolve_authed_user(&headers, query.token.as_deref(), &state.config.jwt_secret)?;
+    let user_id = resolve_authed_user(
+        &headers,
+        query.token.as_deref(),
+        &state.config.jwt_secret,
+        &state.db,
+    )
+    .await?;
 
     if !state.provider_configured(&provider) {
         // A known-but-unset provider and an outright typo need different
@@ -830,7 +859,13 @@ pub async fn x_cookies_form(
     headers: HeaderMap,
     Query(query): Query<PublicConnectQuery>,
 ) -> Result<Html<String>, AppError> {
-    let _user_id = resolve_authed_user(&headers, query.token.as_deref(), &state.config.jwt_secret)?;
+    let _user_id = resolve_authed_user(
+        &headers,
+        query.token.as_deref(),
+        &state.config.jwt_secret,
+        &state.db,
+    )
+    .await?;
 
     let token = query.token.clone().unwrap_or_default();
     let error = query.redirect_uri.as_deref().unwrap_or("");
@@ -952,7 +987,8 @@ pub async fn x_cookies_submit(
     Form(form): Form<XCookieForm>,
 ) -> Result<Response, AppError> {
     let token_opt: Option<&str> = Some(form.token.as_str()).or(query.token.as_deref());
-    let user_id = resolve_authed_user(&headers, token_opt, &state.config.jwt_secret)?;
+    let user_id =
+        resolve_authed_user(&headers, token_opt, &state.config.jwt_secret, &state.db).await?;
 
     let auth_token = form.auth_token.as_deref().unwrap_or("");
     let ct0 = form.ct0.as_deref().unwrap_or("");
@@ -1060,7 +1096,8 @@ pub async fn x_cookies_import(
     Form(form): Form<XCookieForm>,
 ) -> Result<Response, AppError> {
     let token_opt: Option<&str> = Some(form.token.as_str()).or(query.token.as_deref());
-    let user_id = resolve_authed_user(&headers, token_opt, &state.config.jwt_secret)?;
+    let user_id =
+        resolve_authed_user(&headers, token_opt, &state.config.jwt_secret, &state.db).await?;
 
     let cookies = crate::social::x_cookies::extract_x_cookies()
         .ok_or_else(|| AppError::BadRequest(
@@ -1167,7 +1204,13 @@ pub async fn reddit_cookies_form(
     headers: HeaderMap,
     Query(query): Query<PublicConnectQuery>,
 ) -> Result<Html<String>, AppError> {
-    let _user_id = resolve_authed_user(&headers, query.token.as_deref(), &state.config.jwt_secret)?;
+    let _user_id = resolve_authed_user(
+        &headers,
+        query.token.as_deref(),
+        &state.config.jwt_secret,
+        &state.db,
+    )
+    .await?;
 
     let token = query.token.clone().unwrap_or_default();
     let error = query.redirect_uri.as_deref().unwrap_or("");
@@ -1269,7 +1312,8 @@ pub async fn reddit_cookies_submit(
     Form(form): Form<RedditCookieForm>,
 ) -> Result<Response, AppError> {
     let token_opt: Option<&str> = Some(form.token.as_str()).or(query.token.as_deref());
-    let user_id = resolve_authed_user(&headers, token_opt, &state.config.jwt_secret)?;
+    let user_id =
+        resolve_authed_user(&headers, token_opt, &state.config.jwt_secret, &state.db).await?;
 
     let cookie_string = form.cookie_string.as_deref().unwrap_or("");
     let reddit_session = form.reddit_session.as_deref().unwrap_or("");
@@ -1379,7 +1423,8 @@ pub async fn reddit_cookies_import(
     Form(form): Form<RedditCookieForm>,
 ) -> Result<Response, AppError> {
     let token_opt: Option<&str> = Some(form.token.as_str()).or(query.token.as_deref());
-    let user_id = resolve_authed_user(&headers, token_opt, &state.config.jwt_secret)?;
+    let user_id =
+        resolve_authed_user(&headers, token_opt, &state.config.jwt_secret, &state.db).await?;
 
     let cookies = crate::social::reddit_cookies::extract_reddit_cookies()
         .ok_or_else(|| AppError::BadRequest(
@@ -1492,7 +1537,13 @@ pub async fn telegram_bot_token_form(
     headers: HeaderMap,
     axum::extract::Query(query): axum::extract::Query<PublicConnectQuery>,
 ) -> Result<axum::response::Html<String>, AppError> {
-    let _user_id = resolve_authed_user(&headers, query.token.as_deref(), &state.config.jwt_secret)?;
+    let _user_id = resolve_authed_user(
+        &headers,
+        query.token.as_deref(),
+        &state.config.jwt_secret,
+        &state.db,
+    )
+    .await?;
     // Embed the JWT as a hidden form field so the POST handler can
     // re-validate auth even if the session cookie isn't sent (e.g.
     // the user reached this form via an OAuth-redirect link with
@@ -1532,7 +1583,8 @@ pub async fn telegram_bot_token_submit(
     use axum::response::IntoResponse;
     // Auth gate — accept either the session cookie or a `token` form field.
     let form_token = form.get("token").map(String::as_str);
-    let _user_id = resolve_authed_user(&headers, form_token, &state.config.jwt_secret)?;
+    let _user_id =
+        resolve_authed_user(&headers, form_token, &state.config.jwt_secret, &state.db).await?;
 
     let bot_token = match form.get("bot_token") {
         Some(t) if !t.is_empty() => t.clone(),
