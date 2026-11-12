@@ -263,6 +263,46 @@ const META_PAGE_TOKEN_TTL_DAYS: i64 = 60;
 /// expired, with no prompt and no way back except disconnecting. Storing
 /// the REAL life of a page token (60 days, inherited from the long-lived
 /// user token it comes from) is what lets the pre-publish refresh fire
+/// How far ahead the PRE-PUBLISH refresh looks. 5 minutes: the token has
+/// to be good for the publish that is about to happen, not for the next
+/// hour.
+pub const PRE_PUBLISH_REFRESH_WINDOW_SECS: i64 = 300;
+
+/// How far ahead the PROACTIVE refresh looks. 24 hours: a token that will
+/// expire within the next day is refreshed before a publish can ever hit it
+/// and turn into a `TokenExpired` retry.
+pub const PROACTIVE_REFRESH_WINDOW_HOURS: i64 = 24;
+
+/// THE ONE expiry rule: does this token need a refresh?
+///
+/// The DECISION lived in five places — the pre-publish check (5 minutes),
+/// the proactive sweep (24 hours), the feed refresher, the REST refresh
+/// button and the MCP refresh tool — and the copies drifted: one refreshed
+/// a token five minutes before it expired, another twenty-four hours
+/// before, and the feed refresher only reacted AFTER the platform had
+/// already rejected the token. A token could therefore refresh in one path
+/// and be marked "needs reconnect" in another.
+///
+/// The rule is one sentence — "a token that expires within the window
+/// needs a refresh" — and the windows are the two LOOK-AHEADS of it:
+///
+///   - `PRE_PUBLISH_REFRESH_WINDOW_SECS` (5 minutes): the publish is
+///     imminent, so the token has to be valid for it;
+///   - `PROACTIVE_REFRESH_WINDOW_HOURS` (24 hours): the nightly sweep
+///     refreshes ahead of time, so no publish ever meets an expired token.
+///
+/// A token with NO expiry on record is never refreshed on a timer: there
+/// is nothing to be early for. It is refreshed when it fails.
+pub fn token_needs_refresh(
+    expires_at: Option<chrono::DateTime<Utc>>,
+    window: chrono::Duration,
+) -> bool {
+    match expires_at {
+        Some(exp) => Utc::now() + window >= exp,
+        None => false,
+    }
+}
+
 /// while the parent's refresh token is still good.
 ///
 /// `None` for every other provider: they either report a real expiry from
@@ -681,5 +721,73 @@ mod v12_refresh_tests {
         let days = (expiry - Utc::now()).num_days();
         assert!((59..=60).contains(&days), "got {days} days");
         assert!(meta_page_token_expiry("x").is_none());
+    }
+}
+
+#[cfg(test)]
+mod token_refresh_rule_tests {
+    use super::*;
+
+    #[test]
+    fn a_token_expiring_inside_the_window_needs_a_refresh() {
+        // Five minutes out, with a five-minute window: the publish that is
+        // about to happen would meet an expired token.
+        let expiring = Utc::now() + chrono::Duration::seconds(120);
+        assert!(
+            token_needs_refresh(Some(expiring), chrono::Duration::seconds(300)),
+            "a token expiring inside the window is refreshed"
+        );
+    }
+
+    #[test]
+    fn a_token_far_from_expiry_is_left_alone() {
+        let healthy = Utc::now() + chrono::Duration::hours(72);
+        assert!(
+            !token_needs_refresh(Some(healthy), chrono::Duration::seconds(300)),
+            "a token with days left is not refreshed on a timer"
+        );
+    }
+
+    #[test]
+    fn an_already_expired_token_needs_a_refresh() {
+        let expired = Utc::now() - chrono::Duration::hours(1);
+        assert!(
+            token_needs_refresh(Some(expired), chrono::Duration::seconds(300)),
+            "an expired token is refreshed — the window covers the past"
+        );
+    }
+
+    #[test]
+    fn a_token_with_no_expiry_is_never_refreshed_on_a_timer() {
+        // `None` means "no expiry on record": there is nothing to be early
+        // for. The token is refreshed when the platform rejects it.
+        assert!(
+            !token_needs_refresh(None, chrono::Duration::seconds(300)),
+            "a token with no recorded expiry is never refreshed on a timer"
+        );
+    }
+
+    #[test]
+    fn an_exact_expiry_is_refreshed_not_watched() {
+        // Now == exp: the boundary is inclusive, because the publish starts
+        // NOW and the token is gone by the time it lands.
+        let now = Utc::now();
+        assert!(
+            token_needs_refresh(Some(now), chrono::Duration::zero()),
+            "the boundary is inclusive — a token expiring exactly now is refreshed"
+        );
+    }
+
+    #[test]
+    fn the_two_windows_are_the_two_look_aheads_of_one_rule() {
+        // The pre-publish window is minutes; the proactive sweep is a day.
+        // The rule is the same sentence with a different window — that is
+        // the only thing that may differ.
+        assert_eq!(PRE_PUBLISH_REFRESH_WINDOW_SECS, 300);
+        assert_eq!(PROACTIVE_REFRESH_WINDOW_HOURS, 24);
+        assert!(
+            PROACTIVE_REFRESH_WINDOW_HOURS * 3600 > PRE_PUBLISH_REFRESH_WINDOW_SECS,
+            "the proactive sweep looks further ahead than the publish does"
+        );
     }
 }

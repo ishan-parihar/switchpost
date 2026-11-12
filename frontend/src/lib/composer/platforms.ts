@@ -198,6 +198,18 @@ export function countingMode(provider: string): 'weighted' | 'plain' {
 }
 
 /**
+ * The length of `text` in UTF-8 BYTES — the plain rule.
+ *
+ * The editor's own counter used `String.length`, which counts UTF-16 code
+ * units: a 200-emoji post read "200 chars" in the editor while the server
+ * counted 800 bytes and refused it. The browser's `String.length` is the
+ * wrong ruler for anything that is not ASCII.
+ */
+export function byteCount(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
  * Count `text` the way `provider` counts it.
  *
  * The plain rule is BYTES, not `String.length`. The server measures

@@ -218,7 +218,7 @@ pub const PLATFORM_COLLISIONS: &[(&str, &str)] = &[
 /// `telegram-bot` / `telegram-user`) applies ONLY to names that have no exact
 /// match, so a real provider is never shadowed by its own `-suffix` variant.
 /// See [`PLATFORM_COLLISIONS`].
-pub(crate) fn resolve_platform_integrations<'a, I>(integrations: I, platforms: &str) -> Vec<Uuid>
+pub fn resolve_platform_integrations<'a, I>(integrations: I, platforms: &str) -> Vec<Uuid>
 where
     I: Iterator<Item = &'a crate::db::models::Integration>,
 {
@@ -5012,6 +5012,7 @@ pub async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             crate::cli::platforms::notifications::handle(action, &state).await
         }
         Command::Tags { action } => crate::cli::platforms::tags::handle(action, &state).await,
+        Command::Sets { action } => crate::cli::platforms::sets::handle(action, &state).await,
         Command::Analytics { action } => {
             crate::cli::platforms::analytics::handle(action, &state).await
         }

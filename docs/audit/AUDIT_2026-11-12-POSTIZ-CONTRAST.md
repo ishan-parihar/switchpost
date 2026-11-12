@@ -243,3 +243,28 @@ Expected by design (the CLI is grouped by command), but the parity claim in AGEN
 5. **Lean + tests (21-32)** — delete the 246 dead lines, route the 19 error copies through `classify_error`, extract the one refresh-decision helper, add the RSS + scheduler tests, and document the 21 env vars.
 
 Every item above is small and independent; none adds a dependency, a process, or a new store.
+
+### 7.1 What each week actually landed
+
+The plan above was executed in five weeks, one commit group per week, each
+pushed to `github/master`.
+
+| Week | Findings | Landed in | The result the founder sees |
+|---|---|---|---|
+| Security | 1-4, 9, 17 | `2f4ad9c`, `c0cd99d`, `69021bd`, `03c10e1`, `ebd25ca`, `61176d1` | Tokens are encrypted at rest (with a migration for the rows that were already plaintext), one SSRF guard covers the webhooks and the RSS poller, the media proxy sniffs the bytes it serves, an API key has scopes and cannot mint another key, and the setup codes are single-use. |
+| Wrong destination | 5, 6, 7, 12 | `d5a1a76` | A Facebook Page / Instagram Business / LinkedIn Page channel publishes to THE channel it is connected to, and one refresh path re-derives the page token instead of overwriting it. The feed importer says "new" only when a row is new. |
+| Parity | 8, 10, 11, 15, 16, 20 | `eddbb07`, `87fd33d`, `2764e6d`, `56c023c`, `916d073` | The agent's `tag_update` renames a tag (it could not before), the CLI's `posts create` goes through the REST handler, a post can be deleted from the platform on all three surfaces, an unknown list filter is refused instead of silently ignored, a post can be re-scheduled, and ONE error classifier decides what a failure is — so a rate limit is retried everywhere and a 401 refreshes its token everywhere. |
+| Frontend + load | 13, 14, 18, 19 | `5b6686d` | The composer counts the way the server counts (the four previews that did not were wrong), the calendar's deep link opens the day the URL names in every timezone, and the unbounded reads are bounded: the refresher's per-post fetches are concurrent and semaphore-bounded, the calendar's tags come from one query, and the research window is capped. |
+| Lean + tests | 21-32 | the lean + tests commit | 260 dead lines are gone, the refresh DECISION is one rule with two look-aheads, the editor and the calendar no longer carry their own copies of a rule, the 21 undocumented env vars are documented, and the RSS parser, the backoff, the circuit breaker, the expiry rule and the CLI/MCP parity all have tests. |
+
+### 7.2 What the parity measurement found
+
+Finding 32 said the CLI/MCP parity claim "stays unmeasured". Measuring it
+(`tests/mcp_parity_test.rs`) found a real hole: the MCP has `set_create` /
+`set_list` / `set_delete` in its CORE toolset and the CLI had NO verb for
+them at all. The CLI now has `sets list | create | delete`.
+
+Two registered providers still have no CLI family of their own
+(`instagram-standalone`, `google_my_business`). Both are reachable through
+the unified `post --platforms <identifier>` path, and the test lists them
+explicitly so a third one has to be a decision rather than an accident.

@@ -36,30 +36,6 @@ pub async fn create_user(
     .await
 }
 
-pub async fn create_user_with_id(
-    pool: &SqlitePool,
-    id: Uuid,
-    email: &str,
-    password_hash: &str,
-    name: &str,
-) -> Result<User, sqlx::Error> {
-    sqlx::query_as!(
-        User,
-        r#"INSERT INTO users (id, email, password, name) VALUES (?, ?, ?, ?)
-         ON CONFLICT (email) DO UPDATE SET id = EXCLUDED.id, password = EXCLUDED.password, name = EXCLUDED.name
-         RETURNING id as "id!: Uuid", email, password, name,
-                   timezone as "timezone!: i32",
-                   created_at as "created_at!: DateTime<Utc>",
-                   updated_at as "updated_at!: DateTime<Utc>""#,
-        id,
-        email,
-        password_hash,
-        name,
-    )
-    .fetch_one(pool)
-    .await
-}
-
 pub async fn get_user_by_email(
     pool: &SqlitePool,
     email: &str,
@@ -1675,29 +1651,6 @@ pub async fn delete_post(pool: &SqlitePool, id: Uuid, user_id: Uuid) -> Result<b
     Ok(r.rows_affected() > 0)
 }
 
-/// Hard-undelete a post (and its group). Useful for a future "Trash" UI.
-pub async fn undelete_post(
-    pool: &SqlitePool,
-    id: Uuid,
-    user_id: Uuid,
-) -> Result<bool, sqlx::Error> {
-    // Runtime query (see note in list_posts above).
-    let r = sqlx::query(
-        r#"UPDATE posts SET deleted_at = NULL
-           WHERE user_id = ? AND deleted_at IS NOT NULL AND (
-             id = ?
-             OR (group_id IS NOT NULL AND group_id = (SELECT group_id FROM posts WHERE id = ? AND user_id = ?))
-           )"#,
-    )
-    .bind(user_id)
-    .bind(id)
-    .bind(id)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
-    Ok(r.rows_affected() > 0)
-}
-
 /// List all posts sharing a group_id (for thread/group editing in the composer).
 /// Returns empty vec if group_id is None or no posts match.
 /// Excludes soft-deleted posts.
@@ -2634,25 +2587,6 @@ pub async fn get_media(pool: &SqlitePool, id: Uuid) -> Result<Option<MediaEntry>
     .await
 }
 
-pub async fn get_media_user(
-    pool: &SqlitePool,
-    id: Uuid,
-    user_id: Uuid,
-) -> Result<Option<MediaEntry>, sqlx::Error> {
-    sqlx::query_as!(
-        MediaEntry,
-        r#"SELECT id as "id!: Uuid", user_id as "user_id!: Uuid",
-                original_name, storage_path, mime_type, file_size,
-                width as "width?: i32", height as "height?: i32", alt_text,
-                created_at as "created_at!: DateTime<Utc>"
-         FROM media WHERE id = ? AND user_id = ?"#,
-        id,
-        user_id,
-    )
-    .fetch_optional(pool)
-    .await
-}
-
 // ══════════════════════════════════════════════════════════════
 // OAUTH STATE
 // ══════════════════════════════════════════════════════════════
@@ -2802,68 +2736,6 @@ pub async fn mark_all_notifications_read(
 // ══════════════════════════════════════════════════════════════
 // RECURRING POSTS
 // ══════════════════════════════════════════════════════════════
-
-// Copies of a draft stay drafts. Any other source yields a `queued` copy, so a
-// copy never inherits `published`, `publishing` or `error` (a source can move
-// between the handler's state check and this insert). Such a copy would never
-// publish on its date.
-pub async fn create_repeated_post(
-    pool: &SqlitePool,
-    user_id: Uuid,
-    original_id: Uuid,
-    scheduled_at: &DateTime<Utc>,
-    group_id: Uuid,
-) -> Result<Post, sqlx::Error> {
-    sqlx::query_as::<_, Post>(
-        r#"INSERT INTO posts (id, user_id, integration_id, title, content, media, settings, scheduled_at, state, repeat_interval_days, repeat_end_date, group_id, idempotency_key)
-           SELECT ?, p.user_id, p.integration_id, p.title, p.content, p.media, p.settings, ?, CASE WHEN p.state = 'draft' THEN 'draft' ELSE 'queued' END, NULL, NULL, ?, ?
-           FROM posts p WHERE p.id = ? AND p.user_id = ?
-           RETURNING id, user_id, integration_id, state,
-             content, title, media, settings, scheduled_at, published_at,
-             platform_post_id, platform_post_url, error_message,
-             created_at, updated_at,
-             repeat_interval_days, repeat_end_date, group_id,
-             first_comment, sequence, idempotency_key,
-             campaign_id, kanban_substate, due_date"#,
-    )
-        .bind(Uuid::new_v4())
-        .bind(EpochUtc::from(*scheduled_at))
-        .bind(group_id)
-        .bind(Uuid::new_v4())
-        .bind(original_id)
-        .bind(user_id)
-    .fetch_one(pool)
-    .await
-}
-
-pub async fn set_post_recurring(
-    pool: &SqlitePool,
-    id: Uuid,
-    user_id: Uuid,
-    interval_days: i32,
-    end_date: &DateTime<Utc>,
-    group_id: Uuid,
-) -> Result<Option<Post>, sqlx::Error> {
-    sqlx::query_as::<_, Post>(
-        r#"UPDATE posts SET repeat_interval_days = ?, repeat_end_date = ?, group_id = ?,
-            updated_at = unixepoch()
-            WHERE id = ? AND user_id = ?
-            RETURNING id, user_id, integration_id, state,
-              content, title, media, settings, scheduled_at, published_at,
-              platform_post_id, platform_post_url, error_message,
-              created_at, updated_at,
-              repeat_interval_days, repeat_end_date, group_id,
-              first_comment, sequence, idempotency_key,
-              campaign_id, kanban_substate, due_date"#,
-    )
-    .bind(interval_days)
-    .bind(EpochUtc::from(*end_date))
-    .bind(group_id)
-    .bind(id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await
-}
 
 pub async fn set_post_recurring_with_copies(
     pool: &SqlitePool,
@@ -3191,21 +3063,6 @@ pub async fn upsert_post_engagement(
     .bind(data.awards)
     .bind(&data.raw)
     .fetch_one(pool)
-    .await
-}
-
-/// Get engagement data for a specific post.
-pub async fn get_post_engagement_by_post_id(
-    pool: &SqlitePool,
-    post_id: Uuid,
-) -> Result<Option<PostEngagement>, sqlx::Error> {
-    sqlx::query_as::<_, PostEngagement>(
-        r#"SELECT id, post_id, likes, comments, shares, views, saves, quotes, reposts, replies,
-           reactions, upvotes, downvotes, upvote_ratio, awards, raw, fetched_at, created_at, updated_at
-         FROM post_engagement WHERE post_id = ?"#
-    )
-    .bind(post_id)
-    .fetch_optional(pool)
     .await
 }
 
@@ -3820,24 +3677,6 @@ pub async fn insert_external_post(
     Ok(if existed.is_some() { None } else { result })
 }
 
-/// Update the metadata JSON of an external post (used for engagement updates).
-pub async fn update_external_post_metadata(
-    pool: &SqlitePool,
-    id: Uuid,
-    metadata: &serde_json::Value,
-) -> Result<ExternalPost, sqlx::Error> {
-    sqlx::query_as::<_, ExternalPost>(
-        "UPDATE external_posts SET metadata = ? WHERE id = ? \
-         RETURNING id, user_id, provider, platform_post_id, text,\
-           author_name, author_handle, author_avatar,\
-           created_at, url, media, metadata, imported_at",
-    )
-    .bind(metadata)
-    .bind(id)
-    .fetch_one(pool)
-    .await
-}
-
 /// Get a single external post by ID and user_id.
 pub async fn get_external_post_by_id(
     pool: &SqlitePool,
@@ -4044,20 +3883,6 @@ pub async fn resolve_comment(
     .bind(comment_id)
     .execute(pool)
     .await?;
-    Ok(())
-}
-
-/// Unmark a comment as resolved (re-open it). Idempotent.
-pub async fn unresolve_comment(
-    pool: &SqlitePool,
-    user_id: Uuid,
-    comment_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM resolved_comments WHERE user_id = ? AND comment_id = ?")
-        .bind(user_id)
-        .bind(comment_id)
-        .execute(pool)
-        .await?;
     Ok(())
 }
 

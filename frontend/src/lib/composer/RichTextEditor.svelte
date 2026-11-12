@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { plainText } from './post-text';
+  import { byteCount } from './platforms';
   import { onMount, untrack } from 'svelte';
   import { createEditor, EditorContent } from 'svelte-tiptap';
   import type { Editor } from 'svelte-tiptap';
@@ -75,34 +77,6 @@
       .join('');
   }
 
-  /**
-   * The HTML TipTap produced -> plain text.
-   *
-   * The mirror of `textToHtml`: paragraphs become blank-line separated
-   * blocks, `<br>` becomes a newline, and the tags themselves are
-   * removed.
-   */
-  function htmlToText(html: string): string {
-    if (!html) return '';
-    // A block element ends a line. Do it on the HTML first, then strip
-    // the remaining tags, so the line breaks survive.
-    const withBreaks = html
-      .replace(/<\s*br\s*\/?\s*>/gi, '\n')
-      .replace(/<\s*\/\s*(p|div|li|h[1-6]|blockquote|pre)\s*>/gi, '\n')
-      .replace(/<\s*(p|div|li|h[1-6]|blockquote|pre)[^>]*>/gi, '\n');
-    // Strip the remaining tags.
-    const withoutTags = withBreaks.replace(/<[^>]*>/g, '');
-    // Decode the entities the editor produced.
-    const decoded = withoutTags
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&apos;/g, "'")
-      .replace(/&amp;/g, '&');
-    return decoded.replace(/\n{3,}/g, '\n\n').trim();
-  }
 
   // Note: Placeholder config is captured once at init - TipTap doesn't support reactive placeholder updates
   const extensions = [
@@ -180,16 +154,21 @@
       content: textToHtml(content),
       onUpdate: ({ editor: ed }) => {
         if (syncing) return;
-        const text = htmlToText(ed.getHTML());
+        // The SHARED conversion — the same one the server applies and the
+        // same one the previews measure with. The editor used to carry its
+        // own copy (a second HTML-to-text converter), and the copies
+        // drifted: the editor counted one string and the server stored
+        // another (AGENTS §9.18).
+        const text = plainText(ed.getHTML());
         lastEmitted = text;
         onUpdate?.(text);
-        charCount = ed.getText().length;
+        charCount = byteCount(ed.getText());
       },
     });
 
     const unsub = store.subscribe(val => {
       editor = val;
-      if (val) charCount = val.getText().length;
+      if (val) charCount = byteCount(val.getText());
     });
 
     return () => {

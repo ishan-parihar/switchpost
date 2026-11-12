@@ -150,15 +150,13 @@ TOKEN_ENCRYPTION_KEY=<64 hex chars>     # AES-256-GCM for tokens at rest
 | `switchpost posts schedule <id> <at>` | Schedule an existing draft |
 | `switchpost posts delete <id> [--from-platform]` | Delete a post (`--from-platform` also removes the platform post) |
 | `switchpost posts schedule <id> <at> [--republish]` | Re-schedule (`--republish` re-queues a published one) |
+| `switchpost sets list` | Saved post templates (`create` / `delete` too) |
 | `switchpost analytics get <PROVIDER>` | Get analytics |
 | `switchpost mcp` | Start MCP server (stdio) |
 | `switchpost config set KEY VALUE` | Manage config |
 | `switchpost audit` | Disabled integrations, `--platforms` prefix collisions, writer-lock posture |
 
-`switchpost --help` lists every command; the full reference is
-[docs/platforms-and-cli.md](docs/platforms-and-cli.md).
-
-Targeting, the single-writer rule, platform tiers, and the repository layout are in [docs/platforms-and-cli.md](docs/platforms-and-cli.md). Planning, audit, and decision records are indexed in [`docs/planning/README.md`](docs/planning/README.md); the full 2026-10-14 audit is [`docs/audit/AUDIT_2026-10-14.md`](docs/audit/AUDIT_2026-10-14.md) and the 2026-10-19 session self-reflection is [`docs/planning/SESSION_2026-10-19.md`](docs/planning/SESSION_2026-10-19.md).
+`switchpost --help` lists every command; the full reference, the targeting rules, the single-writer rule and the platform tiers are in [docs/platforms-and-cli.md](docs/platforms-and-cli.md). Planning, audit, and decision records are indexed in [`docs/planning/README.md`](docs/planning/README.md); the 2026-10-14 audit is [`docs/audit/AUDIT_2026-10-14.md`](docs/audit/AUDIT_2026-10-14.md) and the session self-reflection is [`docs/planning/SESSION_2026-10-19.md`](docs/planning/SESSION_2026-10-19.md).
 
 ## Visual proof
 

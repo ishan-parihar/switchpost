@@ -7926,3 +7926,137 @@ Known issues / follow-ups:
   in the integration row, so the scheduler path is the one that matters for scheduled posts.
 - A live roundtrip against a real Meta account is still the honest proof of the page-token
   contract; the unit tests pin the storage shape, not Meta's API.
+
+---
+Task ID: v12-parity
+Agent: deepseek-harness
+Task: Execute audit phase 3 — the parity findings (tag bind, CLI-through-REST, platform delete, filters, reschedule, one error classifier)
+
+Work Log:
+- `handle_tag_update` (MCP) now calls `api::tags::update`. The old bind order was
+  `tag_id, user_id, new_name, new_color` against a statement that binds
+  `name = COALESCE(?, name), color = COALESCE(?, color) WHERE id = ? AND user_id = ?` — the
+  tool could never rename a tag.
+- The CLI's `posts create` now calls `api::posts::create` one integration at a time, and its
+  `--state` accepts only `draft` / `queued` (a `published` / `error` state is refused with an
+  explanation instead of being silently ignored).
+- `services::posts::strip_content` strips HTML and trims WITHOUT truncating. The old
+  `sanitize_content(content, 2000)` truncated BEFORE measuring, so the provider-limit check
+  was dead code above 2000 characters and long posts were silently shortened.
+- Platform delete now runs on all three surfaces: REST deletes the platform post FIRST and
+  keeps the local row when the platform refuses; the CLI's `posts delete --from-platform` and
+  the MCP's `delete_post` call it.
+- `posts_list` rejects an unknown state (the REST already did); the CLI clamps the limit to
+  1..200; the CLI's `posts schedule` calls `api::posts::reschedule` (with `--republish` for a
+  published post, `--move-group` to move a group as a unit).
+- THE ONE error classification: `SocialProvider::provider_error(body, status)` is now the only
+  translation from an HTTP failure to the error the app acts on. It calls the existing
+  `classify_error` and maps the result: 429 → `RateLimited` (the scheduler backs off and
+  retries), 401 → `TokenExpired` (the scheduler refreshes and retries once), 403 → `Auth` (no
+  retry — it is a grant problem), anything else → `Api` with the provider's own wording and
+  the raw body. 19 providers route through it (74 call sites) and the redundant
+  `else if status == 401 { Err(TokenExpired) }` ladders are gone. A rate-limited publish used
+  to be retried on some platforms and abandoned on the first try on others; a 401 used to
+  arrive as a plain API error on the providers that hand-rolled their mapping, so the
+  scheduler NEVER refreshed those tokens.
+
+Stage Summary:
+- Six commits, pushed: eddbb07, 87fd33d, 2764e6d, 56c023c, 916d073.
+- cargo check --all-targets: 0 errors; cargo test: every suite passes (623 lib tests + all
+  integration suites); frontend pnpm build succeeds.
+- New tests: `tests/mcp_tag_update_test.rs` (2), `tests/cli_post_parity_test.rs` (3),
+  `tests/post_list_schedule_parity_test.rs` (6), 6 in-module tests for the shared classifier,
+  plus the platform-delete and tag-bind tests.
+
+Known issues / follow-ups:
+- The shared classifier covers the 19 providers that had the duplicated ladder. The Meta and
+  LinkedIn providers keep a few provider-specific branches around it (a page token that cannot
+  be re-derived, a thread predecessor) — those are about the DESTINATION, not the category.
+- A manual publish that hits an expired token now names the channel ("Token expired — reconnect
+  the X channel to publish again") instead of a bare "Token expired".
+
+---
+Task ID: v12-frontend-load
+Agent: deepseek-harness
+Task: Execute audit phase 4 — the frontend + load findings (four previews, the calendar date parse, the unbounded reads)
+
+Work Log:
+- `previews/crop.ts` is the ONE crop for the four preview panes that measured with their own
+  rule (General, Facebook, Instagram, LinkedIn). It counts with the provider's own `countFor`,
+  takes the limit from the published provider limit, slices the PLAIN text and escapes the two
+  halves separately. They used to count UTF-16 code units (a 600-emoji caption read "600/2200"
+  while the server counted 2400 bytes and rejected it) and slice the ESCAPED string (a caption
+  of `&`s had its crop marker ~400 characters early).
+- `parseDateKey` (in the calendar utils, next to `formatDateKey`) parses a date-only URL
+  parameter into a LOCAL day. `new Date("2026-11-15")` is UTC midnight, so `/calendar?date=`
+  opened the PREVIOUS day in every negative-offset zone — and the calendar wrote that wrong
+  day back to the URL and to localStorage.
+- The analytics refresher's per-post fetches now run CONCURRENTLY through the provider's own
+  `Semaphore` (the same limiter the publish path uses). They used to be awaited one at a time:
+  ~500 serial provider calls per cycle, about 17 minutes at two seconds a call.
+- The calendar's tags now come from ONE `WHERE post_id IN (…)` query. It used to ask for the
+  tags of every post in the range, one query per post: a year-wide window ran 301 sequential
+  queries against the single writer.
+- The calendar range is capped at a year and the research window at two years with a
+  5,000-row corpus cap (the research page read the whole corpus into memory).
+
+Stage Summary:
+- One commit, pushed: 5b6686d.
+- cargo check --all-targets: 0 errors; cargo test: every suite passes; frontend pnpm build
+  succeeds (the hex-token gate included).
+- 4 new tests in `tests/frontend_rule_seams_test.rs` pin the seams (no `plainText.length`, no
+  slicing of the escaped string, the calendar parses with `parseDateKey`, the parser builds a
+  local day).
+
+Known issues / follow-ups:
+- The crop marker is a CHARACTER index while the count is the provider's unit (bytes, or
+  weighted units for X). The NUMBER is exact; the marker is indicative, as it was in the five
+  previews that already did this right.
+
+---
+Task ID: v12-lean-tests
+Agent: deepseek-harness
+Task: Execute audit phase 5 — the lean + test findings (dead code, one rule per copy, the env template, the missing tests, the parity measurement)
+
+Work Log:
+- Deleted the 14 dead public functions (260 lines, 0 call sites): `create_repeated_post`,
+  `create_user_with_id`, `get_media_user`, `get_post_engagement_by_post_id`,
+  `set_post_recurring`, `undelete_post`, `unresolve_comment`, `update_external_post_metadata`,
+  `submit_www`, `comment_www`, `list_tags`, `state_str`, `copy_cookie_db`, `peer_key`.
+- THE ONE expiry rule: `services::integrations::token_needs_refresh(expires_at, window)`. The
+  decision lived in five places and the copies drifted — one refreshed a token five minutes
+  before it expired, another twenty-four hours before, and the feed refresher only reacted
+  AFTER the platform had already rejected the token. The two windows are now named constants
+  beside the rule (`PRE_PUBLISH_REFRESH_WINDOW_SECS`, `PROACTIVE_REFRESH_WINDOW_HOURS`).
+- The editor carried a THIRD character-count rule and a SECOND HTML-to-text converter. It now
+  calls the shared `plainText` and the shared byte count, so the editor counts the same string
+  the server stores.
+- The calendar's `wallClock` was a second copy of the composer's `utcToWallClock`; it now calls
+  the shared converter (the one pinned against the server by `tests/wall_clock_parity_test.rs`).
+- The 21 env vars the audit found undocumented are in `.env.example` now, each with what it
+  does: the S3 set, the WhatsApp Cloud set, the AI/LLM pair, NEYNAR, Dub.co, the feed
+  interval, the X link rule, the MCP toolset, the event-log retention, the Reddit cookie token
+  and the Deckmill binary.
+- The RSS parser has tests: the body-vs-summary rule, the pubDate, the content hash and the
+  malformed feed. The entry conversion is `rss::entry_to_post_fields`, so the test exercises
+  the code that ships.
+- The scheduler's backoff is ONE helper (`backoff_wait_secs`) with tests for the band, the
+  jitter bound and the zero-attempt case. The circuit breaker has 9 tests, including the
+  half-open single-allow path (one probe per tick) that no named test covered.
+- MEASURED the CLI/MCP parity claim for the first time. It found a hole: the MCP has
+  `set_create` / `set_list` / `set_delete` in its CORE toolset and the CLI had NO verb for
+  them. The CLI now has `sets list | create | delete`, calling the REST handlers in-process.
+
+Stage Summary:
+- One commit, pushed: the lean + tests commit for phase 5.
+- cargo check --all-targets: 0 errors; cargo test: every suite passes (641 lib tests + all
+  integration suites); frontend pnpm build succeeds; the README stays inside the doorway band.
+- New tests: `tests/env_template_test.rs` (3), 4 RSS parser tests, 3 backoff tests, 9 circuit
+  breaker tests, 6 expiry-rule tests, 4 parity-coverage tests.
+
+Known issues / follow-ups:
+- Two registered providers have no CLI family of their own (`instagram-standalone`,
+  `google_my_business`). Both are reachable through the unified `post --platforms <identifier>`
+  path, and the parity test lists them explicitly so a THIRD one has to be a decision.
+- `farcaster` is Tier-3 and opt-in (`ENABLE_ARCHIVE_PROVIDERS`), so it has no CLI family and
+  no shim; it is not in the registry on a normal boot.

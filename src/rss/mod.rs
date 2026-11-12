@@ -39,6 +39,64 @@ pub fn start_rss_poller(
     );
 }
 
+/// What one RSS entry contributes to a post.
+pub struct RssEntryFields {
+    pub title: String,
+    pub url: String,
+    /// The entry's identity. An entry whose guid was already imported is
+    /// skipped, even if its body changed since.
+    pub guid: String,
+    pub published: Option<chrono::DateTime<chrono::Utc>>,
+    pub content: String,
+    /// A hash of the content, so a changed body is visible.
+    pub content_hash: String,
+}
+
+/// Reduce a parsed feed entry to the fields a post is made of.
+///
+/// The rules, in one place, because a feed that is read wrong creates wrong
+/// posts UNATTENDED: the poller runs on a timer and nobody sees what it
+/// published until it is on the platform.
+///
+/// - the body is the content, and the summary is the fallback;
+/// - the first link is the entry's URL;
+/// - the content hash is over the BODY, so a re-published entry with the
+///   same body is the same post.
+pub fn entry_to_post_fields(entry: &feed_rs::model::Entry) -> RssEntryFields {
+    let title = entry
+        .title
+        .as_ref()
+        .map(|t| t.content.clone())
+        .unwrap_or_default();
+    let url = entry
+        .links
+        .first()
+        .map(|l| l.href.clone())
+        .unwrap_or_default();
+    let published = entry
+        .published
+        .and_then(|d| chrono::DateTime::from_timestamp(d.timestamp(), 0));
+    let content = entry
+        .content
+        .as_ref()
+        .and_then(|c| c.body.clone())
+        .or_else(|| entry.summary.as_ref().map(|s| s.content.clone()))
+        .unwrap_or_default();
+
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    let content_hash = format!("{:x}", hasher.finalize());
+
+    RssEntryFields {
+        title,
+        url,
+        guid: entry.id.clone(),
+        published,
+        content,
+        content_hash,
+    }
+}
+
 async fn poll_all_feeds(
     db: &SqlitePool,
     config: &Config,
@@ -82,25 +140,13 @@ async fn poll_all_feeds(
         };
 
         for entry in parsed.entries {
-            let title = entry.title.map(|t| t.content).unwrap_or_default();
-            let url = entry
-                .links
-                .first()
-                .map(|l| l.href.clone())
-                .unwrap_or_default();
-            let guid = entry.id;
-            let published = entry
-                .published
-                .and_then(|d| chrono::DateTime::from_timestamp(d.timestamp(), 0));
-            let content = entry
-                .content
-                .and_then(|c| c.body)
-                .or_else(|| entry.summary.map(|s| s.content))
-                .unwrap_or_default();
-
-            let mut hasher = Sha256::new();
-            hasher.update(content.as_bytes());
-            let content_hash = format!("{:x}", hasher.finalize());
+            let entry = entry_to_post_fields(&entry);
+            let title = entry.title;
+            let url = entry.url;
+            let guid = entry.guid;
+            let published = entry.published;
+            let content = entry.content;
+            let content_hash = entry.content_hash;
 
             // Claim the entry by guid before creating its post. A guid already
             // imported is skipped, even if its body changed since.
@@ -279,4 +325,113 @@ async fn summarize_with_llm(
 
     // Append the URL so the post has a link
     Ok(format!("{summary}\n\n{url}"))
+}
+
+#[cfg(test)]
+mod rss_parser_tests {
+    use super::*;
+
+    /// A feed with the three shapes an entry can take: a body, a summary
+    /// only, and neither.
+    const FEED: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example feed</title>
+    <link>https://example.com</link>
+    <description>An example</description>
+    <item>
+      <title>First post</title>
+      <link>https://example.com/first</link>
+      <guid>guid-1</guid>
+      <pubDate>Mon, 02 Nov 2026 09:30:00 GMT</pubDate>
+      <description><![CDATA[The summary body]]></description>
+      <content:encoded xmlns:content="http://purl.org/rss/1.0/modules/content/"><![CDATA[<p>The full body</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Second post</title>
+      <link>https://example.com/second</link>
+      <guid>guid-2</guid>
+      <description>Only a summary</description>
+    </item>
+    <item>
+      <title>Third post</title>
+      <guid>guid-3</guid>
+    </item>
+  </channel>
+</rss>"#;
+
+    fn entries() -> Vec<feed_rs::model::Entry> {
+        let parsed = feed_rs::parser::parse(FEED.as_bytes()).expect("the fixture parses");
+        parsed.entries
+    }
+
+    #[test]
+    fn the_body_is_the_content_and_the_summary_is_the_fallback() {
+        let entries = entries();
+        assert_eq!(entries.len(), 3);
+
+        let first = entry_to_post_fields(&entries[0]);
+        assert_eq!(
+            first.content, "<p>The full body</p>",
+            "the body wins over the summary"
+        );
+        assert_eq!(first.title, "First post");
+        assert_eq!(first.url, "https://example.com/first");
+        assert_eq!(first.guid, "guid-1");
+
+        let second = entry_to_post_fields(&entries[1]);
+        assert_eq!(
+            second.content, "Only a summary",
+            "an entry with no body falls back to its summary"
+        );
+
+        let third = entry_to_post_fields(&entries[2]);
+        assert_eq!(
+            third.content, "",
+            "an entry with neither has no content — it must not become a post with the title"
+        );
+        assert_eq!(third.url, "", "an entry with no link has no URL");
+    }
+
+    #[test]
+    fn the_published_date_is_read() {
+        let entries = entries();
+        let first = entry_to_post_fields(&entries[0]);
+        let published = first.published.expect("the entry carries a pubDate");
+        assert_eq!(
+            published.to_rfc3339(),
+            "2026-11-02T09:30:00+00:00",
+            "the pubDate must land on the right instant"
+        );
+        assert!(
+            entry_to_post_fields(&entries[1]).published.is_none(),
+            "an entry with no date has no publication time"
+        );
+    }
+
+    #[test]
+    fn the_content_hash_is_over_the_body() {
+        let entries = entries();
+        let first = entry_to_post_fields(&entries[0]);
+        let again = entry_to_post_fields(&entries[0]);
+        assert_eq!(
+            first.content_hash, again.content_hash,
+            "the same entry hashes the same way — a re-polled feed must not look like a new post"
+        );
+        let second = entry_to_post_fields(&entries[1]);
+        assert_ne!(
+            first.content_hash, second.content_hash,
+            "a different body hashes differently"
+        );
+        assert_eq!(first.content_hash.len(), 64, "a sha256 hex digest");
+    }
+
+    #[test]
+    fn a_malformed_feed_is_an_error_not_a_silent_empty_poll() {
+        let parsed = feed_rs::parser::parse(&b"this is not xml at all"[..]);
+        assert!(
+            parsed.is_err(),
+            "a feed that cannot be parsed must fail loudly — the poller logs it and skips the feed"
+        );
+    }
 }

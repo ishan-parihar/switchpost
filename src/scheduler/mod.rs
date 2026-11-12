@@ -39,6 +39,22 @@ impl From<String> for PublishError {
     }
 }
 
+/// The backoff wait before retry `attempt`: `2^(attempt-1) × 5s` plus up to
+/// 25% jitter.
+///
+/// The JITTER is the point: without it, fifty posts that all hit the same
+/// rate limit all back off to the same second and hit the platform
+/// together again — a thundering herd the platform answers with a second
+/// rate limit. The wait is in `[base, base × 1.25)`.
+///
+/// The same wait is used for a rate limit and for a network fault: both are
+/// "the platform did not take it", and both want the same pause.
+pub(crate) fn backoff_wait_secs(attempt: u32) -> u64 {
+    let base = 5u64 * (1u64 << attempt.saturating_sub(1));
+    let jitter = (base as f64 * 0.25 * rand::random::<f64>()) as u64;
+    base + jitter
+}
+
 /// Only platform-side failures count against the circuit breaker: a network
 /// fault, a rate limit, or an API error. Local rejections (validation, bad
 /// token, database) say nothing about the platform's health.
@@ -133,7 +149,8 @@ const PER_POST_ANALYTICS_LIMIT: i64 = 25;
 const PENDING_POLL_INTERVAL: Duration = crate::social::DEFAULT_POLL_INTERVAL;
 
 /// How far ahead to consider a token "expired" and refresh preemptively
-const TOKEN_REFRESH_BUFFER_SECS: i64 = 300; // 5 minutes
+/// The pre-publish refresh window now lives with the rule it belongs to:
+/// `services::integrations::PRE_PUBLISH_REFRESH_WINDOW_SECS`.
 
 /// Grace window past `scheduled_at` before a post counts as a posting
 /// gap. 3 hours: long enough to absorb a platform outage or an open
@@ -151,7 +168,8 @@ const POSTING_GAP_LIMIT: i64 = 20;
 /// Module-level (not function-local) because the integration tests assert
 /// against the real query the scheduler uses — a copy of the number in the
 /// test would drift from the one the scheduler uses and prove nothing.
-pub const PROACTIVE_REFRESH_WINDOW_HOURS: i64 = 24;
+pub const PROACTIVE_REFRESH_WINDOW_HOURS: i64 =
+    crate::services::integrations::PROACTIVE_REFRESH_WINDOW_HOURS;
 
 /// Start the scheduler background task.
 /// Pass a watch::Receiver that resolves to `true` to trigger graceful shutdown.
@@ -1656,9 +1674,7 @@ pub(crate) async fn publish_post(
                 // Exponential backoff with jitter: 2^attempt × 5s ± 25%
                 // (was: linear 10/20/30s with no jitter — caused thundering
                 // herd when 50 posts all backed off in lockstep).
-                let base = 5u64 * (1u64 << (attempt - 1)); // 5, 10, 20s
-                let jitter = (base as f64 * 0.25 * rand::random::<f64>()) as u64;
-                let wait = base + jitter;
+                let wait = backoff_wait_secs(attempt);
                 tracing::warn!(
                     "Rate limited for post {} (attempt {}): {}. Backing off {}s",
                     post.id,
@@ -1675,9 +1691,7 @@ pub(crate) async fn publish_post(
             // Connection refused or DNS failure: the request never reached the
             // platform, so a retry cannot publish twice.
             Err(ProviderError::Network(ref e)) if e.is_connect() => {
-                let base = 5u64 * (1u64 << (attempt - 1));
-                let jitter = (base as f64 * 0.25 * rand::random::<f64>()) as u64;
-                let wait = base + jitter;
+                let wait = backoff_wait_secs(attempt);
                 let err_str = e.to_string();
                 tracing::warn!(
                     "Connect error for post {} (attempt {}): {}. Retrying in {}s",
@@ -1873,10 +1887,13 @@ async fn resolve_token(
     post: &PostWithIntegration,
     token_key: Option<[u8; 32]>,
 ) -> Result<String, PublishError> {
-    let needs_refresh = match post.token_expires_at {
-        Some(exp) => Utc::now() + chrono::Duration::seconds(TOKEN_REFRESH_BUFFER_SECS) >= exp,
-        None => false,
-    };
+    // THE ONE expiry rule (services::integrations::token_needs_refresh).
+    // The window is the pre-publish one: the publish is imminent, so the
+    // token has to be valid for it.
+    let needs_refresh = crate::services::integrations::token_needs_refresh(
+        post.token_expires_at,
+        chrono::Duration::seconds(crate::services::integrations::PRE_PUBLISH_REFRESH_WINDOW_SECS),
+    );
 
     if needs_refresh {
         tracing::info!("Token for post {} is expiring, refreshing", post.id);
@@ -2670,5 +2687,53 @@ mod tests {
             .await
             .unwrap();
         assert!(none.is_none());
+    }
+}
+
+#[cfg(test)]
+mod backoff_tests {
+    use super::backoff_wait_secs;
+
+    #[test]
+    fn the_backoff_grows_exponentially() {
+        // 2^(attempt-1) × 5s: 5, 10, 20, 40 — plus the jitter, so the
+        // BAND is what is pinned, not a single value.
+        for (attempt, base) in [(1u32, 5u64), (2, 10), (3, 20), (4, 40)] {
+            let wait = backoff_wait_secs(attempt);
+            assert!(
+                wait >= base && wait < base + base / 4 + 1,
+                "attempt {attempt}: wait {wait} is outside [{base}, {})",
+                base + base / 4 + 1
+            );
+        }
+    }
+
+    #[test]
+    fn the_backoff_jitter_stays_inside_its_bound() {
+        // The jitter is at most 25% of the base — and never negative. A
+        // wait outside the bound means the jitter formula changed, and the
+        // thundering herd it prevents comes back.
+        for attempt in 1..=6u32 {
+            let base = 5u64 * (1u64 << (attempt - 1));
+            for _ in 0..200 {
+                let wait = backoff_wait_secs(attempt);
+                assert!(
+                    wait >= base,
+                    "attempt {attempt}: wait {wait} is below the base {base}"
+                );
+                assert!(
+                    wait < base + base / 4 + 1,
+                    "attempt {attempt}: wait {wait} is above the 25% jitter bound"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_zero_attempt_does_not_underflow() {
+        // `attempt - 1` on a u32 at zero wraps to u32::MAX, and the shift
+        // would panic in debug builds.
+        let wait = backoff_wait_secs(0);
+        assert!(wait <= 6, "attempt 0 must not blow up, got {wait}");
     }
 }

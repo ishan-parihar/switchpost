@@ -1,6 +1,7 @@
 import type { PostSummary } from "$lib/api/posts";
 import type { CalendarPost } from "$lib/api/calendar";
 import type { Tag } from "$lib/api/tags";
+import { utcToWallClock } from "$lib/composer/wall-clock";
 
 export type CalendarView = "month" | "week" | "day" | "list";
 
@@ -44,37 +45,22 @@ export interface WeekDay {
 /**
  * The wall-clock date and time of a UTC instant, in `zone`.
  *
- * The backend sends RFC3339 UTC. The calendar grid is built from LOCAL
- * dates (`formatDateKey` uses `getFullYear`/`getMonth`/`getDate`), so
- * slicing the UTC string put a 23:30-local post on the NEXT day for
- * every user west of Greenwich: `2026-10-31T04:30:00Z` sliced to
- * "2026-10-31" while the grid cell the user meant was the 30th.
+ * This is the calendar's name for the composer's `utcToWallClock` — the
+ * SAME conversion, so a post the founder set at 09:00 in their zone reads
+ * as 09:00 on the calendar grid.
  *
- * This converts the instant into the user's zone first, then reads the
- * wall clock off it - the same conversion the composer's SchedulePicker
- * already does, so what the user set is what the calendar shows.
+ * It used to be a SECOND copy of the conversion (the same `Intl`
+ * `formatToParts` dance, written out again), and the copies drifted: this
+ * one accepted a null timestamp and returned an empty pair, the other did
+ * not. The calendar now calls the shared one — `$lib/composer/wall-clock`,
+ * which is pinned against the server by `tests/wall_clock_parity_test.rs`.
  */
-export function wallClock(iso: string | null | undefined, zone: string): { date: string; time: string } {
+export function wallClock(
+  iso: string | null | undefined,
+  zone: string,
+): { date: string; time: string } {
   if (!iso) return { date: "", time: "" };
-  try {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: zone,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).formatToParts(new Date(iso));
-    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-    return {
-      date: `${get("year")}-${get("month")}-${get("day")}`,
-      time: `${get("hour")}:${get("minute")}`,
-    };
-  } catch {
-    // A malformed zone or timestamp falls back to the raw UTC date.
-    return { date: iso.slice(0, 10), time: iso.slice(11, 16) };
-  }
+  return utcToWallClock(iso, zone);
 }
 
 /**

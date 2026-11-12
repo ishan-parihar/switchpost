@@ -98,6 +98,22 @@ switchpost connect linkedin --json
 `--json` emits compact JSON and `--pretty` emits indented JSON — both
 are global flags and apply to every command.
 
+### Saved sets: `sets`
+
+The MCP has `set_create` / `set_list` / `set_delete` in its CORE toolset.
+The CLI had NO verb for them at all — the parity claim was never measured,
+and measuring it (in `tests/mcp_parity_test.rs`) found the hole.
+
+```sh
+switchpost sets list
+switchpost sets create "Launch week" --content '{"text":"…"}' --channels <uuid,uuid>
+switchpost sets delete <set-uuid>
+```
+
+The three verbs call the REST handlers in-process (AGENTS §9.21), so the
+shell, the agent and the browser all see one implementation of "a saved
+template".
+
 ### Toolsets and the shell path
 
 An MCP session boots with the `core` toolset only, so a session that
@@ -312,7 +328,7 @@ Providers are tiered: **Tier-1** gets full depth (analytics, engagement, comment
 switchpost/
 ├── src/
 │   ├── main.rs              # Entry point, CLI dispatch
-│   ├── cli/                 # CLI subcommands (clap, 64 commands)
+│   ├── cli/                 # CLI subcommands (clap, 65 commands)
 │   │   ├── mod.rs           # Command definitions
 │   │   ├── run.rs           # Cross-platform handler implementations
 │   │   └── platforms/       # 31 thin shims (call shared MCP handlers)

@@ -396,43 +396,6 @@ impl RedditProvider {
         self.post_www("/api/unlock", &[("id", &id)]).await
     }
 
-    /// Submit a post via cookie auth (www.reddit.com)
-    pub async fn submit_www(
-        &mut self,
-        subreddit: &str,
-        title: &str,
-        kind: &str,
-        text: Option<&str>,
-        url: Option<&str>,
-    ) -> Result<serde_json::Value, ProviderError> {
-        let sr = subreddit.trim_start_matches("r/").to_string();
-        let t = title.to_string();
-        let k = kind.to_string();
-        let txt = text.unwrap_or("").to_string();
-        let u = url.unwrap_or("").to_string();
-
-        let mut form: Vec<(&str, &str)> = vec![("sr", &sr), ("title", &t), ("kind", &k)];
-        if kind == "self" {
-            form.push(("text", &txt));
-        } else {
-            form.push(("url", &u));
-        }
-
-        self.post_www("/api/submit", &form).await
-    }
-
-    /// Comment via cookie auth (www.reddit.com)
-    pub async fn comment_www(
-        &mut self,
-        thing_id: &str,
-        text: &str,
-    ) -> Result<serde_json::Value, ProviderError> {
-        let id = thing_id.to_string();
-        let txt = text.to_string();
-        self.post_www("/api/comment", &[("thing_id", &id), ("text", &txt)])
-            .await
-    }
-
     /// Map a `/comments/{id}` listing into comments. The response is a
     /// two-element array — [submission listing, comment listing] — so the
     /// comment half is what carries `data.children`.

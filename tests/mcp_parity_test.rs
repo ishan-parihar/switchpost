@@ -165,12 +165,10 @@ async fn parity_tools_reject_malformed_ids_before_touching_the_db() {
 #[tokio::test]
 async fn streak_tool_reports_the_streak_fields() {
     let state = state().await;
-    let out = tools_analytics::handle_streak_get(
-        &state,
-        &tools_analytics::StreakGetInput { tz: None },
-    )
-    .await
-    .expect("streak");
+    let out =
+        tools_analytics::handle_streak_get(&state, &tools_analytics::StreakGetInput { tz: None })
+            .await
+            .expect("streak");
     assert!(
         out.0["streak_days"].is_number(),
         "streak_days present: {}",
@@ -506,4 +504,176 @@ async fn mcp_automation_update_refuses_a_rule_it_does_not_own() {
         .await
         .expect("rule row");
     assert_eq!(name, "Someone else's rule", "the rule must be untouched");
+}
+
+// ─── The CLI/MCP parity claim, measured ────────────────────────
+//
+// AGENTS §4 requires the CLI, REST and MCP surfaces to have parity for core
+// operations. The MCP side is 389 tools; the CLI side is ~60 commands
+// grouped by resource. 380 of the 389 tools are platform-specific
+// operations that have no CLI verb by design (the CLI is grouped by
+// command, not by tool).
+//
+// The claim that can be MEASURED is the cross-platform core: every
+// lifecycle family the MCP `core` toolset exposes must be reachable from
+// the shell. It was never measured — so a family that lost its CLI command
+// would silently break the parity claim.
+//
+// This test walks the CLI's own command tree (clap's `Command`), so it
+// cannot drift from the CLI as shipped.
+
+use clap::CommandFactory;
+use switchpost::cli::Cli;
+
+/// The top-level command names, as clap parses them (kebab-cased).
+fn cli_commands() -> Vec<String> {
+    Cli::command()
+        .get_subcommands()
+        .map(|c| c.get_name().to_string())
+        .collect()
+}
+
+#[test]
+fn every_core_mcp_family_has_a_cli_command() {
+    let commands = cli_commands();
+    // family -> the CLI command(s) that serve it.
+    let required: [(&str, &[&str]); 18] = [
+        ("posts", &["posts", "post", "stage", "carousel"]),
+        ("media", &["media"]),
+        ("tags", &["tags"]),
+        ("sets", &["sets"]),
+        ("campaigns", &["campaigns"]),
+        ("signatures", &["signatures"]),
+        ("webhooks", &["webhooks"]),
+        ("rss", &["rss"]),
+        ("feed", &["feed"]),
+        ("integrations", &["integrations", "connect"]),
+        ("notifications", &["notifications"]),
+        ("analytics", &["analytics", "get"]),
+        // The calendar has no CLI family of its own: its WRITE path is
+        // `posts schedule` and its read path is the calendar endpoint.
+        ("calendar", &["posts"]),
+        ("comments", &["comment"]),
+        ("dms", &["dm"]),
+        ("automation", &["automation"]),
+        ("ai", &["ai"]),
+        ("streak", &["streak"]),
+    ];
+    for (family, aliases) in required {
+        assert!(
+            aliases.iter().any(|a| commands.iter().any(|c| c == a)),
+            "the `{family}` family is in the MCP core toolset but has no CLI command \
+             (looked for {aliases:?}, have {commands:?})"
+        );
+    }
+}
+
+#[test]
+fn the_sets_command_has_all_three_verbs() {
+    // `sets` was the hole this measurement found: the MCP has create / list /
+    // / delete in its CORE toolset and the CLI had no verb at all.
+    let commands = cli_commands();
+    assert!(
+        commands.contains(&"sets".to_string()),
+        "the sets family must exist (have {commands:?})"
+    );
+    let sets = Cli::command()
+        .get_subcommands()
+        .find(|c| c.get_name() == "sets")
+        .expect("the sets command")
+        .get_subcommands()
+        .map(|c| c.get_name().to_string())
+        .collect::<Vec<_>>();
+    for verb in ["list", "create", "delete"] {
+        assert!(
+            sets.contains(&verb.to_string()),
+            "the sets command must have `{verb}` (has {sets:?})"
+        );
+    }
+}
+
+#[test]
+fn every_registered_provider_is_reachable_from_the_shell() {
+    // The CLI is one family per platform (`x`, `reddit`, …), and the
+    // registry's providers are the ones the app can talk to. A provider
+    // with no CLI family is still reachable through the unified
+    // `post --platforms <identifier>` path (exact identifier match), so
+    // THAT is what must hold.
+    let commands = cli_commands();
+    // The providers the app REGISTERS BY DEFAULT. Farcaster is opt-in
+    // (`ENABLE_ARCHIVE_PROVIDERS`), so it is not in the registry on a
+    // normal boot — and the CLI shim is not built for it either.
+    switchpost::config::load_dotenv_for_tests();
+    let config = switchpost::config::Config::from_env().expect("config");
+    let registry = switchpost::social::registry::ProviderRegistry::new(&config, None, None);
+    let providers: Vec<&'static str> = registry.list();
+    let mut unreachable: Vec<String> = Vec::new();
+    for p in &providers {
+        let clap_name = p.replace('_', "-");
+        let has_family = commands.contains(&clap_name);
+        // The CLI names a few families differently from the registry
+        // identifier. These are RENAMES, not gaps.
+        let renamed = matches!(
+            *p,
+            "drive" | "gmail" | "calendar" // gdrive / gmail-ops / gcal
+        ) || (*p == "medium" && commands.contains(&"medium-blog".to_string()));
+        // These two have NO CLI family of their own. They are still
+        // reachable — through the unified `post --platforms <identifier>`
+        // path, which takes the registry identifier verbatim (the next
+        // test proves it for every identifier). The list is here so a
+        // THIRD provider without a family breaks the test and has to be
+        // a decision, not an accident.
+        const UNIFIED_PATH_ONLY: [&str; 2] = ["instagram-standalone", "google_my_business"];
+        if !has_family && !renamed && !UNIFIED_PATH_ONLY.contains(p) {
+            unreachable.push(format!("{p} (no `{clap_name}` command)"));
+        }
+    }
+    assert!(
+        unreachable.is_empty(),
+        "these providers are registered but have no CLI command and no renamed family: \
+         {unreachable:?} (have {commands:?})"
+    );
+}
+
+#[test]
+fn the_unified_post_command_accepts_an_exact_provider_identifier() {
+    // This is the path every provider without its own CLI family rides on:
+    // `--platforms` takes the registry identifier verbatim.
+    //
+    // The provider list is what the registry knows, so the test is a
+    // property of the resolver, not of a list kept in sync by hand.
+    use switchpost::cli::run::resolve_platform_integrations;
+    for identifier in switchpost::social::tier::all_known_identifiers() {
+        let integration = make_integration(identifier);
+        let matched = resolve_platform_integrations(std::iter::once(&integration), identifier);
+        assert_eq!(
+            matched,
+            vec![integration.id],
+            "`--platforms {identifier}` must reach the {identifier} integration"
+        );
+    }
+}
+
+/// An integration row for a provider identifier, for the resolver tests.
+fn make_integration(identifier: &str) -> switchpost::db::models::Integration {
+    switchpost::db::models::Integration {
+        id: uuid::Uuid::new_v4(),
+        user_id: switchpost::auth::middleware::DEFAULT_USER_ID,
+        provider_identifier: identifier.to_string(),
+        provider_name: identifier.to_string(),
+        internal_id: "me".to_string(),
+        access_token: "tok".to_string(),
+        refresh_token: None,
+        token_expires_at: None,
+        profile_name: None,
+        profile_picture: None,
+        profile_url: None,
+        disabled: false,
+        refresh_needed: false,
+        root_internal_id: None,
+        posting_times: serde_json::json!([]),
+        auth_method: "oauth".to_string(),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    }
 }

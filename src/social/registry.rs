@@ -223,17 +223,6 @@ impl CircuitBreaker {
             }
         }
     }
-
-    /// Current state as a string for metrics/debugging.
-    pub fn state_str(&self) -> &'static str {
-        use std::sync::atomic::Ordering;
-        match self.state.load(Ordering::SeqCst) {
-            0 => "closed",
-            1 => "open",
-            2 => "half-open",
-            _ => "unknown",
-        }
-    }
 }
 
 impl ProviderRegistry {
@@ -781,5 +770,153 @@ mod tests {
                 "{id} has no circuit breaker"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod circuit_breaker_tests {
+    use super::CircuitBreaker;
+
+    #[test]
+    fn a_closed_breaker_admits_every_request() {
+        let cb = CircuitBreaker::new(5, 60);
+        for _ in 0..10 {
+            assert!(cb.allow_request(), "a closed circuit admits the request");
+        }
+    }
+
+    #[test]
+    fn the_threshold_failures_open_the_circuit() {
+        let cb = CircuitBreaker::new(3, 60);
+        cb.record_failure();
+        cb.record_failure();
+        assert!(
+            cb.allow_request(),
+            "two failures is under a threshold of three"
+        );
+        cb.record_failure();
+        assert!(
+            !cb.allow_request(),
+            "the third failure opens the circuit and the next request is refused"
+        );
+    }
+
+    #[test]
+    fn a_success_closes_the_circuit_again() {
+        let cb = CircuitBreaker::new(1, 60);
+        cb.record_failure();
+        assert!(!cb.allow_request(), "the circuit is open");
+        cb.record_success();
+        assert!(cb.allow_request(), "a success closes it");
+    }
+
+    /// The breaker's state: 0 closed, 1 open, 2 half-open.
+    ///
+    /// The test module is inside the breaker's own file, so it can read
+    /// the state the transitions write — which is how a transition is
+    /// observed without waiting out a cooldown.
+    fn state_of(cb: &CircuitBreaker) -> u8 {
+        cb.state.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[test]
+    fn an_open_circuit_refuses_until_the_cooldown_elapses() {
+        let cb = CircuitBreaker::new(1, 60);
+        cb.record_failure();
+        assert_eq!(state_of(&cb), 1, "the circuit is open after the failure");
+        assert!(
+            !cb.allow_request(),
+            "an open circuit refuses the request while the cooldown runs"
+        );
+        assert!(!cb.allow_request(), "and keeps refusing it");
+    }
+
+    #[test]
+    fn the_first_caller_after_the_cooldown_is_the_probe() {
+        // A cooldown of zero makes the transition immediate.
+        let cb = CircuitBreaker::new(1, 0);
+        cb.record_failure();
+        assert!(
+            cb.allow_request(),
+            "the first caller after the cooldown is the one probe"
+        );
+    }
+
+    #[test]
+    fn half_open_admits_exactly_one_request() {
+        // The whole point of half-open: ONE probe reaches the platform, so
+        // a recovering platform is not hit by the whole backlog at once.
+        let cb = CircuitBreaker::new(1, 60);
+        cb.record_failure();
+        // The breaker is in half-open (the state a probe is admitted from).
+        cb.release_probe();
+        assert_eq!(state_of(&cb), 2, "the breaker is half-open");
+
+        assert!(
+            cb.allow_request(),
+            "the first caller in half-open is the one probe"
+        );
+        // The probe flips the state back to OPEN, so the concurrent caller
+        // in the same tick is refused. It used to admit them all.
+        assert!(
+            !cb.allow_request(),
+            "a second caller in the same tick must NOT be admitted"
+        );
+        assert!(
+            !cb.allow_request(),
+            "nobody else is admitted in this tick, however many callers there are"
+        );
+    }
+
+    #[test]
+    fn the_probe_failure_re_opens_for_a_full_cooldown() {
+        let cb = CircuitBreaker::new(1, 60);
+        cb.record_failure();
+        assert_eq!(state_of(&cb), 1, "the circuit is open");
+        let opened_at = cb.opened_at.load(std::sync::atomic::Ordering::SeqCst);
+
+        // Simulate the probe: it is admitted, and it fails.
+        cb.release_probe();
+        cb.record_failure();
+        assert_eq!(
+            state_of(&cb),
+            1,
+            "the failed probe leaves the circuit OPEN, not half-open"
+        );
+        assert!(
+            cb.opened_at.load(std::sync::atomic::Ordering::SeqCst) >= opened_at,
+            "the cooldown starts again when the probe fails"
+        );
+        assert!(
+            !cb.allow_request(),
+            "and the next request is refused until the new cooldown elapses"
+        );
+    }
+
+    #[test]
+    fn the_probe_success_closes_the_circuit() {
+        let cb = CircuitBreaker::new(1, 0);
+        cb.record_failure();
+        assert!(cb.allow_request(), "the probe is admitted");
+        cb.record_success();
+        assert!(cb.allow_request(), "the probe's success closes the circuit");
+        assert!(cb.allow_request(), "and it stays closed");
+    }
+
+    #[test]
+    fn a_released_probe_is_not_a_failure() {
+        // A probe whose request never reached the platform (a thread part
+        // whose predecessor is unpublished) learned nothing. It must not
+        // count as a failure.
+        let cb = CircuitBreaker::new(1, 0);
+        cb.record_failure();
+        assert!(cb.allow_request(), "the probe is admitted");
+        cb.release_probe();
+        // The state is back to half-open, so the next caller gets the probe
+        // rather than being refused.
+        assert!(
+            cb.allow_request(),
+            "releasing the probe leaves the circuit able to probe again"
+        );
     }
 }

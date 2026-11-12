@@ -69,16 +69,6 @@ pub struct RateSpec {
 // positive = private chat with a user, -100… = channel/supergroup,
 // other negative = basic group.
 
-pub fn peer_key(chat_id: i64) -> String {
-    if chat_id > 0 {
-        format!("user:{chat_id}")
-    } else if chat_id < -1_000_000_000_000 {
-        format!("channel:{chat_id}")
-    } else {
-        format!("chat:{chat_id}")
-    }
-}
-
 fn peer_send_spec(key: &str) -> Option<RateSpec> {
     // tg-cli parity: 1 msg / 5s to a user, 20/min into groups/channels.
     if key.starts_with("user:") {

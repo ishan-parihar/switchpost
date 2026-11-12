@@ -18,15 +18,6 @@ pub fn chrome_default_profile(home: &Path, config_dir: &str) -> PathBuf {
     home.join(".config").join(config_dir).join("Default")
 }
 
-/// Copy a cookie database to a temp location for safe reading.
-/// Returns the temp path (caller should clean up).
-pub fn copy_cookie_db(src: &Path, label: &str) -> Option<PathBuf> {
-    let tmp = std::env::temp_dir().join(format!("{label}.db"));
-    let _ = std::fs::remove_file(&tmp);
-    std::fs::copy(src, &tmp).ok()?;
-    Some(tmp)
-}
-
 // ── The shared extractor (F3) ───────────────────────────────────
 
 /// What cookies to pull, and from which host suffixes.

@@ -551,6 +551,15 @@ pub enum Command {
         #[command(subcommand)]
         action: TagsAction,
     },
+    /// Post sets (saved templates)
+    ///
+    /// The MCP has `set_create` / `set_list` / `set_delete` in its CORE
+    /// toolset, and the CLI had no verb for them at all — the parity claim
+    /// was unmeasured, and measuring it found this hole.
+    Sets {
+        #[command(subcommand)]
+        action: SetsAction,
+    },
     /// Analytics
     Analytics {
         #[command(subcommand)]
@@ -765,6 +774,29 @@ pub enum PostsAction {
         #[arg(long)]
         settings: Option<String>,
     },
+}
+
+/// Post sets (saved templates) — the CLI half of the MCP's set tools.
+#[derive(Subcommand, Debug)]
+pub enum SetsAction {
+    /// List the saved sets
+    List,
+    /// Create a set
+    Create {
+        /// Set name
+        name: String,
+        /// What the set holds, as a JSON object
+        #[arg(long, default_value = "{}")]
+        content: String,
+        /// What the set is for
+        #[arg(long)]
+        description: Option<String>,
+        /// Comma-separated channel (integration) UUIDs the set publishes to
+        #[arg(long, default_value = "")]
+        channels: String,
+    },
+    /// Delete a set
+    Delete { id: String },
 }
 
 #[derive(Subcommand, Debug)]

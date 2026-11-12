@@ -168,37 +168,6 @@ impl WordPressProvider {
         }
     }
 
-    /// List tags
-    pub async fn list_tags(&self, access_token: &str) -> Result<serde_json::Value, ProviderError> {
-        let (site_url, username, app_password) = self.parse_creds(access_token);
-        if site_url.is_empty() || username.is_empty() || app_password.is_empty() {
-            return Err(ProviderError::Auth("Invalid WordPress credentials".into()));
-        }
-
-        let url = format!("{}/wp-json/wp/v2/tags", site_url.trim_end_matches('/'));
-
-        let resp = self
-            .http
-            .get(&url)
-            .header("Authorization", self.basic_auth(&username, &app_password))
-            .send()
-            .await?;
-
-        let status_code = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        let json: serde_json::Value =
-            serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
-
-        if status_code.is_success() {
-            Ok(json)
-        } else {
-            let msg = json["message"].as_str().unwrap_or(&body).to_string();
-            Err(ProviderError::Api(format!(
-                "WordPress API error ({}): {}",
-                status_code, msg
-            )))
-        }
-    }
 }
 
 #[async_trait]

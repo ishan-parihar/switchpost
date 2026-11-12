@@ -17,6 +17,7 @@ pub mod medium_blog;
 pub mod notifications;
 pub mod pinterest;
 pub mod reddit;
+pub mod sets;
 pub mod skool;
 pub mod slack;
 pub mod tags;
