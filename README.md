@@ -224,17 +224,11 @@ switchpost reddit --help               # Reddit operations
 
 The full command list is [docs/platforms-and-cli.md](docs/platforms-and-cli.md).
 
-**Self-update, and what it will and will not do.** `switchpost update` works for
-binaries installed by `scripts/install.sh`. It verifies the matching release asset
-against `SHA256SUMS`, probes the staged binary, and atomically replaces the
-executable; older installs without an ownership receipt must rerun
-`scripts/install.sh` once first. It does **not** restart a running process unless
-`--restart` is supplied - that flag restarts an active `switchpost.service` and
-rolls the executable back if the service does not return to active. `--check`,
-`--version VERSION` and `--allow-downgrade` are supported; Cargo or other
-package-manager installs are updated by their owning manager. The GitHub
-checksum path is transitional while the suite's shared TUF metadata service is
-unavailable: it verifies byte consistency, not publisher identity.
+**Self-update.** `switchpost update` replaces a binary installed by
+`scripts/install.sh` (checksum-verified, atomic, with `--restart` for a running
+service). Older installs without an ownership receipt rerun the installer once;
+package-manager installs are updated by their owning manager. Full rules:
+[docs/deployment.md](docs/deployment.md).
 
 ### Examples
 
