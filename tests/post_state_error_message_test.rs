@@ -70,6 +70,7 @@ async fn seed_integration(pool: &db::SqlitePool, user_id: uuid::Uuid) -> uuid::U
         None,
         None,
         Some("oauth"),
+        None,
     )
     .await
     .expect("seed an integration for the FK")

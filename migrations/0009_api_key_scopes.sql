@@ -1,0 +1,19 @@
+-- API keys carry a scope.
+--
+-- A key used to be exactly as powerful as the password session: it could
+-- publish, delete, and — because `POST /api/developer/api-keys` only
+-- asked for a session — mint MORE keys. So one leaked `sf_…` key was
+-- equivalent to the password, and revoking it did not evict the attacker
+-- if they had already minted another one.
+--
+-- The vocabulary is three levels:
+--
+--   read   safe methods only (GET/HEAD/OPTIONS)
+--   write  + state-changing requests on the content routes
+--   admin  everything, EXCEPT the API-key console (`/api/developer/api-keys`)
+--          — minting, listing, revoking and regenerating keys needs the
+--          SESSION, so a leaked key can never extend itself.
+--
+-- Existing keys become `admin`: they keep working exactly as before, and
+-- the one thing they lose is the ability to mint another key.
+ALTER TABLE api_keys ADD COLUMN scopes TEXT NOT NULL DEFAULT 'admin';

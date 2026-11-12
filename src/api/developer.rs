@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::auth::middleware::{hash_api_key, AuthenticatedUser, API_KEY_PREFIX};
+use crate::auth::middleware::{hash_api_key, ApiKeyScope, AuthenticatedUser, API_KEY_PREFIX};
 use crate::db::types::EpochUtc;
 use crate::error::AppError;
 
@@ -28,6 +28,7 @@ struct ApiKeyRow {
     pub expires_at: Option<DateTime<Utc>>,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
+    pub scopes: String,
 }
 
 // ── Request Types ─────────────────────────────────────────────
@@ -36,6 +37,8 @@ struct ApiKeyRow {
 pub struct CreateApiKeyRequest {
     pub name: String,
     pub expires_at: Option<String>,
+    /// `read` | `write` | `admin`. Absent means `admin`.
+    pub scope: Option<String>,
 }
 
 // ── Response Types ────────────────────────────────────────────
@@ -50,6 +53,8 @@ pub struct ApiKeyResponse {
     pub expires_at: Option<String>,
     pub is_active: bool,
     pub created_at: String,
+    /// The scope this key carries — `read`, `write` or `admin`.
+    pub scope: String,
 }
 
 /// Returned at creation/regeneration — includes the full key once.
@@ -73,6 +78,7 @@ fn row_to_response(row: ApiKeyRow) -> ApiKeyResponse {
         expires_at: row.expires_at.map(|dt| dt.to_rfc3339()),
         is_active: row.is_active,
         created_at: row.created_at.to_rfc3339(),
+        scope: row.scopes,
     }
 }
 
@@ -122,13 +128,32 @@ pub async fn create(
         _ => None,
     };
 
+    // The scope is the founder's choice, and it is enforced in ONE place:
+    // `auth::middleware::scope_allows`.
+    let scope = match body.scope.as_deref().map(str::trim) {
+        None | Some("") => ApiKeyScope::Admin,
+        Some(raw) => {
+            let parsed = ApiKeyScope::parse(raw);
+            if !ApiKeyScope::all()
+                .iter()
+                .any(|s| s.as_str() == parsed.as_str())
+                || parsed.as_str() != raw.to_ascii_lowercase()
+            {
+                return Err(AppError::BadRequest(format!(
+                    "Unknown scope `{raw}`. Use read, write or admin."
+                )));
+            }
+            parsed
+        }
+    };
+
     let (full_key, prefix, hash) = generate_api_key();
 
     let row: ApiKeyRow = sqlx::query_as(
         r#"
-        INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        RETURNING id, name, key_prefix, last_used_at, expires_at, is_active, created_at
+        INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, expires_at, scopes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        RETURNING id, name, key_prefix, last_used_at, expires_at, is_active, created_at, scopes
         "#,
     )
     .bind(Uuid::new_v4())
@@ -139,6 +164,7 @@ pub async fn create(
     // Epoch INTEGER column: a bare DateTime binds as TEXT, which SQLite orders
     // after every INTEGER, so `expires_at > unixepoch()` never expired the key.
     .bind(expires_at.map(EpochUtc::from))
+    .bind(scope.as_str())
     .fetch_one(&state.db)
     .await?;
 
@@ -159,7 +185,7 @@ pub async fn list(
 ) -> Result<Json<Vec<ApiKeyResponse>>, AppError> {
     let rows: Vec<ApiKeyRow> = sqlx::query_as(
         r#"
-        SELECT id, name, key_prefix, last_used_at, expires_at, is_active, created_at
+        SELECT id, name, key_prefix, last_used_at, expires_at, is_active, created_at, scopes
         FROM api_keys
         WHERE user_id = ?
         ORDER BY created_at DESC
@@ -202,7 +228,7 @@ pub async fn regenerate(
     // Verify ownership first — only allow regeneration on active keys
     let existing: ApiKeyRow = sqlx::query_as(
         r#"
-        SELECT id, name, key_prefix, last_used_at, expires_at, is_active, created_at
+        SELECT id, name, key_prefix, last_used_at, expires_at, is_active, created_at, scopes
         FROM api_keys
         WHERE id = ? AND user_id = ? AND is_active = true
         "#,
@@ -220,7 +246,7 @@ pub async fn regenerate(
         UPDATE api_keys
         SET key_prefix = ?, key_hash = ?
         WHERE id = ? AND user_id = ?
-        RETURNING id, name, key_prefix, last_used_at, expires_at, is_active, created_at
+        RETURNING id, name, key_prefix, last_used_at, expires_at, is_active, created_at, scopes
         "#,
     )
     .bind(&prefix)

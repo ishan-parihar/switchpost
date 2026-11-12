@@ -1367,6 +1367,7 @@ async fn re_connecting_an_already_connected_page_succeeds() {
         None,
         None,
         None,
+        None,
     )
     .await
     .expect("seed parent integration");
@@ -1384,6 +1385,7 @@ async fn re_connecting_an_already_connected_page_succeeds() {
         None,
         None,
         Some(&parent.internal_id),
+        None,
         None,
     )
     .await
@@ -1489,6 +1491,7 @@ async fn re_connecting_survives_a_provider_that_no_longer_lists_the_page() {
         None,
         None,
         None,
+        None,
     )
     .await
     .expect("seed parent integration");
@@ -1506,6 +1509,7 @@ async fn re_connecting_survives_a_provider_that_no_longer_lists_the_page() {
         None,
         None,
         Some(&parent.internal_id),
+        None,
         None,
     )
     .await

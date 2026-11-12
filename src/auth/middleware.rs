@@ -17,7 +17,7 @@
 
 use axum::{
     extract::{FromRequestParts, Request, State},
-    http::{header, request::Parts, StatusCode},
+    http::{header, request::Parts, Method, StatusCode},
     middleware::Next,
     response::Response,
     Json,
@@ -66,7 +66,82 @@ pub fn hash_api_key(raw_key: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// Verify a raw `sf_…` key against `api_keys` and stamp `last_used_at`.
+/// What an API key is allowed to do.
+///
+/// One ordered vocabulary, enforced in ONE place ([`scope_allows`]) so the
+/// three surfaces (REST, MCP over HTTP, the developer console) cannot drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ApiKeyScope {
+    /// Safe methods only.
+    Read,
+    /// Read + state-changing requests on the content routes.
+    Write,
+    /// Everything except the API-key console itself.
+    Admin,
+}
+
+impl ApiKeyScope {
+    /// Parse a stored scope. An unknown value — a hand-edited row, a key
+    /// written by a future version — is treated as `Admin`, the value
+    /// migration 0009 gives every existing key, so an unreadable scope
+    /// never quietly DISABLES a working key.
+    pub fn parse(raw: &str) -> ApiKeyScope {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "read" => ApiKeyScope::Read,
+            "write" => ApiKeyScope::Write,
+            _ => ApiKeyScope::Admin,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ApiKeyScope::Read => "read",
+            ApiKeyScope::Write => "write",
+            ApiKeyScope::Admin => "admin",
+        }
+    }
+
+    /// The scopes the founder may choose from when minting a key.
+    pub fn all() -> &'static [ApiKeyScope] {
+        &[ApiKeyScope::Read, ApiKeyScope::Write, ApiKeyScope::Admin]
+    }
+}
+
+impl std::fmt::Display for ApiKeyScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// May a key with this scope make this request?
+///
+/// The rules, in order:
+///
+/// - a safe method is read-only, so every scope gets it;
+/// - the API-key console (`/api/developer/api-keys`) needs the SESSION at
+///   every level — a key must never be able to mint, list, revoke or
+///   regenerate another key, because then revoking the leaked one does not
+///   evict the attacker;
+/// - the rest of `/api/developer` needs `admin`;
+/// - a `read` key may not make a state-changing request anywhere.
+pub fn scope_allows(scope: ApiKeyScope, method: &Method, path: &str) -> bool {
+    // The key console is SESSION-ONLY at every level, including reads: a
+    // key that can LIST the keys can learn their prefixes, and a key that
+    // can REVOKE the others can lock the founder out of their own API.
+    if path.starts_with("/api/developer/api-keys") {
+        return false;
+    }
+    let safe = matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS);
+    if safe {
+        return true;
+    }
+    if path.starts_with("/api/developer") {
+        return scope == ApiKeyScope::Admin;
+    }
+    scope >= ApiKeyScope::Write
+}
+
+/// Verify a raw `sf_…` key against `api_keys`.
 ///
 /// The database does the digest equality (`key_hash = ?`), so a Rust-side
 /// constant-time compare would be redundant — and the compared value is
@@ -76,26 +151,51 @@ pub fn hash_api_key(raw_key: &str) -> String {
 /// `None` means unknown, revoked, or expired — all three are 401 to the
 /// caller, so an attacker cannot tell them apart.
 ///
+/// ## `last_used_at` is stamped at most once a minute
+///
+/// It used to be an `UPDATE … RETURNING user_id` on EVERY authenticated
+/// request, so a read-only agent doing N tool calls performed N write
+/// transactions on the single-writer SQLite file — and that serialises
+/// against the scheduler's publish writes. The value has second-level
+/// value at best; a minute is generous.
+///
 /// ponytail: no index on `key_hash` (migration 011 only indexes user_id).
 /// Seq scan over a handful of keys is fine; add a unique index if an
 /// operator ever holds thousands.
-pub async fn verify_api_key(pool: &SqlitePool, raw_key: &str) -> Option<Uuid> {
+pub async fn verify_api_key(pool: &SqlitePool, raw_key: &str) -> Option<(Uuid, ApiKeyScope)> {
     let row = sqlx::query(
         r#"
-        UPDATE api_keys
-        SET last_used_at = unixepoch()
+        SELECT user_id, scopes, last_used_at
+        FROM api_keys
         WHERE key_hash = ?
           AND is_active = true
           AND (expires_at IS NULL OR expires_at > unixepoch())
-        RETURNING user_id
         "#,
     )
     .bind(hash_api_key(raw_key))
-    .fetch_one(pool)
+    .fetch_optional(pool)
     .await
-    .ok()?;
+    .ok()??;
 
-    row.try_get::<Uuid, _>("user_id").ok()
+    let user_id = row.try_get::<Uuid, _>("user_id").ok()?;
+    let scope = row
+        .try_get::<Option<String>, _>("scopes")
+        .ok()
+        .flatten()
+        .map(|s| ApiKeyScope::parse(&s))
+        .unwrap_or(ApiKeyScope::Admin);
+
+    let now = chrono::Utc::now().timestamp();
+    let stale: Option<i64> = row.try_get::<Option<i64>, _>("last_used_at").ok().flatten();
+    if stale.is_none_or(|t| now - t >= 60) {
+        let _ = sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?")
+            .bind(now)
+            .bind(hash_api_key(raw_key))
+            .execute(pool)
+            .await;
+    }
+
+    Some((user_id, scope))
 }
 
 /// Pull the credential out of an `Authorization: Bearer <token>` header.
@@ -106,6 +206,24 @@ pub fn extract_bearer(header_value: &str) -> Option<&str> {
     }
     let value = value.trim();
     (!value.is_empty()).then_some(value)
+}
+
+/// 403 body: the key authenticated, but its scope does not cover this.
+fn forbidden_scope(
+    scope: ApiKeyScope,
+    method: &Method,
+    path: &str,
+) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({
+            "error": format!(
+                "This API key has the `{scope}` scope, which does not permit {method} {path}. \
+                 The API-key console also needs a session, never a key."
+            ),
+            "code": "insufficient_scope"
+        })),
+    )
 }
 
 /// 401 body shared by both auth paths.
@@ -142,14 +260,20 @@ pub async fn auth_middleware(
         .map(str::to_owned);
 
     if let Some(bearer) = bearer {
-        let user_id = if bearer.starts_with(API_KEY_PREFIX) {
+        let verified = if bearer.starts_with(API_KEY_PREFIX) {
             verify_api_key(&auth.db, &bearer).await
         } else {
             None
         };
-        let Some(user_id) = user_id else {
+        let Some((user_id, scope)) = verified else {
             return Err(unauthorized("invalid_api_key"));
         };
+        // A key is only as powerful as its scope. This is the one place the
+        // rule lives: REST, MCP-over-HTTP and any future surface all come
+        // through here, so they cannot drift apart.
+        if !scope_allows(scope, req.method(), req.uri().path()) {
+            return Err(forbidden_scope(scope, req.method(), req.uri().path()));
+        }
         req.extensions_mut().insert(AuthenticatedUser { user_id });
         return Ok(next.run(req).await);
     }

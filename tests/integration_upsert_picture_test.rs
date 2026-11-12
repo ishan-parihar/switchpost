@@ -87,6 +87,7 @@ async fn reconnecting_with_no_avatar_keeps_the_stored_one() {
         None,
         None,
         Some("oauth"),
+        None,
     )
     .await
     .expect("first connect, WITH a picture");
@@ -108,6 +109,7 @@ async fn reconnecting_with_no_avatar_keeps_the_stored_one() {
         None,
         None,
         Some("oauth"),
+        None,
     )
     .await
     .expect("second connect, WITHOUT a picture");
@@ -153,6 +155,7 @@ async fn reconnecting_with_a_new_avatar_updates_it() {
         None,
         None,
         Some("oauth"),
+        None,
     )
     .await
     .expect("first connect");
@@ -171,6 +174,7 @@ async fn reconnecting_with_a_new_avatar_updates_it() {
         None,
         None,
         Some("oauth"),
+        None,
     )
     .await
     .expect("second connect");
@@ -222,6 +226,7 @@ async fn the_x_cookie_picture_survives_the_round_trip_the_ui_reads() {
         Some("@thefounder"),
         None,
         Some("cookie"),
+        None,
     )
     .await
     .expect("x-cookie connect");
