@@ -593,6 +593,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("integration");
@@ -677,6 +678,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("integration");
@@ -736,6 +738,7 @@ mod tests {
             "Bluesky",
             "acct-1",
             "access-token",
+            None,
             None,
             None,
             None,

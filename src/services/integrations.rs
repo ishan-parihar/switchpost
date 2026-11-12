@@ -170,6 +170,7 @@ impl IntegrationService {
             None,
             None, // root_internal_id — set by pages API for sub-accounts
             None, // auth_method
+            token_key.copied(),
         )
         .await
         .map_err(|e| format!("Database error: {e}"))?;

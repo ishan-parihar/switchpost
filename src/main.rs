@@ -289,6 +289,23 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // ── Re-encrypt tokens written before the encrypting writer ──
+    //
+    // `create_integration` became the one encrypting writer in v12. Rows
+    // written before that landed can still hold a PLAINTEXT token (every
+    // connect path except the OAuth callback did). They keep working —
+    // `maybe_decrypt_token` falls back to the raw value — but the file on
+    // disk is the leak. This pass encrypts them once, at boot.
+    if let Some(key) = token_key {
+        match switchpost::db::queries::reencrypt_plaintext_tokens(&db, key).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(
+                "Token encryption at rest: re-encrypted {n} plaintext integration token(s)"
+            ),
+            Err(e) => tracing::warn!("Startup token re-encryption failed: {e}"),
+        }
+    }
+
     // ── Build shared state (clone for MCP if needed) ──────────
     // Media clients are the shared statics (F1): `media_http_client` keeps
     // its 10s connect timeout for CDN fetching, while `media_wreq_client`

@@ -82,6 +82,32 @@ pub fn maybe_decrypt_token(token: &str, key: Option<&[u8; 32]>) -> String {
     }
 }
 
+/// Does this stored value LOOK like something this module produced?
+///
+/// `encrypt_string` writes hex(nonce || ciphertext): an even-length hex
+/// string of at least 12 + 16 = 28 bytes, so 56 hex characters.
+///
+/// This is the cheap half of "is this row already encrypted?". It answers
+/// the shape question WITHOUT the key, so a row that was encrypted with a
+/// DIFFERENT key still looks encrypted and is never re-encrypted (which
+/// would double-encrypt it and destroy it). Pair it with
+/// [`decrypt_string`] for the exact answer when the key is known.
+pub fn looks_encrypted(value: &str) -> bool {
+    if value.len() < 56 || value.len() % 2 != 0 {
+        return false;
+    }
+    value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Is this stored value encrypted WITH THIS KEY?
+///
+/// True only when it decrypts cleanly. A row that fails this check but
+/// passes [`looks_encrypted`] was written with another key (or is
+/// corrupt) and must be left alone.
+pub fn is_encrypted_with(value: &str, key: &[u8; 32]) -> bool {
+    decrypt_string(value, key).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -267,6 +267,7 @@ pub async fn connect_integration(
             None,
             None,
             None, // auth_method
+            state.token_key,
         )
         .await
         .map_err(|e| e.to_string())?;

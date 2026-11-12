@@ -113,9 +113,42 @@ pub async fn create_integration(
     profile_url: Option<&str>,
     root_internal_id: Option<&str>,
     auth_method: Option<&str>,
-) -> Result<Integration, sqlx::Error> {
+    token_key: Option<[u8; 32]>,
+) -> Result<Integration, TokenUpdateError> {
+    // ── THE ONE ENCRYPTING WRITER FOR NEW INTEGRATIONS ───────
+    //
+    // Before this change, only the OAuth callback encrypted: every other
+    // connect path (direct connect, public onboarding, the X cookie store,
+    // the Telegram bot token, the page picker) handed a PLAINTEXT token to
+    // this function, which wrote it straight into the row. With
+    // TOKEN_ENCRYPTION_KEY set, a founder who connected a channel through
+    // the browser had a working credential sitting in the clear in the
+    // database file — and one `sqlite3 .dump` leaked every account.
+    //
+    // So the encryption lives HERE, in the writer, exactly like
+    // `update_integration_token` does for refreshes. Callers pass
+    // PLAINTEXT; this function encrypts; an encryption failure returns
+    // Err and NEVER falls back to plaintext (AGENTS §6.3).
     let method = auth_method.unwrap_or("oauth");
     let id = Uuid::new_v4();
+    let store_access = match token_key {
+        Some(k) => crate::crypto::encrypt_string(access_token, &k).map_err(|reason| {
+            TokenUpdateError::Encryption {
+                integration_id: id,
+                reason,
+            }
+        })?,
+        None => access_token.to_string(),
+    };
+    let store_refresh = match (token_key, refresh_token) {
+        (Some(k), Some(rt)) => Some(crate::crypto::encrypt_string(rt, &k).map_err(|reason| {
+            TokenUpdateError::Encryption {
+                integration_id: id,
+                reason,
+            }
+        })?),
+        (_, rt) => rt.map(str::to_string),
+    };
     sqlx::query_as!(
         Integration,
         r#"INSERT INTO integrations
@@ -148,8 +181,8 @@ pub async fn create_integration(
         provider_identifier,
         provider_name,
         internal_id,
-        access_token,
-        refresh_token,
+        store_access,
+        store_refresh,
         token_expires_at,
         profile_name,
         profile_picture,
@@ -158,8 +191,8 @@ pub async fn create_integration(
         method,
         // SQLite has no numbered params: the ON CONFLICT DO UPDATE arm
         // repeats the tail binds positionally (13..20).
-        access_token,
-        refresh_token,
+        store_access,
+        store_refresh,
         token_expires_at,
         profile_name,
         profile_picture,
@@ -169,6 +202,72 @@ pub async fn create_integration(
     )
     .fetch_one(pool)
     .await
+    .map_err(TokenUpdateError::from)
+}
+
+/// Re-encrypt integration tokens that were stored in PLAINTEXT.
+///
+/// The encrypting writer landed in `create_integration`; rows written
+/// BEFORE it existed are still plaintext. `maybe_decrypt_token` falls
+/// back to the raw value for those, so the app keeps working — but the
+/// file on disk is still the leak this closes.
+///
+/// The pass is conservative on purpose:
+///
+/// - a value that decrypts with THIS key is already encrypted → skipped;
+/// - a value that does not decrypt but LOOKS encrypted (hex, long enough)
+///   was written with a different key → left alone, because encrypting it
+///   again would destroy it;
+/// - anything else is plaintext → encrypted now.
+///
+/// Idempotent: a second run finds nothing to do.
+pub async fn reencrypt_plaintext_tokens(
+    pool: &SqlitePool,
+    token_key: [u8; 32],
+) -> Result<usize, sqlx::Error> {
+    let rows = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
+        "SELECT id, access_token, refresh_token FROM integrations",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut changed = 0usize;
+    for (id, access, refresh) in rows {
+        let access_is_plain = !crate::crypto::is_encrypted_with(&access, &token_key)
+            && !crate::crypto::looks_encrypted(&access);
+        let refresh_is_plain = match &refresh {
+            Some(rt) => {
+                !crate::crypto::is_encrypted_with(rt, &token_key)
+                    && !crate::crypto::looks_encrypted(rt)
+            }
+            None => false,
+        };
+        if !access_is_plain && !refresh_is_plain {
+            continue;
+        }
+        let new_access = if access_is_plain {
+            crate::crypto::encrypt_string(&access, &token_key)
+                .map_err(|e| sqlx::Error::Protocol(format!("token re-encryption failed: {e}")))?
+        } else {
+            access.clone()
+        };
+        let new_refresh = match (&refresh, refresh_is_plain) {
+            (Some(rt), true) => {
+                Some(crate::crypto::encrypt_string(rt, &token_key).map_err(|e| {
+                    sqlx::Error::Protocol(format!("token re-encryption failed: {e}"))
+                })?)
+            }
+            (other, _) => other.clone(),
+        };
+        sqlx::query("UPDATE integrations SET access_token = ?, refresh_token = ? WHERE id = ?")
+            .bind(&new_access)
+            .bind(&new_refresh)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        changed += 1;
+    }
+    Ok(changed)
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4293,6 +4392,7 @@ mod b03_b08_tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap()
@@ -5035,4 +5135,154 @@ pub struct ExternalPostEngagement {
 pub struct ExternalWordGap {
     pub word: String,
     pub external_posts: i64,
+}
+
+/// v12: the ONE encrypting writer for integration tokens.
+///
+/// `create_integration` used to store whatever it was handed. Only the
+/// OAuth callback encrypted, so every other connect path (direct connect,
+/// public onboarding, the X cookie store, the Telegram bot token, the page
+/// picker) left a PLAINTEXT working credential in the row. These tests
+/// pin the new contract: the writer encrypts, and the startup pass that
+/// re-encrypts older rows is idempotent and never double-encrypts.
+#[cfg(test)]
+mod v12_token_encryption_tests {
+    use super::*;
+
+    fn key_a() -> [u8; 32] {
+        let mut k = [0u8; 32];
+        k.copy_from_slice(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        k
+    }
+
+    fn key_b() -> [u8; 32] {
+        let mut k = [0u8; 32];
+        k.copy_from_slice(b"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        k
+    }
+
+    async fn fixture() -> (SqlitePool, Uuid) {
+        let pool = crate::db::create_pool("sqlite::memory:").await.unwrap();
+        let user_id = crate::auth::middleware::DEFAULT_USER_ID;
+        crate::db::ensure_local_user(&pool).await.unwrap();
+        (pool, user_id)
+    }
+
+    async fn create(
+        pool: &SqlitePool,
+        user_id: Uuid,
+        internal_id: &str,
+        token: &str,
+        token_key: Option<[u8; 32]>,
+    ) -> Uuid {
+        create_integration(
+            pool,
+            user_id,
+            "facebook",
+            "Facebook",
+            internal_id,
+            token,
+            Some("refresh-token"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            token_key,
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    async fn stored(pool: &SqlitePool, id: Uuid) -> (String, Option<String>) {
+        sqlx::query_as::<_, (String, Option<String>)>(
+            "SELECT access_token, refresh_token FROM integrations WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn create_integration_encrypts_the_token_when_a_key_is_set() {
+        let (pool, user_id) = fixture().await;
+        let id = create(&pool, user_id, "page-1", "super-secret", Some(key_a())).await;
+        let (access, refresh) = stored(&pool, id).await;
+
+        assert_ne!(
+            access, "super-secret",
+            "the token must not be stored in the clear"
+        );
+        assert_eq!(
+            crate::crypto::decrypt_string(&access, &key_a()).unwrap(),
+            "super-secret"
+        );
+        assert_eq!(
+            crate::crypto::decrypt_string(refresh.as_deref().unwrap(), &key_a()).unwrap(),
+            "refresh-token"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_integration_stores_plaintext_when_no_key_is_set() {
+        let (pool, user_id) = fixture().await;
+        let id = create(&pool, user_id, "page-2", "plain-token", None).await;
+        let (access, _) = stored(&pool, id).await;
+        assert_eq!(access, "plain-token");
+    }
+
+    #[tokio::test]
+    async fn reencrypt_turns_a_plaintext_row_into_ciphertext() {
+        let (pool, user_id) = fixture().await;
+        let id = create(&pool, user_id, "page-3", "legacy-plain", None).await;
+
+        let changed = reencrypt_plaintext_tokens(&pool, key_a()).await.unwrap();
+        assert_eq!(changed, 1, "exactly the plaintext row should be rewritten");
+
+        let (access, refresh) = stored(&pool, id).await;
+        assert_eq!(
+            crate::crypto::decrypt_string(&access, &key_a()).unwrap(),
+            "legacy-plain"
+        );
+        assert_eq!(
+            crate::crypto::decrypt_string(refresh.as_deref().unwrap(), &key_a()).unwrap(),
+            "refresh-token"
+        );
+    }
+
+    #[tokio::test]
+    async fn reencrypt_is_idempotent() {
+        let (pool, user_id) = fixture().await;
+        let id = create(&pool, user_id, "page-4", "already-encrypted", Some(key_a())).await;
+        let before = stored(&pool, id).await;
+
+        let changed = reencrypt_plaintext_tokens(&pool, key_a()).await.unwrap();
+        assert_eq!(changed, 0, "an encrypted row must be left alone");
+        assert_eq!(stored(&pool, id).await, before);
+    }
+
+    #[tokio::test]
+    async fn reencrypt_never_double_encrypts_a_row_written_with_another_key() {
+        let (pool, user_id) = fixture().await;
+        let id = create(&pool, user_id, "page-5", "other-key", Some(key_a())).await;
+        let before = stored(&pool, id).await;
+
+        let changed = reencrypt_plaintext_tokens(&pool, key_b()).await.unwrap();
+        assert_eq!(
+            changed, 0,
+            "a row that looks encrypted must not be rewritten"
+        );
+        assert_eq!(
+            stored(&pool, id).await,
+            before,
+            "the ciphertext must survive a pass with the wrong key"
+        );
+        assert_eq!(
+            crate::crypto::decrypt_string(&before.0, &key_a()).unwrap(),
+            "other-key"
+        );
+    }
 }

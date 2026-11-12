@@ -1607,6 +1607,7 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                             avatar,
                             None,
                             Some("cookie"), // §6: explicit auth_mode
+                            state.token_key,
                         )
                         .await?;
                         // Drop the seed_demo fixture row (if any) so the
@@ -1724,6 +1725,7 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                                 icon.as_deref(),
                                 None,
                                 Some("cookie"), // §6: explicit auth_mode
+                                state.token_key,
                             )
                             .await?;
                             // Drop the seed_demo fixture row (if any) — see
@@ -1928,6 +1930,7 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                                         None,
                                         None,
                                         Some("app_password"), // §6: explicit auth_mode
+                                        state.token_key,
                                     )
                                     .await?;
                                     // Bluesky sessions are short-lived;
@@ -2027,6 +2030,7 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                             avatar,
                             None,
                             Some("token"), // §6: explicit auth_mode
+                            state.token_key,
                         )
                         .await?;
                         let seeds = crate::db::queries::delete_seed_integrations(
@@ -2114,6 +2118,7 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                                 None,
                                 None,
                                 Some("bot_token"), // §6: explicit auth_mode
+                                state.token_key,
                             )
                             .await?;
                             let seeds = crate::db::queries::delete_seed_integrations(
@@ -2932,6 +2937,7 @@ async fn handle_connect_all_with_state(state: &AppState) -> anyhow::Result<()> {
                                 avatar,
                                 None,
                                 None,
+                                state.token_key,
                             )
                             .await
                             {
@@ -3000,6 +3006,7 @@ async fn handle_connect_all_with_state(state: &AppState) -> anyhow::Result<()> {
                                 icon.as_deref(),
                                 None,
                                 None,
+                                state.token_key,
                             )
                             .await
                             {

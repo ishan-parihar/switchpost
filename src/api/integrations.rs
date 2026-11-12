@@ -170,6 +170,7 @@ pub async fn connect(
             None,
             None,
             None, // auth_method
+            state.token_key,
         )
         .await?;
 
@@ -783,6 +784,7 @@ pub async fn verify_one_time_token(
         profile_url.as_deref(),
         None,
         None,
+        state.token_key,
     )
     .await?;
 
@@ -864,6 +866,7 @@ pub async fn connect_telegram_bot_token(
         profile_url.as_deref(),
         None,
         None,
+        state.token_key,
     )
     .await?;
 
@@ -1204,6 +1207,7 @@ pub async fn telegram_user_sign_in(
         profile_url.as_deref(),
         None,
         None,
+        state.token_key,
     )
     .await?;
 
@@ -1335,6 +1339,7 @@ pub async fn connect_x_cookie(
         Some(&format!("@{screen_name}")),
         None,
         Some("cookie"),
+        state.token_key,
     )
     .await?;
 
@@ -1473,6 +1478,7 @@ pub async fn connect_reddit_cookie(
         Some(&format!("https://reddit.com/user/{username}")),
         None,
         Some("cookie"),
+        state.token_key,
     )
     .await
     .map_err(|e| AppError::Internal(format!("DB error: {e}")))?;
@@ -1554,6 +1560,7 @@ pub async fn connect_github_pat(
         Some(&format!("@{login}")),
         None,
         Some("pat"),
+        state.token_key,
     )
     .await?;
 
@@ -1643,6 +1650,7 @@ pub async fn connect_api_key(
         None,
         None,
         None, // auth_method
+        state.token_key,
     )
     .await?;
 
@@ -1755,6 +1763,7 @@ pub async fn connect_web3(
         None,
         None,
         None, // auth_method
+        state.token_key,
     )
     .await?;
 
@@ -2019,6 +2028,7 @@ pub async fn connect_page(
         None,
         Some(&parent.internal_id),
         None, // auth_method
+        state.token_key,
     )
     .await?;
 

@@ -678,6 +678,7 @@ pub async fn public_connect(
             None,
             None,
             None, // auth_method
+            state.token_key,
         )
         .await?;
 
@@ -1036,6 +1037,7 @@ pub async fn x_cookies_submit(
         profile_picture.as_deref(),
         None,
         Some("cookie"), // §6: explicit auth_mode — dispatch reads this, not the blob shape
+        state.token_key,
     )
     .await?;
 
@@ -1129,6 +1131,7 @@ pub async fn x_cookies_import(
         profile_picture.as_deref(),
         None,
         Some("cookie"), // §6: explicit auth_mode — dispatch reads this, not the blob shape
+        state.token_key,
     )
     .await?;
 
@@ -1350,6 +1353,7 @@ pub async fn reddit_cookies_submit(
         profile_picture.as_deref(),
         None,
         Some("cookie"), // §6: explicit auth_mode
+        state.token_key,
     )
     .await?;
 
@@ -1436,6 +1440,7 @@ pub async fn reddit_cookies_import(
         profile_picture.as_deref(),
         None,
         Some("cookie"), // §6: explicit auth_mode
+        state.token_key,
     )
     .await?;
 
@@ -1601,6 +1606,7 @@ pub async fn telegram_bot_token_submit(
         Some(&format!("https://t.me/{bot_username}")),
         None,
         Some("api_key"),
+        state.token_key,
     )
     .await
     {

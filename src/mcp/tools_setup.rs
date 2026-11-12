@@ -752,6 +752,7 @@ pub async fn import_cookies(
                                     None,
                                     None,
                                     Some("cookie"), // §6: explicit auth_mode
+                                    state.token_key,
                                 )
                                 .await
                                 {
@@ -855,6 +856,7 @@ pub async fn import_cookies(
                                     None,
                                     None,
                                     Some("cookie"), // §6: explicit auth_mode
+                                    state.token_key,
                                 )
                                 .await
                                 {
