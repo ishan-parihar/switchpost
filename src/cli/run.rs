@@ -4130,7 +4130,7 @@ async fn handle_media_with_state(state: &AppState, action: MediaAction) -> anyho
 // ── Posts Handler ─────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-async fn handle_posts_create_helper(
+pub async fn handle_posts_create_helper(
     state: &crate::api::AppState,
     user_id: uuid::Uuid,
     content: &str,
@@ -4173,19 +4173,37 @@ async fn handle_posts_create_helper(
         None => serde_json::json!({}),
     };
 
+    // `--state` can only name a state a CREATE can legitimately produce.
+    //
+    // It used to accept `published` and `error`, which created a row that
+    // claims to be published without anything having been published — a
+    // post the founder never sent, sitting in the calendar as published.
+    // The browser's create path cannot make those states, so the CLI could
+    // not either (the audit's parity finding: the CLI was the only surface
+    // that could create an invalid post).
     let target_state = match state_override {
         Some("draft") => Some(crate::db::models::PostState::Draft),
         Some("queued") => Some(crate::db::models::PostState::Queued),
-        Some("published") => Some(crate::db::models::PostState::Published),
-        Some("error") => Some(crate::db::models::PostState::Error),
+        Some("published") | Some("error") => {
+            let requested = state_override.unwrap_or("");
+            return Err(anyhow::anyhow!(
+                "A post cannot be CREATED in the `{requested}` state — nothing was \
+                 published. Use `--state draft`, or schedule it and let the scheduler publish it."
+            ));
+        }
         Some(other) => {
             return Err(anyhow::anyhow!(
-                "Invalid --state '{other}'. Use draft|queued|published|error."
+                "Invalid --state '{other}'. Use draft|queued."
             ))
         }
         None if scheduled_at.is_some() => Some(crate::db::models::PostState::Queued),
         None => None,
     };
+    if target_state == Some(crate::db::models::PostState::Queued) && scheduled_at.is_none() {
+        return Err(anyhow::anyhow!(
+            "--state queued needs --schedule: a queued post with no time is never due."
+        ));
+    }
 
     let first_comment_owned = first_comment.and_then(|s| {
         if s.is_empty() {
@@ -4196,54 +4214,73 @@ async fn handle_posts_create_helper(
     });
     let title_owned = title.map(String::from);
 
-    fn build(
-        iid: uuid::Uuid,
-        user_id: uuid::Uuid,
-        content: &str,
-        title_owned: Option<String>,
-        media_json: serde_json::Value,
-        scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
-        settings_json: serde_json::Value,
-        first_comment_owned: Option<String>,
-        target_state: Option<crate::db::models::PostState>,
-    ) -> crate::services::posts::CreatePostInput {
-        crate::services::posts::CreatePostInput {
-            user_id,
-            integration_id: iid,
-            content: content.to_string(),
-            title: title_owned,
-            media_urls: media_json,
-            scheduled_at,
-            settings: settings_json,
-            first_comment: first_comment_owned,
-            state: target_state,
-            campaign_id: None,
-        }
-    }
-
+    // The CLI is a CLIENT of the REST surface (AGENTS §9.21): the create
+    // path is the browser's, so the same validation applies — a disabled
+    // integration, a missing required setting, an over-long post and a
+    // rejected media type are refused HERE, at create time, instead of
+    // failing hours later in the scheduler.
+    //
+    // The CLI used to call `PostService::create` directly, which checks
+    // only that the body is not empty and that it is under 2000
+    // characters. Every other rule lived in the REST handler, so the CLI
+    // could create a post the browser would refuse.
+    //
+    // One call PER integration, so a single bad integration still leaves
+    // the others created (the CLI's best-effort contract).
     let mut created: Vec<serde_json::Value> = Vec::new();
     let count = integration_ids.len();
     for &iid in &integration_ids {
-        let input = build(
-            iid,
-            user_id,
-            content,
-            title_owned.clone(),
-            media_json.clone(),
-            scheduled_at,
-            settings_json.clone(),
-            first_comment_owned.clone(),
-            target_state.clone(),
-        );
-        match crate::services::posts::PostService::create(&state.db, &state.broadcast, input).await
-        {
-            Ok(post) => created.push(serde_json::json!({
-                "id": post.id.to_string(),
-                "integration_id": iid.to_string(),
-                "state": post.state.to_string(),
-                "scheduled_at": post.scheduled_at.map(|d| d.to_rfc3339()),
-                "created_at": post.created_at.to_rfc3339(),
-            })),
+        let body = crate::api::posts::CreatePostRequest {
+            integration_ids: vec![iid],
+            content: content.to_string(),
+            title: title_owned.clone(),
+            media: Some(media_json.clone()),
+            settings: Some(settings_json.clone()),
+            scheduled_at: scheduled_at.map(|d| d.to_rfc3339()),
+            tag_ids: None,
+            first_comment: first_comment_owned.clone(),
+            sequence: None,
+            overrides: None,
+            campaign_id: None,
+        };
+        let result = crate::api::posts::create(
+            axum::extract::State(state.clone()),
+            crate::auth::middleware::AuthenticatedUser { user_id },
+            axum::Json(body),
+        )
+        .await;
+        match result {
+            Ok(axum::Json(response)) => {
+                for post in response.posts {
+                    // `--state draft` on a scheduled post: the REST path
+                    // makes it Queued (it is going to publish). The flag
+                    // says the founder wants it held back.
+                    if target_state == Some(crate::db::models::PostState::Draft)
+                        && post.state != "draft"
+                    {
+                        let _ = crate::db::queries::update_post_state(
+                            &state.db,
+                            post.id,
+                            crate::db::models::PostState::Draft,
+                            None,
+                            None,
+                            None,
+                        )
+                        .await;
+                    }
+                    created.push(serde_json::json!({
+                        "id": post.id.to_string(),
+                        "integration_id": iid.to_string(),
+                        "state": if target_state == Some(crate::db::models::PostState::Draft) {
+                            "draft".to_string()
+                        } else {
+                            post.state.clone()
+                        },
+                        "scheduled_at": post.scheduled_at.clone(),
+                        "created_at": post.created_at.clone(),
+                    }));
+                }
+            }
             Err(e) => {
                 if count == 1 {
                     return Err(anyhow::anyhow!("Create failed: {e}"));
@@ -4251,7 +4288,7 @@ async fn handle_posts_create_helper(
                 tracing::warn!("Best-effort create for integration {iid} failed: {e}");
                 created.push(serde_json::json!({
                     "integration_id": iid.to_string(),
-                    "error": e,
+                    "error": e.to_string(),
                 }));
             }
         }

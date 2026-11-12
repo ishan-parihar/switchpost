@@ -85,12 +85,27 @@ impl PostService {
     /// text the providers publish. It used to be a character-level
     /// stripper that deleted everything between a `<` and the next `>`,
     /// so a post comparing two numbers lost the middle.
-    pub fn sanitize_content(raw: &str, max_len: usize) -> String {
-        let clean = if crate::social::common::looks_like_html(raw) {
+    /// Strip markup and trim, WITHOUT truncating.
+    ///
+    /// The content boundary is "no markup, no leading/trailing space" — not
+    /// a length cap. The length rule belongs to the PROVIDER
+    /// (`max_content_length`), and it has to be able to fire: the create
+    /// path used to truncate to 2000 characters BEFORE measuring, so a
+    /// 5000-character post was silently cut to 2000 and accepted, and
+    /// X's own 4000-character limit could never be reached — so the check
+    /// was dead code above 2000.
+    ///
+    /// Silently shortening a founder's post is worse than refusing it.
+    pub fn strip_content(raw: &str) -> String {
+        if crate::social::common::looks_like_html(raw) {
             crate::social::common::strip_html_tags(raw)
         } else {
             raw.trim().to_string()
-        };
+        }
+    }
+
+    pub fn sanitize_content(raw: &str, max_len: usize) -> String {
+        let clean = Self::strip_content(raw);
         if clean.chars().count() > max_len {
             // Use char-boundary-safe truncation to avoid panicking on
             // multi-byte UTF-8 sequences (e.g., emoji). `String::len()`

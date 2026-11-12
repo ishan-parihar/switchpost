@@ -64,7 +64,7 @@ pub(crate) mod rss;
 pub(crate) mod sets;
 mod signatures;
 mod sse;
-mod tags;
+pub(crate) mod tags; // the MCP tags tools call the REST handlers (9.21)
 mod v1;
 pub(crate) mod webhooks;
 pub mod whatsapp_webhook;

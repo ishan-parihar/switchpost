@@ -602,7 +602,10 @@ pub async fn create(
     // shipped `<p>Hello <strong>world</strong></p>` to the platform as
     // the tweet text. The service path sanitizes; this one did not.
     // The same helper, the same boundary.
-    let body_content = crate::services::posts::PostService::sanitize_content(&body.content, 2000);
+    // Stripped, NOT truncated: the length rule is the provider's, and it
+    // has to be able to fire (a truncation to 2000 made it unreachable, and
+    // silently shortened the founder's post).
+    let body_content = crate::services::posts::PostService::strip_content(&body.content);
 
     // Verify tag ownership before creating the post (fail fast)
     if let Some(ref tag_ids) = body.tag_ids {
@@ -640,7 +643,7 @@ pub async fn create(
                 &state.db,
                 auth.user_id,
                 id,
-                &crate::services::posts::PostService::sanitize_content(post_content, 2000),
+                &crate::services::posts::PostService::strip_content(post_content),
                 body.title.as_deref(),
                 &media,
                 &post_settings,
@@ -898,7 +901,7 @@ pub(crate) async fn update_post(
     // `null` for a field the user emptied, so an edit that removes the
     // title (or the last image, or the first comment) actually removes it.
     let content = match &body.content {
-        Some(c) => crate::services::posts::PostService::sanitize_content(c, 2000),
+        Some(c) => crate::services::posts::PostService::strip_content(c),
         None => existing.content,
     };
     let title = match &body.title {
@@ -955,7 +958,7 @@ pub(crate) async fn update_post(
     {
         Some(over) => {
             let content = match over.content.as_deref() {
-                Some(c) => crate::services::posts::PostService::sanitize_content(c, 2000),
+                Some(c) => crate::services::posts::PostService::strip_content(c),
                 None => content,
             };
             let settings = over
@@ -1677,7 +1680,7 @@ pub(crate) fn validate_posts_for_integrations(
         // through (`PostService::sanitize_content`), so the number
         // checked here is the number the provider counts. It used to be
         // a third copy of the character-level stripper.
-        let clean = crate::services::posts::PostService::sanitize_content(content, 2000);
+        let clean = crate::services::posts::PostService::strip_content(content);
         let max_len = provider.max_content_length();
         // The length the provider itself counts. For X that is the
         // WEIGHTED length (an emoji costs 2), which is what the composer

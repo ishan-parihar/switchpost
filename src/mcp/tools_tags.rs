@@ -152,45 +152,41 @@ pub async fn handle_tag_get(
     })))
 }
 
-/// Update an existing tag
+/// Update an existing tag.
+///
+/// ROUTES THROUGH THE REST HANDLER (AGENTS §9.21): the tool layer converts
+/// types, and the validation and the SQL live in `api::tags::update`.
+///
+/// This used to re-implement the UPDATE here — and bound the parameters in
+/// the wrong order. The SQL reads `name = COALESCE(?, name), color =
+/// COALESCE(?, color) … WHERE id = ? AND user_id = ?`, and the binds were
+/// `tag_id, user_id, new_name, new_color`. So the name was set to the tag's
+/// UUID, the colour to the user's UUID, and the WHERE clause looked for a
+/// tag whose id was the NEW NAME. The tool could never rename a tag: it
+/// answered "Tag not found" for every request, or wrote a UUID into the
+/// name if the tag id happened to match one of them.
 pub async fn handle_tag_update(
     state: &AppState,
     input: &TagUpdateInput,
 ) -> Result<Json<serde_json::Value>, String> {
     let user_id = super::tools_posts::resolve_first_user(state).await?;
-    let tag_id =
-        Uuid::parse_str(&input.tag_id).map_err(|_| format!("Invalid tag ID: {}", input.tag_id))?;
+    let tag_id = super::rest_bridge::parse_id("tag_id", &input.tag_id)?;
 
-    let new_name = input.name.clone();
-    let new_color = input.color.clone();
-    let tag = sqlx::query!(
-        r#"UPDATE tags SET
-              name = COALESCE(?, name),
-              color = COALESCE(?, color),
-              updated_at = unixepoch()
-           WHERE id = ? AND user_id = ?
-           RETURNING id as "id!: Uuid", name, color,
-                     created_at as "created_at: EpochUtc",
-                     updated_at as "updated_at: EpochUtc""#,
-        tag_id,
-        user_id,
-        new_name,
-        new_color,
-    )
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| format!("Failed to update tag: {e}"))?
-    .ok_or_else(|| "Tag not found".to_string())?;
+    let updated = crate::mcp::rest_bridge::rest_result(
+        crate::api::tags::update(
+            axum::extract::State(state.clone()),
+            crate::auth::middleware::AuthenticatedUser { user_id },
+            axum::extract::Path(tag_id),
+            axum::Json(crate::api::tags::TagUpdateRequest {
+                name: input.name.clone(),
+                color: input.color.clone(),
+            }),
+        )
+        .await,
+    )?;
 
-    Ok(Json(serde_json::json!({
-        "data": {
-            "id": tag.id.to_string(),
-            "name": tag.name,
-            "color": tag.color,
-            "created_at": tag.created_at.0.to_rfc3339(),
-            "updated_at": tag.updated_at.0.to_rfc3339(),
-        }
-    })))
+    let axum::Json(body) = axum::Json(updated.0.clone());
+    Ok(Json(serde_json::json!({ "data": body })))
 }
 
 /// Delete a tag
