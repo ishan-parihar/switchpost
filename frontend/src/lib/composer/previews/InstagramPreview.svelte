@@ -94,7 +94,7 @@
   <!-- Caption -->
   <div class="px-3 pb-3 text-sm">
     <span class="font-semibold">{authorHandle || authorName.toLowerCase().replace(/\s/g, '')}</span>
-    <span class="ml-1">{@html highlightedCaption}</span>
+    <span class="ml-1">{@html highlightedHtml}</span>
     {#if isOverLimit}
       <p class="text-[10px] text-red-500 mt-1">{previewCount}/{charLimit} - text beyond {charLimit} will be cropped</p>
     {/if}

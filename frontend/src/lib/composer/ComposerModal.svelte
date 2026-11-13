@@ -25,6 +25,69 @@ const MANUAL_TARGET: Record<string, { key: string; label: string; placeholder: s
   discord: { key: 'channel', label: 'Channel', placeholder: 'general' },
 };
 
+/**
+ * The PROVIDER-SPECIFIC fields whose providers ALREADY read them out of
+ * the post's settings.
+ *
+ * A control in the composer is a PROMISE (AGENTS.md 9.28): if the
+ * composer collects a value, something must send it and something must
+ * read it. So this table is EXACTLY the set of keys the providers read -
+ * no more - and the founder's "postiz has a full range of them" is
+ * answered with the range that actually publishes.
+ *
+ * It lives at the top of the script, not next to the target tables
+ * inside `buildPayload`, because the TEMPLATE reads it too: the panels
+ * below render one card per selected channel out of this same table, so
+ * a field the payload writes cannot be a field the screen never shows.
+ *
+ * `kind` is the control: `text` for a one-line string, `boolean` for a
+ * checkbox.
+ *
+ * `numeric` marks a key the provider reads as a NUMBER. WordPress's
+ * `featured_media` is `settings.get("featured_media").and_then(as_i64)`
+ * (src/social/wordpress.rs), so a STRING would be dropped at publish
+ * with nothing on screen to say so. The box stays a text box - the id is
+ * longer than a spinner holds - and the write parses it, and the panel
+ * says so when what was typed is not a number.
+ *
+ * `altKey` marks the OTHER key the same control writes, for the provider
+ * that reads either: Reddit reads `flair_id` and falls back to
+ * `flair_text` (src/social/reddit.rs).
+ */
+const PROVIDER_FIELDS: Record<
+  string,
+  Array<{
+    key: string;
+    label: string;
+    kind: 'text' | 'boolean';
+    placeholder?: string;
+    numeric?: boolean;
+    altKey?: string;
+  }>
+> = {
+  pinterest: [{ key: 'link', label: 'Link URL', kind: 'text', placeholder: 'https://example.com/your-post' }],
+  reddit: [
+    { key: 'flair_id', label: 'Flair (id:... or text:...)', kind: 'text', placeholder: 'id:abc123 or text:News', altKey: 'flair_text' },
+  ],
+  mastodon: [
+    { key: 'spoiler_text', label: 'Content warning', kind: 'text', placeholder: 'Spoiler' },
+    { key: 'sensitive', label: 'Sensitive content', kind: 'boolean' },
+    // Mastodon also reads `settings["language"]` (mastodon.rs:573) and puts
+    // it on the post as the content language.
+    { key: 'language', label: 'Content language', kind: 'text', placeholder: 'en' },
+  ],
+  tiktok: [
+    { key: 'disable_duet', label: 'Disable duets', kind: 'boolean' },
+    { key: 'disable_comment', label: 'Disable comments', kind: 'boolean' },
+    { key: 'disable_stitch', label: 'Disable stitches', kind: 'boolean' },
+  ],
+  wordpress: [
+    { key: 'featured_media', label: 'Featured media ID', kind: 'text', numeric: true, placeholder: '123' },
+  ],
+  hashnode: [{ key: 'publication_id', label: 'Publication ID', kind: 'text', placeholder: 'publication id' }],
+  skool: [{ key: 'groupId', label: 'Group ID', kind: 'text', placeholder: 'group id' }],
+};
+
   // ComposerModal - the modal-based composer (Phase 2).
   //
   // This is the keystone of the v18 refactor: it replaces the full-page
@@ -266,6 +329,28 @@ const MANUAL_TARGET: Record<string, { key: string; label: string; placeholder: s
   // the list is empty (or the target the founder wants is not in it).
   let manualTargets = $state<Map<string, string>>(new Map());
 
+  // The PROVIDER-SPECIFIC field values, per integration and then per
+  // settings key: `{ [integrationId]: { [settingsKey]: value } }`.
+  //
+  // Keyed by integration because the settings are written PER CHANNEL: a
+  // subreddit's flair is not a Skool group's, and one post can go to
+  // both.
+  //
+  // A plain object rather than a Map because `$state` proxies a plain
+  // object DEEPLY, so the nested read in the template is tracked
+  // (AGENTS.md 9.22: a Map is NOT proxied, and mutating it in place
+  // notifies nobody). Every mutation REASSIGNS anyway - the same idiom
+  // this file uses for `selectedTargets`, `providerOverride` and
+  // `groupDraftCache`.
+  let providerFields = $state<Record<string, Record<string, string | boolean>>>({});
+
+  function setProviderField(intId: string, key: string, value: string | boolean) {
+    providerFields = {
+      ...providerFields,
+      [intId]: { ...(providerFields[intId] ?? {}), [key]: value },
+    };
+  }
+
   let hasXIntegration = $derived(
     selectedIntegrations.some(id => integrationProviders.get(id) === 'x')
   );
@@ -383,6 +468,38 @@ const MANUAL_TARGET: Record<string, { key: string; label: string; placeholder: s
     // at publish with "Missing subreddit in settings". The post was
     // working thirty seconds earlier.
     storedSettings = (post.settings || {}) as Record<string, unknown>;
+    // The provider-specific fields, prefilled from what the post already
+    // carries. A box that starts EMPTY on a post that already has a
+    // flair would show nothing while the stored value still publishes -
+    // and a checkbox nobody could tick OFF is worse still: a false read
+    // from an empty box is indistinguishable from "the founder never
+    // touched this", so a stored `true` could never be turned off.
+    const editFields = PROVIDER_FIELDS[integrationProviders.get(post.integration_id) ?? ''];
+    if (editFields) {
+      const seeded: Record<string, string | boolean> = {};
+      for (const f of editFields) {
+        const stored = storedSettings[f.key];
+        // One box, two keys the provider reads: seed the one that is set
+        // so the founder can see which of the two this post carries.
+        if (f.altKey) {
+          if (typeof stored === 'string') seeded[f.key] = `id:${stored}`;
+          else if (typeof storedSettings[f.altKey] === 'string') {
+            seeded[f.key] = `text:${storedSettings[f.altKey]}`;
+          }
+          continue;
+        }
+        if (f.kind === 'boolean') {
+          if (typeof stored === 'boolean') seeded[f.key] = stored;
+          continue;
+        }
+        if (typeof stored === 'string') seeded[f.key] = stored;
+        // WordPress's media id is read as a NUMBER and stored as one.
+        else if (typeof stored === 'number') seeded[f.key] = String(stored);
+      }
+      if (Object.keys(seeded).length > 0) {
+        providerFields = { ...providerFields, [post.integration_id]: seeded };
+      }
+    }
     selectedIntegrations = [post.integration_id];
     scheduledAt = post.scheduled_at || null;
     // The schedule as LOADED, so a save can tell "the user changed the
@@ -991,6 +1108,77 @@ const MANUAL_TARGET: Record<string, { key: string; label: string; placeholder: s
       overridesObj[intId] = entry;
     }
 
+    // The PROVIDER-SPECIFIC fields - the ones the providers ALREADY
+    // read out of the post's settings.
+    //
+    // Each control is flattened to the (key, value) pairs its provider
+    // reads, and only a value the founder actually gave is written:
+    //
+    //   - a text box with nothing in it writes NOTHING. An empty string
+    //     would overwrite a stored value with "", and the founder who
+    //     opened the post to fix the caption would have wiped the flair
+    //     they could not see (AGENTS.md 9.29).
+    //   - a checkbox nobody touched is ABSENT, so a stored value
+    //     survives. A checkbox the founder UN-ticked writes `false`,
+    //     because skipping it would leave a `true` they had just turned
+    //     off - a control that lies about the post.
+    //   - a key the provider reads as a NUMBER (WordPress's media id)
+    //     is written as a NUMBER. A string there is dropped at publish,
+    //     silently, and a `NaN` does not survive the JSON at all.
+    for (const intId of selectedIntegrations) {
+      const provider = integrationProviders.get(intId) ?? '';
+      const fields = PROVIDER_FIELDS[provider];
+      if (!fields) continue;
+      const values = providerFields[intId];
+      if (!values) continue;
+
+      const writes: Array<[string, unknown]> = [];
+      for (const field of fields) {
+        const value = values[field.key];
+        if (field.altKey && typeof value === 'string') {
+          // Reddit's flair: ONE box, and the provider reads `flair_id`
+          // and falls back to `flair_text`. The typed value names the
+          // key - `id:<id>` is an id, anything else is text. A made-up
+          // id is rejected by Reddit, so the default is the text: what
+          // the founder can SEE is what they get.
+          const typed = value.trim();
+          if (!typed) continue;
+          if (typed.startsWith('id:')) writes.push([field.key, typed.slice(3).trim()]);
+          else writes.push([field.altKey, typed.startsWith('text:') ? typed.slice(5).trim() : typed]);
+          continue;
+        }
+        if (field.kind === 'boolean') {
+          if (typeof value === 'boolean') writes.push([field.key, value]);
+          continue;
+        }
+        if (typeof value !== 'string') continue;
+        const typed = value.trim();
+        if (!typed) continue;
+        if (field.numeric) {
+          const n = Number(typed);
+          if (!Number.isInteger(n)) continue;
+          writes.push([field.key, n]);
+          continue;
+        }
+        writes.push([field.key, typed]);
+      }
+      // Nothing for this channel? Then its settings are left alone
+      // entirely - an empty override would replace a stored value.
+      if (writes.length === 0) continue;
+
+      const entry = overridesObj[intId] ?? {};
+      const perIntegration: Record<string, unknown> = {
+        ...storedSettings,
+        ...(entry.settings ?? {}),
+      };
+      for (const [key, value] of writes) {
+        if (value === '') continue;
+        perIntegration[key] = value;
+      }
+      entry.settings = perIntegration;
+      overridesObj[intId] = entry;
+    }
+
     const settings: Record<string, unknown> = { ...storedSettings };
     if (selectedMusic) {
       settings.audio_id = selectedMusic.id;
@@ -1570,6 +1758,67 @@ const MANUAL_TARGET: Record<string, { key: string; label: string; placeholder: s
                   </p>
                 </div>
               {/if}
+            </div>
+          {/if}
+        {/each}
+
+        <!-- Provider-specific fields, one card per selected channel.
+
+             A control in the composer is a PROMISE (AGENTS.md 9.28), so
+             this renders exactly the settings keys the providers already
+             read - the `PROVIDER_FIELDS` table, one card per channel, and
+             nothing for a provider that reads none of them. It sits here,
+             with the other per-channel settings forms, because the value
+             is written into THAT channel's settings: a Reddit flair is not
+             a Mastodon content warning, and one post can carry both. -->
+        {#each selectedIntegrations as intId (intId)}
+          {@const channelFields = PROVIDER_FIELDS[integrationProviders.get(intId) ?? '']}
+          {#if channelFields}
+            <div class="bg-surface border border-line rounded-xl p-4">
+              <h3 class="text-sm font-semibold mb-3">
+                {integrationNames.get(intId) || 'Channel'} settings
+              </h3>
+              <div class="space-y-2">
+                {#each channelFields as field (field.key)}
+                  {@const fieldId = `provider-field-${intId}-${field.key}`}
+                  {@const fieldValue = providerFields[intId]?.[field.key]}
+                  {#if field.kind === 'boolean'}
+                    <label class="flex items-center gap-2 min-h-11 cursor-pointer select-none">
+                      <input
+                        id={fieldId}
+                        type="checkbox"
+                        checked={fieldValue === true}
+                        onchange={(e) => setProviderField(intId, field.key, e.currentTarget.checked)}
+                        class="w-4 h-4 rounded border-line bg-surface-hover text-accent focus:ring-accent focus:ring-offset-0"
+                      />
+                      <span class="text-sm text-content">{field.label}</span>
+                    </label>
+                  {:else}
+                    <div>
+                      <label class="block text-xs text-muted mb-1" for={fieldId}>{field.label}</label>
+                      <input
+                        id={fieldId}
+                        type="text"
+                        placeholder={field.placeholder ?? ''}
+                        value={typeof fieldValue === 'string' ? fieldValue : ''}
+                        oninput={(e) => setProviderField(intId, field.key, e.currentTarget.value)}
+                        class="w-full px-3 py-2 min-h-11 rounded-lg text-sm bg-background-input border border-line text-content placeholder:text-faint outline-none focus:border-accent transition-colors"
+                      />
+                      {#if field.altKey}
+                        <p class="text-[11px] text-muted mt-1">
+                          Type <code class="text-content-secondary">id:&lt;id&gt;</code> for the flair id, or
+                          <code class="text-content-secondary">text:&lt;text&gt;</code> for the flair text.
+                        </p>
+                      {/if}
+                      {#if field.numeric && typeof fieldValue === 'string' && fieldValue.trim() && !Number.isInteger(Number(fieldValue.trim()))}
+                        <p class="text-[11px] text-warning mt-1">
+                          The media id has to be a number - WordPress cannot read anything else.
+                        </p>
+                      {/if}
+                    </div>
+                  {/if}
+                {/each}
+              </div>
             </div>
           {/if}
         {/each}
