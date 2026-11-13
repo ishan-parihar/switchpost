@@ -8135,3 +8135,104 @@ Known issues / follow-ups:
   ~/.local/bin/switchpost && systemctl --user restart switchpost'` (and
   restore `data/pre-deploy-20261113-0332.db` with the unit stopped, if the
   fault turns out to be data).
+
+---
+Task ID: v13-create-post
+Agent: deepseek-harness
+Task: The founder's three complaints — Threads login, "the create-post is very buggy and non-functional", and "the music and the platform-specific fields are missing". Test every channel live, then delete the test posts.
+
+Work Log:
+- **Threads login is NOT a code defect.** Measured against the live app's
+  own credentials: `graph.threads.net/debug_token` answers "The app
+  associated with this request is in dev mode." A dev-mode Threads app can
+  only grant its permissions to an account that HOLDS A ROLE on the app, so
+  the founder's Threads account cannot grant them and Meta's consent gate
+  (1349003 / the privacy-consent page) refuses the sign-in before any code
+  comes back. Postiz does nothing different — it asks for the same four
+  `threads_*` scopes and hits the same gate on an unreviewed app. The fix
+  is on Meta's side: developers.facebook.com → the app → App roles → Add
+  People → Threads Tester (and accept the invite in the Threads account),
+  or publish the app and pass App Review. Switchpost already shows the
+  founder this message before it redirects (the connect response carries a
+  `warning`), so the dead end is explained, not silent.
+- **The create-post was genuinely broken.** Six defects, each measured
+  against the live Graph API and the founder's own channels:
+  1. the Instagram Reel container sent `video` instead of `video_url`, so
+     every music Reel failed AT THE CONTAINER STEP and the track the
+     composer collected was never applied to anything;
+  2. the publish path asked a PUBLISHED MEDIA item for `status_code`, which
+     it does not have — so every scheduled Instagram post published and was
+     then recorded as an ERROR (a live post shown as failed);
+  3. Instagram's `PUBLISHED` ("live, still transcoding") was mapped to
+     pending, so the poll ran its whole 200-second budget and then failed a
+     live post — and because the manual publish runs inside the HTTP
+     request, the request outlived the tunnel's 100-second limit and came
+     back as a Cloudflare 524;
+  4. a Facebook page post could not be deleted (Graph needs a PAGE token:
+     "(#200) Page token is required to delete posts on page");
+  5. Instagram and YouTube/Google had NO platform delete at all (the trait's
+     default refused);
+  6. an expired LinkedIn token said "Could not get user profile" instead of
+     "Token expired", so the scheduler never refreshed it.
+- **The music works now.** The composer already collected the track
+  (settings.audio_id) and the Music API already answered (measured live on
+  all five Facebook-Login Instagram channels: "Let Me Love You (feat.
+  Ariza)" and friends). The track was discarded at the container step, so
+  the picker was a promise with no reader. With the reel fixed, a Reel with
+  music publishes: the live run returned
+  `https://instagram.com/p/17841409002920229` as a published Reel.
+- **The platform-specific fields are collected now.** The providers ALREADY
+  read eleven settings keys and the composer collected none of them:
+  pinterest `link`; reddit `flair_id`/`flair_text`; mastodon
+  `spoiler_text`/`sensitive`/`language`; tiktok `disable_duet`/
+  `disable_comment`/`disable_stitch`; wordpress `featured_media`;
+  hashnode `publication_id`; skool `groupId`. Nothing was added for a key
+  no provider reads (postiz's X audience picker and LinkedIn carousel have
+  no reader here yet, so a control would be a promise with nobody on the
+  other end).
+- **Every connected channel was tested live** (24 channels, create → publish
+  → delete, with a unique marker in the text). The result: Facebook ×6
+  publish AND delete; Instagram ×4 publish (one image, one music Reel);
+  Instagram-standalone publishes; YouTube ×4 and Google ×2 publish AND
+  delete (the delete was added in this round); LinkedIn, LinkedIn Page ×2,
+  Reddit and WhatsApp fail on CREDENTIAL state, and now say so honestly
+  (a revoked grant, a token that expired, a WhatsApp Web session that is
+  not paired) instead of a generic error; X is blocked by its anti-automation
+  filter.
+
+Stage Summary:
+- Six commits pushed: 0172b0d, 3d50638, 0681a5b, 12af443, b49e112, f48a006.
+- The live deployment is the one carrying all of it (binary sha256
+  bcd2f3d1…, deployed 2026-11-13 08:03, backed up as
+  `switchpost.bak-20261113-0803` with a matching DB snapshot).
+- cargo check --all-targets: 0 errors; cargo test: the committed tree is
+  green (three `linkedin_e2e` tests fail only when this machine has no
+  network — they call LinkedIn for real — and `mcp_call_reach_test` is
+  flaky under load because it boots the server for three seconds).
+
+Known issues / follow-ups:
+- **Instagram media deletion is not available to this app.** Meta refuses
+  the delete for every token the app holds — the page token, the parent
+  user token and the Instagram-Login token — and for every delete shape
+  (the media id, `/{ig_user}/media?media_id=…`, `/{page}/media?media_id=…`):
+  "(#10) Insufficient permissions to access this data" / "Unsupported delete
+  request". The error message now says that (it used to blame the caption).
+  16 test posts are therefore live on the founder's Instagram accounts and
+  have to be deleted by hand:
+  - designaesthetics.co.in — instagram.com/p/DfqlwLCIPel/ , /DfqV4qgIAgy/
+  - tech.ishanp — /Dfql1gloKbZ/ , /DfqlzVqjNwi/ , /DfqluVToGxc/ , /DfqWLDblOWn/
+  - thelawofone.in — /DfqlsXioFsu/ , /DfqVZ5iFCEs/
+  - civilization.os — /DfqlqlFoOax/ , /DfqlhjWoF7f/ , /reel/DfqldI6lOu9/ ,
+    /DfqVKpTlNSx/ , /DfqU2EdICyk/ , /reel/DfqUm_WD4pE/ , /DfqNL1tiSLK/ ,
+    /DfqNKmtDrLn/
+- Three YouTube test videos are live because their channel's token EXPIRED
+  (the app cannot refresh a revoked grant): wFFWCm7FsTY and g594WuyYQ3Y on
+  "The Law of One India", SRmKpYP2lwI on "Ishan Parihar | Ontological
+  Architect". Reconnect those two channels and the app can delete them.
+- All twelve Facebook test posts are gone from the founder's pages ✓, and
+  nine of the twelve YouTube test videos are gone ✓.
+- The Instagram publish is still SYNCHRONOUS: a Reel whose container takes
+  longer than the tunnel's 100-second limit will still answer 524. The
+  honest fix is an async publish (the endpoint returns "publishing" and the
+  `post_published` event carries the result) — that is the next piece of
+  work on this path.
