@@ -809,9 +809,6 @@ impl SocialProvider for LinkedInProvider {
             .await?;
         let http_status = resp.status();
         let body = resp.text().await?;
-        let profile: serde_json::Value =
-            serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
-
         let user_id = linkedin_member_id(http_status.as_u16(), &body).map_err(|e| match e {
             LinkedInProfileError::Auth => ProviderError::TokenExpired,
             LinkedInProfileError::Other(msg) => self.provider_error(&msg, http_status.as_u16()),

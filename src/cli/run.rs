@@ -2266,12 +2266,11 @@ async fn handle_connect_with_state(state: &AppState, provider: &str) -> anyhow::
                 );
             }
         }
-        "youtube" | "google" => {
+        "youtube" => {
             let integrations = crate::db::queries::list_integrations(&state.db, user_id).await?;
-            let connected = integrations.iter().any(|i| {
-                (i.provider_identifier == "youtube" || i.provider_identifier == "google")
-                    && is_credential_row(i)
-            });
+            let connected = integrations
+                .iter()
+                .any(|i| i.provider_identifier == "youtube" && is_credential_row(i));
             if connected {
                 output_json(
                     &serde_json::json!({"status": "already_connected", "provider": "youtube"}),

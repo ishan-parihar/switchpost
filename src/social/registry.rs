@@ -377,7 +377,6 @@ impl ProviderRegistry {
 
         // Google Suite — unified provider for Gmail, Calendar, Drive
         // Uses YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET for all Google OAuth scopes
-        providers.insert("google", Arc::new(google::GoogleProvider::new(config)));
 
         // Drive — connectable separately from the unified `google` provider.
         //
@@ -737,9 +736,10 @@ mod tests {
         );
         assert_eq!(
             ids.len(),
-            29,
+            28,
             "v25 §1 was 12 Tier-1 + 14 Tier-2 = 26; +gmail +calendar +drive \\
-             after the Google consent split (see TIER_2's doc comment) makes it 29"
+             after the Google consent split made it 29; -google, which \\
+             published YouTube videos and nothing else, makes it 28"
         );
     }
 

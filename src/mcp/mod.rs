@@ -196,7 +196,6 @@ impl SwitchpostMcpServer {
                 | "signatures" | "calendar" | "analytics" | "feed" | "auth" | "inbox" => {
                     "core".into()
                 }
-                "goog" => "google".into(),
                 "gh" => "github".into(),
                 "li" | "lip" => "linkedin".into(),
                 "fb" => "facebook".into(),

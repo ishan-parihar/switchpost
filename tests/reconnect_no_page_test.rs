@@ -152,7 +152,7 @@ fn the_degraded_arm_is_not_a_catch_all() {
 
 /// A provider that overrides `reconnect` must NOT route through a
 /// refuser just to be told there are no pages — that is the same trap
-/// one level down (and is what google's duplicate override did).
+/// one level down.
 ///
 /// The list is of providers whose override was a POINTLESS copy of the
 /// default. `x` is in it because X's reconnect does something genuinely
@@ -161,7 +161,7 @@ fn the_degraded_arm_is_not_a_catch_all() {
 /// listed — its `fetch_page_info` genuinely reads the channel.
 #[test]
 fn a_reconnect_override_does_not_route_through_a_refusing_fetch_page_info() {
-    for path in ["src/social/google.rs", "src/social/x.rs"] {
+    for path in ["src/social/x.rs"] {
         let src = read(path);
         if !src.contains("async fn reconnect") {
             continue;

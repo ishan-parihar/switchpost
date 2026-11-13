@@ -445,50 +445,59 @@ async fn whatsapp_pair_and_telegram_request_code_answer_json_when_unconfigured()
 /// guard belongs in the provider: `generate_auth_url` must either request
 /// only the compatible set, or split the flow per product.
 #[tokio::test]
-async fn google_provider_requests_a_compatible_scope_set() {
+async fn every_google_provider_requests_a_compatible_scope_set() {
     let config = Config::from_env().expect("config");
     let registry = ProviderRegistry::new(&config, None, None);
-    let google = registry.get("google").expect("google is registered");
 
-    let scopes = google.scopes();
+    // The unified `google` provider is gone (it published YouTube videos and
+    // nothing else). What has to stay true is Google's rule: no ONE provider
+    // may ask for a YouTube scope beside a Drive scope, or a YouTube scope
+    // beside `calendar.events` - Google refuses the pair before any consent
+    // screen exists. Each family is its own provider now, so each must ask
+    // for one family only.
+    for id in ["youtube", "gmail", "calendar", "drive", "google_my_business"] {
+        let provider = registry.get(id).expect("provider is registered");
+        let scopes = provider.scopes();
 
-    // youtube.force-ssl is a YouTube-Data-API scope and drive.file is a
-    // Drive scope. Google's rule: a YouTube Data API scope and a Drive
-    // scope cannot be requested together in one consent.
-    let youtube_scopes = [
-        "https://www.googleapis.com/auth/youtube",
-        "https://www.googleapis.com/auth/youtube.upload",
-        "https://www.googleapis.com/auth/youtube.force-ssl",
-    ];
-    let drive_scopes = [
-        "https://www.googleapis.com/auth/drive.readonly",
-        "https://www.googleapis.com/auth/drive.file",
-    ];
+        // youtube.force-ssl is a YouTube-Data-API scope and drive.file is a
+        // Drive scope. Google's rule: a YouTube Data API scope and a Drive
+        // scope cannot be requested together in one consent.
+        let youtube_scopes = [
+            "https://www.googleapis.com/auth/youtube",
+            "https://www.googleapis.com/auth/youtube.upload",
+            "https://www.googleapis.com/auth/youtube.force-ssl",
+        ];
+        let drive_scopes = [
+            "https://www.googleapis.com/auth/drive.readonly",
+            "https://www.googleapis.com/auth/drive.file",
+        ];
 
-    let has_youtube = youtube_scopes.iter().any(|s| scopes.iter().any(|x| x == s));
-    let has_drive = drive_scopes.iter().any(|s| scopes.iter().any(|x| x == s));
+        let has_youtube = youtube_scopes.iter().any(|s| scopes.iter().any(|x| x == s));
+        let has_drive = drive_scopes.iter().any(|s| scopes.iter().any(|x| x == s));
 
+        assert!(
+            !(has_youtube && has_drive),
+            "{id} requests YouTube and Drive scopes together — Google rejects \
+             this combination at the authorize endpoint with 'scopes that cannot \
+             be requested together'. Split the connect flow per product, or \
+             narrow the set."
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_unified_google_provider_is_gone() {
+    // It was a second YouTube button: the same credentials, the same
+    // publish path, the same character limit. In the channels list it showed
+    // the founder's YouTube channels under a "Google Suite" heading.
+    let config = Config::from_env().expect("config");
+    let registry = ProviderRegistry::new(&config, None, None);
     assert!(
-        !(has_youtube && has_drive),
-        "google requests YouTube and Drive scopes together — Google rejects \
-         this combination at the authorize endpoint with 'scopes that cannot \
-         be requested together'. Split the connect flow per product, or \
-         narrow the set."
+        registry.get("google").is_none(),
+        "the duplicate `google` provider is registered again"
     );
 }
 
-// ─────────────────────────────────────────────────────────────
-// 5. LinkedIn: the scope that needs a product nobody has
-// ─────────────────────────────────────────────────────────────
-
-/// LinkedIn's `r_member_social` requires the "Sign In with LinkedIn using
-/// Mobile or the LinkedIn API" product to be enabled on the app. When it is
-/// NOT enabled, LinkedIn answers the authorize request with its own error
-/// page ("Bummer, something went wrong. In five seconds, you will be
-/// redirected to: …") rather than a consent screen. The provider cannot
-/// fix the operator's app configuration, but it MUST NOT request a scope the
-/// product gate will refuse — and it must tell the operator which product
-/// to enable when it does.
 #[tokio::test]
 async fn linkedin_does_not_request_a_product_gated_scope_silently() {
     let config = Config::from_env().expect("config");
@@ -876,56 +885,67 @@ async fn frontend_url_is_still_the_csrf_origin() {
     );
 }
 
-/// Every provider that requests GOOGLE scopes must pass the scope guard.
+/// Every provider that requests GOOGLE scopes must pass the scope rule.
 ///
-/// The guard (`social::scope_guard`) was introduced for the unified `google`
-/// provider and is CALLED only from `google::generate_auth_url`. But the fix
-/// that narrowed `google`'s scopes also split Drive, Gmail and Calendar into
-/// their own providers, so three more consent flows now request
-/// `googleapis.com` scopes and NONE of them passes through the guard.
+/// The rule is Google's, not ours: a YouTube Data API scope beside a Drive
+/// scope, or beside `calendar.events`, is refused at the authorize endpoint
+/// BEFORE any consent screen exists ("scopes that cannot be requested
+/// together"), and the founder's only clue is a raw Google error page.
 ///
-/// That reintroduces the defect the guard was built to prevent, one provider
-/// over. Proven by mutation before the test existed: re-adding
-/// `youtube.upload` beside `drive.file` in `src/social/drive.rs` compiled and
-/// `cargo test --lib` stayed 527/527 green — the refusal that used to happen
-/// locally would now happen on Google's page again, with a message naming no
-/// fix and no consent screen.
+/// It used to live in a runtime guard called from the unified `google`
+/// provider's `generate_auth_url`. That provider is gone (it published
+/// YouTube videos and nothing else), and with it the only call site - so the
+/// rule now lives HERE, over the registry, which is stronger: a provider
+/// added later is covered the day it is registered, and no request path can
+/// forget to call it.
 ///
-/// The test is over the REGISTRY, not a list of names, so a provider added
-/// later is covered the day it is registered.
+/// Proven by mutation before the test existed: re-adding `youtube.upload`
+/// beside `drive.file` in `src/social/drive.rs` compiled and
+/// `cargo test --lib` stayed green.
 #[tokio::test]
-async fn every_google_scoped_provider_passes_the_scope_guard() {
+async fn every_google_scoped_provider_requests_a_grantable_scope_set() {
     switchpost::config::load_dotenv_for_tests();
     let config = Config::from_env().expect("config");
     let registry = ProviderRegistry::new(&config, None, None);
+
+    // Google refuses these pairs together. Matched by FAMILY (the scope's
+    // root), so `youtube.readonly` or `drive.file` is caught without
+    // editing this table.
+    const CONFLICTING_FAMILIES: &[(&str, &str)] = &[
+        ("https://www.googleapis.com/auth/youtube", "https://www.googleapis.com/auth/drive"),
+        ("https://www.googleapis.com/auth/youtube", "https://www.googleapis.com/auth/calendar.events"),
+    ];
 
     let mut checked = 0usize;
     for provider in registry.all() {
         let scopes = provider.scopes();
         // Only Google-flavored providers: the conflict rules are Google's,
-        // and asserting them on X or Reddit would be checking a rule that
-        // does not apply to them.
+        // and asserting them on X or Reddit would check a rule that does not
+        // apply to them.
         if !scopes.iter().any(|s| s.contains("googleapis.com")) {
             continue;
         }
         checked += 1;
-        if let Err((a, b, _)) =
-            switchpost::social::scope_guard::google_scope_conflict(&scopes, provider.identifier())
-        {
-            panic!(
+        for (family_a, family_b) in CONFLICTING_FAMILIES {
+            let a = scopes.iter().find(|s| s.starts_with(family_a));
+            let b = scopes.iter().find(|s| s.starts_with(family_b));
+            assert!(
+                !(a.is_some() && b.is_some()),
                 "provider `{}` requests a scope pair Google refuses together: \
-                 {a} + {b}. Add the pair-check to this provider's \
-                 generate_auth_url, or drop one of the scopes.",
-                provider.identifier()
+                 {} + {}. Drop one of them, or split the consent per product.",
+                provider.identifier(),
+                a.unwrap(),
+                b.unwrap()
             );
         }
     }
-    // Four is the real count: google, drive, gmail, calendar. A drop to zero
-    // means the registry stopped populating, not that the rule is satisfied.
+    // The real count is the Google family that remains: youtube, gmail,
+    // calendar, drive, google_my_business. A drop to zero means the registry
+    // stopped populating, not that the rule is satisfied.
     assert!(
         checked >= 4,
-        "checked {checked} google-scoped providers, expected 4+ (google, \
-         drive, gmail, calendar)"
+        "only {checked} Google-scoped providers were checked - the registry \
+         stopped populating, so this test proved nothing"
     );
 }
 
@@ -1349,6 +1369,9 @@ fn extract_authorize_url(status: StatusCode, body: &str) -> String {
 async fn re_connecting_an_already_connected_page_succeeds() {
     let state = state().await;
     let user_id = DEFAULT_USER_ID;
+    // The tests share one database and run in parallel, so the seeded rows
+    // must be unique per run or a rerun counts its own history.
+    let nonce = format!("{}", uuid::Uuid::new_v4());
 
     // A parent account and the page row it already connected. Both are
     // written directly, because a live OAuth is never available in CI and
@@ -1356,9 +1379,9 @@ async fn re_connecting_an_already_connected_page_succeeds() {
     let parent = switchpost::db::queries::create_integration(
         &state.db,
         user_id,
-        "google",
-        "Google",
-        "parent-account-1",
+        "youtube",
+        "YouTube",
+        &format!("parent-{nonce}"),
         "parent-access-token",
         None,
         None,
@@ -1375,9 +1398,9 @@ async fn re_connecting_an_already_connected_page_succeeds() {
     let page = switchpost::db::queries::create_integration(
         &state.db,
         user_id,
-        "google",
-        "Google",
-        "page-acct-1",
+        "youtube",
+        "YouTube",
+        &format!("page-{nonce}"),
         "page-access-token",
         None,
         None,
@@ -1396,7 +1419,7 @@ async fn re_connecting_an_already_connected_page_succeeds() {
         .expect("list before");
     let rows_for_page = before
         .iter()
-        .filter(|i| i.internal_id == "page-acct-1")
+        .filter(|i| i.internal_id == page.internal_id)
         .count();
     assert_eq!(
         rows_for_page, 1,
@@ -1407,10 +1430,7 @@ async fn re_connecting_an_already_connected_page_succeeds() {
     let (status, body) = call(
         &state,
         "POST",
-        &format!(
-            "/api/integrations/{}/connect-page/page-acct-1",
-            parent.id
-        ),
+        &format!("/api/integrations/{}/connect-page/{}", parent.id, page.internal_id),
         None,
     )
     .await;
@@ -1442,7 +1462,7 @@ async fn re_connecting_an_already_connected_page_succeeds() {
         .expect("list after");
     let rows_after = after
         .iter()
-        .filter(|i| i.internal_id == "page-acct-1")
+        .filter(|i| i.internal_id == page.internal_id)
         .count();
     assert_eq!(
         rows_after, rows_for_page,
@@ -1476,13 +1496,16 @@ async fn re_connecting_an_already_connected_page_succeeds() {
 async fn re_connecting_survives_a_provider_that_no_longer_lists_the_page() {
     let state = state().await;
     let user_id = DEFAULT_USER_ID;
+    // The tests share one database and run in parallel, so the seeded rows
+    // must be unique per run or a rerun counts its own history.
+    let nonce = format!("{}", uuid::Uuid::new_v4());
 
     let parent = switchpost::db::queries::create_integration(
         &state.db,
         user_id,
-        "google",
-        "Google",
-        "parent-account-2",
+        "youtube",
+        "YouTube",
+        &format!("parent-{nonce}"),
         "parent-access-token",
         None,
         None,
@@ -1499,9 +1522,9 @@ async fn re_connecting_survives_a_provider_that_no_longer_lists_the_page() {
     let page = switchpost::db::queries::create_integration(
         &state.db,
         user_id,
-        "google",
-        "Google",
-        "page-acct-2",
+        "youtube",
+        "YouTube",
+        &format!("page-{nonce}"),
         "already-working-token",
         None,
         None,
@@ -1521,10 +1544,7 @@ async fn re_connecting_survives_a_provider_that_no_longer_lists_the_page() {
     let (status, body) = call(
         &state,
         "POST",
-        &format!(
-            "/api/integrations/{}/connect-page/page-acct-2",
-            parent.id
-        ),
+        &format!("/api/integrations/{}/connect-page/{}", parent.id, page.internal_id),
         None,
     )
     .await;

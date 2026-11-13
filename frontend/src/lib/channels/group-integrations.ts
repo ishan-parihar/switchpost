@@ -1,5 +1,4 @@
 import type { Integration } from "$lib/api/integrations";
-import { isGoogleFamily } from "./google-suite";
 
 /**
  * Group connected channels by the heading they belong under.
@@ -38,11 +37,14 @@ export function groupIntegrations(
   integrations: Integration[]
 ): Map<string, Integration[]> {
   return integrations.reduce((g, int) => {
-    // One heading for the whole Google family, so a founder who connected
-    // Google once sees ONE group with their accounts under it.
-    const key = isGoogleFamily(int.provider_identifier)
-      ? "Google Suite"
-      : int.provider_identifier;
+    // One heading per PROVIDER.
+    //
+    // The Google family used to collapse into a single "Google Suite"
+    // heading, which read as one account - and showed the founder's six
+    // YouTube channels under a heading that named none of them ("Google
+    // Suite (7)"). Each Google service is its own consent and its own
+    // provider now, so each keeps its own heading.
+    const key = int.provider_identifier;
 
     // A Map's key is not reactive state in Svelte 5 (§9.22), so the caller
     // reads a fresh Map each time `integrations` changes. That is why this
@@ -64,6 +66,5 @@ export function groupHeading(
   key: string,
   integrations: Integration[]
 ): string {
-  if (key === "Google Suite") return "Google Suite";
   return integrations[0]?.provider_name || key;
 }

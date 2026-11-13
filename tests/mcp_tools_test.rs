@@ -61,7 +61,6 @@ async fn test_provider_registry_has_all_providers() {
         "devto",
         "hashnode",
         "github",
-        "google",
         "google_my_business",
         "skool",
         "gmail",
@@ -80,12 +79,15 @@ async fn test_provider_registry_has_all_providers() {
     // and `drive` are now their own connectable providers, because Google
     // refuses `auth/youtube*` and `auth/drive*` in ONE consent and the
     // unified `google` integration can therefore never carry a Drive grant.
+    // It then shrank to 28: the unified `google` provider published YouTube
+    // videos and nothing else, so it was a second YouTube button whose rows
+    // showed as a "Google Suite (7)" outlier in the channels list.
     // `gmail` was already being OFFERED on the Channels screen without being
     // registered — its connect button 404'd — which is the drift this list is
     // here to catch.
     assert_eq!(
         ids, expected,
-        "Provider registry should contain all 29 default providers"
+        "Provider registry should contain all 28 default providers"
     );
     println!("✅ Provider registry: {} providers registered", ids.len());
 }
@@ -596,30 +598,31 @@ async fn test_linkedin_page_provider_creation() {
 // ── Test 17: YouTube provider creation and scopes ────────────────
 
 #[tokio::test]
-async fn test_google_provider_creation() {
+async fn test_youtube_provider_creation() {
     let config = get_config();
     let registry = get_registry(&config);
 
-    let google = registry
-        .get("google")
-        .expect("Google Suite provider should exist");
-    assert_eq!(google.identifier(), "google");
-    assert_eq!(google.name(), "Google Suite");
+    // The unified `google` provider is gone: it published YouTube videos and
+    // nothing else, so it was a second YouTube button. Each Google service is
+    // its own provider with its own consent now.
+    let youtube = registry
+        .get("youtube")
+        .expect("YouTube provider should exist");
+    assert_eq!(youtube.identifier(), "youtube");
+    assert_eq!(youtube.name(), "YouTube");
 
-    let scopes = google.scopes();
+    let scopes = youtube.scopes();
     assert!(scopes.contains(&"https://www.googleapis.com/auth/youtube.force-ssl".to_string()));
-    assert!(scopes.contains(&"https://www.googleapis.com/auth/gmail.readonly".to_string()));
-    assert!(scopes.contains(&"https://www.googleapis.com/auth/calendar".to_string()));
     // Drive is NOT here, and that is the fix. Google's authorize endpoint
     // refuses `auth/youtube*` and `auth/drive*` in one consent
     // ("This request contains scopes that cannot be requested together"),
-    // so the combined set the old provider drew made the whole connect flow
-    // answer `Error 400: invalid_request` before any consent screen.
-    // The Drive grant now comes from the separate `drive` provider, whose
+    // so a combined set made the whole connect flow answer
+    // `Error 400: invalid_request` before any consent screen.
+    // The Drive grant comes from the separate `drive` provider, whose
     // own scopes are asserted below.
     assert!(
         !scopes.contains(&"https://www.googleapis.com/auth/drive.readonly".to_string()),
-        "Drive scopes must not be mixed into the unified google provider: \
+        "Drive scopes must not ride on the YouTube provider: \
          Google refuses them together"
     );
 
@@ -633,7 +636,7 @@ async fn test_google_provider_creation() {
     );
 
     println!(
-        "✅ GoogleSuite: {} scopes configured ({})",
+        "✅ YouTube: {} scopes configured ({})",
         scopes.len(),
         scopes.join(", ")
     );

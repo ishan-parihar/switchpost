@@ -90,7 +90,6 @@ pub const TIER_2: &[&str] = &[
     "devto",
     "hashnode",
     "github",
-    "google",
     "google_my_business",
     "skool",
     "gmail",
@@ -207,11 +206,6 @@ pub fn provider_meta(id: &str) -> (&str, &'static str, &'static str) {
             "▶️",
             "Requires: YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET",
         ),
-        "google" => (
-            "Google Suite",
-            "▶️",
-            "Requires: YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET",
-        ),
         "telegram-bot" => ("Telegram Bot", "✈️", "Requires: TELEGRAM_BOT_TOKENS"),
         "telegram-user" => (
             "Telegram User",
@@ -255,12 +249,13 @@ mod tests {
         // Google tools need.
         assert_eq!(
             TIER_2.len(),
-            17,
+            16,
             "v25 §1 Tier-2 was 14; +gmail +calendar +drive after the \
-             Google consent split (see TIER_2's doc comment)"
+             Google consent split; -google when it turned out to publish \
+             YouTube videos and nothing else (see TIER_2's doc comment)"
         );
         assert_eq!(TIER_3.len(), 1, "only farcaster is archived in v25 §1");
-        assert_eq!(all_known_identifiers().len(), 30);
+        assert_eq!(all_known_identifiers().len(), 29);
     }
 
     #[test]
@@ -337,7 +332,6 @@ mod tests {
             "instagram",
             "threads",
             "youtube",
-            "google",
             "telegram-bot",
             "telegram-user",
             "bluesky",

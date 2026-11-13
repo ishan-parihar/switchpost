@@ -69,13 +69,6 @@ export const PROVIDERS: Record<string, ProviderMeta> = {
   calendar:             { label: 'Calendar',   color: '#4285f4', icon: 'CA',  charLimit: 0 },
   drive:                { label: 'Drive',      color: '#1fa463', icon: 'DR',  charLimit: 0 },
   'google-my-business': { label: 'Google Biz', color: '#4285f4', icon: 'GB',  charLimit: 3000 },
-  // The `google` provider is the Suite consent itself. Its glyph has to be
-  // DISTINCT from the four services it connects (GM/CA/DR/YT): deriving a
-  // glyph from the display name "Google Suite" gives "GO", and Google
-  // Calendar and Google Drive give the same two letters - which is
-  // precisely the collision in ChannelRail when one login produced a
-  // connected account per service.
-  google:               { label: 'Google Suite', color: '#4285f4', icon: 'GS',  charLimit: 5000 },
 };
 
 const FALLBACK_COLOR = '#818cf8'; // indigo-400

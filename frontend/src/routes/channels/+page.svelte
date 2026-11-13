@@ -60,7 +60,6 @@
   // Calendar, Drive and YouTube keep their own tiles because Google refuses
   // their scope combinations. See the module for the measured reasoning -
   // `tests/google_suite_group_test.rs` pins both the list and the reason.
-  import { collapseGoogleSuite, GOOGLE_SUITE_NOTE, isGoogleFamily, googleSuiteChoices, GOOGLE_SUITE_CHOICE_LABELS } from "$lib/channels/google-suite";
   const PROVIDER_LABEL_OVERRIDES: Record<string, string> = {
     x: "X (Twitter)",
     "instagram-standalone": "Instagram (Standalone)",
@@ -79,12 +78,6 @@
     "google-my-business": "Google Business",
   };
   function providerLabel(provider: string): string {
-    // The suite tile's representative is `google`, but it speaks for the
-    // PAIR (google + gmail, one credential, one consent), so it is labelled as
-    // the group rather than as one member. Without this the tile reads
-    // "Google" and the Gmail tile beside it reads as a second, separate
-    // Google account.
-    if (provider === SUITE_REPRESENTATIVE) return "Google Suite";
     if (PROVIDER_LABEL_OVERRIDES[provider]) return PROVIDER_LABEL_OVERRIDES[provider];
     return centralProviderLabel(provider);
   }
@@ -112,7 +105,6 @@
   const availableProviders = [
     "x", "facebook", "instagram", "instagram-standalone", "threads",
     "linkedin", "linkedin-page",
-    "google",
     "reddit", "bluesky", "discord", "pinterest",
     "tiktok", "youtube",
     "mastodon",
@@ -154,23 +146,10 @@
     for (const i of integrations) m.set(i.provider_identifier, (m.get(i.provider_identifier) ?? 0) + 1);
     return m;
   });
-  let connectableProviders = $derived(collapseGoogleSuite(availableProviders).standalone);
-
-  // How many Google-family accounts the founder has, under the ONE suite
-  // tile. The badge has to describe the whole credential pair, not just
-  // `google`, or a founder with a connected Gmail and a connected Calendar
-  // sees two separate tiles and thinks the account is gone.
-  let suiteConnected = $derived.by(() => {
-    let n = 0;
-    for (const i of integrations) {
-      if (isGoogleFamily(i.provider_identifier)) n++;
-    }
-    return n;
-  });
+  let connectableProviders = $derived(availableProviders);
 
   // A provider id the grid should render as the suite tile's representative is
   // `google`; the tile needs to know it is a group so it can show the note.
-  const SUITE_REPRESENTATIVE = 'google';
 
   async function load() {
     loading = true;
@@ -461,8 +440,7 @@
     {:else}
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
         {#each connectableProviders as provider (provider)}
-          {@const isSuite = provider === SUITE_REPRESENTATIVE}
-          {@const connCount = isSuite ? suiteConnected : (connectedCounts.get(provider) ?? 0)}
+          {@const connCount = connectedCounts.get(provider) ?? 0}
           <!--
             A wrapper `div` for the EVERY case, not just the suite: the
             chooser below is a sibling of the tile button, never a child.
@@ -486,41 +464,8 @@
               <span class="text-xs text-center">
                 {connCount > 0 ? `Add another ${providerLabel(provider)}` : providerLabel(provider)}
               </span>
-              {#if isSuite}
-                <!--
-                  What the one credential covers. WITHOUT the chooser below,
-                  the founder sees one Google tile covering only Google+Gmail
-                  while Calendar/Drive/YouTube sit nowhere, and reads it as a
-                  bug. It is a platform constraint, not an omission.
-                -->
-                <span class="text-[10px] text-muted leading-tight px-1">{GOOGLE_SUITE_NOTE}</span>
-              {/if}
             </button>
 
-            {#if isSuite}
-              <!--
-                The services the Google credential can connect. The grid
-                collapsed the whole Google family into ONE tile - Calendar,
-                Drive, YouTube and Google Biz are no longer separate tiles -
-                so this is what keeps each of them REACHABLE. Each entry runs
-                its own OAuth round because Google refuses certain scope pairs
-                together (`GOOGLE_CONFLICTING_SCOPE_FAMILIES`), but the
-                founder picks from here rather than hunting six tiles.
-              -->
-              <div class="flex flex-wrap justify-center gap-1 pt-1.5">
-                {#each googleSuiteChoices() as g}
-                  <button
-                    type="button"
-                    onclick={() => initiateConnect(g)}
-                    disabled={connecting === g}
-                    aria-label="Connect {GOOGLE_SUITE_CHOICE_LABELS[g] ?? g}"
-                    class="text-[10px] px-2 min-h-11 flex items-center rounded-full border border-line text-muted bg-surface hover:text-content hover:border-accent/50 transition-colors disabled:opacity-40"
-                  >
-                    {GOOGLE_SUITE_CHOICE_LABELS[g] ?? providerLabel(g)}
-                  </button>
-                {/each}
-              </div>
-            {/if}
           </div>
         {/each}
       </div>

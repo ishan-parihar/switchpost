@@ -55,7 +55,6 @@ fn reads_picture(src: &str) -> bool {
 /// account identity: whatever one of them can see about "who am I", the
 /// rest can too, because it is the same OAuth account.
 const GOOGLE_FAMILY: &[&str] = &[
-    "src/social/google.rs",
     "src/social/gmail.rs",
     "src/social/calendar.rs",
     "src/social/drive.rs",
@@ -85,7 +84,6 @@ const GOOGLE_FAMILY: &[&str] = &[
 ///
 /// The default (absent from this table) is the shared OpenID reader.
 const PICTURE_SOURCE_OVERRIDES: &[(&str, &str)] = &[
-    ("src/social/google.rs", "item[\"snippet\"][\"thumbnails\"]"),
     ("src/social/youtube.rs", "item[\"snippet\"][\"thumbnails\"]"),
     ("src/social/drive.rs", "user[\"picture\"]"),
 ];

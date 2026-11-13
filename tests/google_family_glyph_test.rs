@@ -36,7 +36,6 @@ use std::process::Command;
 /// The ids are the ones the BACKEND registry registers (underscore form),
 /// which is what `Integration.provider_identifier` carries.
 const GOOGLE_FAMILY: &[&str] = &[
-    "google",
     "gmail",
     "calendar",
     "drive",
@@ -97,8 +96,7 @@ fn icon_of(provider: &str) -> String {
 /// THE RULE: every Google-family provider must have a DISTINCT glyph.
 ///
 /// This is the assertion that fails if someone adds a provider whose name
-/// shares a prefix, or removes a curated code. It is also the reason `google`
-/// got an entry: without one, two providers could collide on the fallback.
+/// shares a prefix, or removes a curated code.
 #[test]
 fn every_google_family_provider_has_a_distinct_glyph() {
     let mut seen: Vec<(String, String)> = Vec::new();
@@ -135,12 +133,10 @@ fn every_google_family_provider_has_a_distinct_glyph() {
 /// cannot pass on a different-but-equivalent fix.
 #[test]
 fn the_reported_google_collision_is_gone() {
-    // Before the fix these three were all "GO".
-    let suite = icon_of("google");
+    // Before the fix these were all "GO".
     let cal = icon_of("calendar");
     let drive = icon_of("drive");
 
-    assert_eq!(suite, "GS", "the Suite provider's own glyph");
     assert_eq!(cal, "CA", "Google Calendar must not read 'GO'");
     assert_eq!(drive, "DR", "Google Drive must not read 'GO'");
 }
@@ -347,10 +343,9 @@ fn icon_via_provider_icon(id: &str) -> String {
 
     // A provider with an SVG path renders the LOGO, not a letter, so there is
     // no letter to compare. Only the fallback providers are in scope here.
-    let has_logo = source
-        .lines()
-        .any(|line| line.trim_start().starts_with(&format!("\"{id}\":"))
-            && line.contains("'<path"));
+    let has_logo = source.lines().any(|line| {
+        line.trim_start().starts_with(&format!("\"{id}\":")) && line.contains("'<path")
+    });
     if has_logo {
         return String::new();
     }

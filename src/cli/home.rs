@@ -52,7 +52,6 @@ pub fn handle_home() {
         "skool",
         "linkedin-page",
         "instagram-standalone",
-        "google",
         "google_my_business",
     ];
 
