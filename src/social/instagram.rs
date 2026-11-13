@@ -412,6 +412,25 @@ impl SocialProvider for InstagramProvider {
         if http_status.is_success() {
             return Ok(());
         }
+        // The Graph API refuses the delete with this app's tokens — both
+        // the PAGE token and the parent USER token answer "(#10)
+        // Insufficient permissions to access this data" or "Unsupported
+        // delete request" (measured against every delete shape on
+        // 2026-11-13: the media id, /{ig_user}/media?media_id=…, and
+        // /{page}/media?media_id=…). Meta does not grant media deletion
+        // to these tokens.
+        //
+        // So say the TRUE thing: the post is live and the app cannot take
+        // it down. The generic mapper blamed the CAPTION, which sent the
+        // founder looking at the wrong thing entirely.
+        if body.contains("Insufficient permissions") || body.contains("Unsupported delete request")
+        {
+            return Err(ProviderError::Api(format!(
+                "Instagram does not let this app delete a published post (the Graph API refuses \
+                 it for these tokens: {body}). The post is LIVE — delete it from the Instagram \
+                 app (or the Meta business suite). Nothing is wrong with the post itself."
+            )));
+        }
         Err(self.provider_error(&body, http_status.as_u16()))
     }
 
