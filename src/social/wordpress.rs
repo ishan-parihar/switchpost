@@ -306,6 +306,47 @@ impl SocialProvider for WordPressProvider {
         ))
     }
 
+    /// Delete a published post.
+    ///
+    /// `DELETE {site}/wp-json/wp/v2/posts/{id}?force=true`. WordPress
+    /// Application Passwords carry the capability set the user granted on
+    /// the site; a password without `delete_posts` is refused by
+    /// WordPress with a 401, which is what the app says.
+    async fn delete_published(
+        &self,
+        access_token: &str,
+        platform_post_id: &str,
+    ) -> Result<(), ProviderError> {
+        if platform_post_id.trim().is_empty() {
+            return Err(ProviderError::Api(
+                "post has no platform_post_id — nothing to delete on WordPress".into(),
+            ));
+        }
+        let (site_url, username, app_password) = self.parse_creds(access_token);
+        if site_url.is_empty() || username.is_empty() || app_password.is_empty() {
+            return Err(ProviderError::Auth(
+                "Invalid WordPress credentials. Re-connect your WordPress integration.".into(),
+            ));
+        }
+        let url = format!(
+            "{}/wp-json/wp/v2/posts/{}?force=true",
+            site_url.trim_end_matches('/'),
+            platform_post_id
+        );
+        let resp = self
+            .http
+            .delete(url)
+            .basic_auth(username, Some(app_password))
+            .send()
+            .await?;
+        let http_status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if http_status.is_success() {
+            return Ok(());
+        }
+        Err(self.provider_error(&body, http_status.as_u16()))
+    }
+
     async fn publish(
         &self,
         access_token: &str,

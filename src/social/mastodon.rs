@@ -517,6 +517,34 @@ impl SocialProvider for MastodonProvider {
         })
     }
 
+    /// Delete a published status.
+    ///
+    /// Mastodon gates `DELETE /api/v1/statuses/{id}` on the `write:statuses`
+    /// scope, which the `write` scope the app already asks for covers.
+    async fn delete_published(
+        &self,
+        access_token: &str,
+        platform_post_id: &str,
+    ) -> Result<(), ProviderError> {
+        if platform_post_id.trim().is_empty() {
+            return Err(ProviderError::Api(
+                "post has no platform_post_id — nothing to delete on Mastodon".into(),
+            ));
+        }
+        let resp = self
+            .http
+            .delete(self.api_url(&format!("/api/v1/statuses/{platform_post_id}")))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .await?;
+        let http_status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if http_status.is_success() {
+            return Ok(());
+        }
+        Err(self.provider_error(&body, http_status.as_u16()))
+    }
+
     async fn publish(
         &self,
         access_token: &str,

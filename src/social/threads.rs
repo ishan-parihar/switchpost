@@ -109,6 +109,12 @@ impl SocialProvider for ThreadsProvider {
             "threads_manage_replies".into(),
             "threads_read_replies".into(),
             "threads_manage_insights".into(),
+            // `threads_delete` gates `DELETE /{thread-id}`, which this
+            // provider implements (`delete_thread`). The scope was dropped
+            // earlier with the reasoning "no call site" — that was true of
+            // the TRAIT method, not of the provider: the helper was there
+            // and the trait never called it. Both are now true.
+            "threads_delete".into(),
         ]
     }
 
@@ -323,6 +329,28 @@ impl SocialProvider for ThreadsProvider {
                 .as_str()
                 .map(String::from),
         })
+    }
+
+    /// Delete a published thread.
+    ///
+    /// The provider already had `delete_thread`; the TRAIT method was never
+    /// wired to it, so the app could publish a thread and never remove it
+    /// (the trait's default refused with "This provider does not support
+    /// deleting a published post"). `threads_delete` is the scope that
+    /// gates this call.
+    async fn delete_published(
+        &self,
+        access_token: &str,
+        platform_post_id: &str,
+    ) -> Result<(), ProviderError> {
+        if platform_post_id.trim().is_empty() {
+            return Err(ProviderError::Api(
+                "post has no platform_post_id — nothing to delete on Threads".into(),
+            ));
+        }
+        self.delete_thread(access_token, platform_post_id)
+            .await
+            .map(|_| ())
     }
 
     async fn publish(
@@ -1296,6 +1324,10 @@ mod tests {
                 "threads_manage_replies",
                 "threads_read_replies",
                 "threads_manage_insights",
+                // The delete is implemented (`delete_published` ->
+                // `delete_thread`), so the consent asks for the scope that
+                // gates it.
+                "threads_delete",
             ],
             "the Threads consent fails as a whole when the app asks for a \
              permission it is not approved for. Request only what is implemented."

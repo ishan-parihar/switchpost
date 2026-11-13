@@ -284,6 +284,14 @@ impl SocialProvider for TikTokProvider {
             // Display API read scope: backs list_videos(), which get_recent_posts()
             // and the analytics/engagement paths all depend on.
             "video.list".into(),
+            // `video.delete` gates `POST /v2/video/delete/`. The provider
+            // implements the delete (the app can remove a video it
+            // published), so the consent has to ask for it. TikTok gates
+            // this one behind App Review for accounts outside the app's
+            // own test list, so the delete works for the developer's
+            // channels and is refused for anyone else until the review
+            // passes.
+            "video.delete".into(),
         ]
     }
 
@@ -493,6 +501,40 @@ impl SocialProvider for TikTokProvider {
     ///   1. Download the video from the first media attachment URL.
     ///   2. Upload the video bytes to TikTok via multipart POST.
     ///   3. Create the video post with metadata.
+    /// Delete a published TikTok video.
+    ///
+    /// `POST /v2/video/delete/` with the video id, gated on the
+    /// `video.delete` scope.
+    async fn delete_published(
+        &self,
+        access_token: &str,
+        platform_post_id: &str,
+    ) -> Result<(), ProviderError> {
+        if platform_post_id.trim().is_empty() {
+            return Err(ProviderError::Api(
+                "post has no platform_post_id — nothing to delete on TikTok".into(),
+            ));
+        }
+        let resp = self
+            .http
+            .post("https://open.tiktokapis.com/v2/video/delete/")
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("Content-Type", "application/json; charset=UTF-8")
+            .body(serde_json::json!({ "video_id": platform_post_id }).to_string())
+            .send()
+            .await?;
+        let http_status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if http_status.is_success() {
+            let json: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+            if json["data"]["delete_status"] == "0" || json["error_code"].is_null() {
+                return Ok(());
+            }
+            return Err(self.provider_error(&body, http_status.as_u16()));
+        }
+        Err(self.provider_error(&body, http_status.as_u16()))
+    }
+
     async fn publish(
         &self,
         access_token: &str,

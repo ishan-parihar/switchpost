@@ -1661,6 +1661,13 @@ impl SocialProvider for XProvider {
             "tweet.write".into(),
             "users.read".into(),
             "offline.access".into(),
+            // Media upload. The provider uploads to `api.x.com/2/media/upload`
+            // and to the v1.1 endpoint; X gates BOTH on `media.write`, and
+            // without it a post with an image or a video fails with
+            // "Media is not authorized for upload" — the media path is a
+            // feature the app has (the composer attaches media), so it is a
+            // permission the consent must ask for.
+            "media.write".into(),
             "like.read".into(),
             "like.write".into(),
             "bookmark.read".into(),

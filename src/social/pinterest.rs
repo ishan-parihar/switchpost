@@ -680,6 +680,36 @@ impl SocialProvider for PinterestProvider {
         Ok(pin_analytics_series(&json, &today))
     }
 
+    /// Delete a published pin.
+    ///
+    /// `DELETE /v5/pins/{pin_id}`, gated on the `pins:write` scope the
+    /// consent already asks for.
+    async fn delete_published(
+        &self,
+        access_token: &str,
+        platform_post_id: &str,
+    ) -> Result<(), ProviderError> {
+        if platform_post_id.trim().is_empty() {
+            return Err(ProviderError::Api(
+                "post has no platform_post_id — nothing to delete on Pinterest".into(),
+            ));
+        }
+        let resp = self
+            .http
+            .delete(format!(
+                "https://api.pinterest.com/v5/pins/{platform_post_id}"
+            ))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .await?;
+        let http_status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if http_status.is_success() {
+            return Ok(());
+        }
+        Err(self.provider_error(&body, http_status.as_u16()))
+    }
+
     async fn publish(
         &self,
         access_token: &str,

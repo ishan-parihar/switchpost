@@ -1371,8 +1371,37 @@ impl SocialProvider for RedditProvider {
         "Reddit"
     }
 
+    /// The scopes Reddit's API gates each operation on.
+    ///
+    /// The old set was `read`, `identity`, `submit` — enough to PUBLISH
+    /// and nothing else. Every other operation was unreachable:
+    ///
+    ///   - `edit`          — edit a post or a comment (and DELETE a post:
+    ///                       Reddit's `/api/del` is gated on `edit`)
+    ///   - `vote`          — upvote / downvote
+    ///   - `flair`          — set a post's flair
+    ///   - `history`       — the account's own post and comment history
+    ///   - `mysubreddits`  — the subreddits the account can post to (the
+    ///                       target picker's source)
+    ///   - `privatemessages`— read and send DMs (the app has a DM surface)
+    ///   - `subscribe`     — follow / unfollow a subreddit
+    ///
+    /// A scope nobody reads is a gate nobody can pass, and a scope
+    /// something DOES read but the consent never asks for is a dead
+    /// feature. Both were true here.
     fn scopes(&self) -> Vec<String> {
-        vec!["read".into(), "identity".into(), "submit".into()]
+        vec![
+            "identity".into(),
+            "read".into(),
+            "submit".into(),
+            "edit".into(),
+            "vote".into(),
+            "flair".into(),
+            "history".into(),
+            "mysubreddits".into(),
+            "privatemessages".into(),
+            "subscribe".into(),
+        ]
     }
 
     fn max_content_length(&self) -> usize {
@@ -1631,6 +1660,31 @@ impl SocialProvider for RedditProvider {
             "Reddit token expired and no refresh mechanism configured. Set REDDIT_REFRESH_TOKEN or REDDIT_USERNAME/REDDIT_PASSWORD in .env"
                 .into(),
         ))
+    }
+
+    /// Delete a published Reddit post.
+    ///
+    /// Reddit's `/api/del` is gated on the `edit` scope, which the old
+    /// scope set did not ask for — so the delete could never work, and
+    /// `delete_published` was not implemented at all. The provider had a
+    /// `delete()` helper, but it takes `&mut self` (it builds a modhash for
+    /// the cookie path), and the trait hands out `&self`.
+    ///
+    /// The OAuth path does not need a modhash: the bearer token IS the
+    /// authorization, so the delete posts straight to `oauth.reddit.com`.
+    async fn delete_published(
+        &self,
+        access_token: &str,
+        platform_post_id: &str,
+    ) -> Result<(), ProviderError> {
+        if platform_post_id.trim().is_empty() {
+            return Err(ProviderError::Api(
+                "post has no platform_post_id — nothing to delete on Reddit".into(),
+            ));
+        }
+        self.post_oauth(access_token, "/api/del", &[("id", platform_post_id.trim())])
+            .await
+            .map(|_| ())
     }
 
     async fn publish(
