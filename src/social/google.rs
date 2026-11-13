@@ -226,6 +226,38 @@ impl SocialProvider for GoogleProvider {
         }
     }
 
+    /// Delete a published YouTube video (the `google` provider uploads
+    /// videos through the YouTube Data API).
+    ///
+    /// Without this, the trait's default refused the delete — "This
+    /// provider does not support deleting a published post" — so a video
+    /// uploaded through the Google Suite channel could never be taken down
+    /// from the app. Measured live on 2026-11-13: two test videos were
+    /// live on the founder's channel with no way to remove them.
+    async fn delete_published(
+        &self,
+        access_token: &str,
+        platform_post_id: &str,
+    ) -> Result<(), ProviderError> {
+        if platform_post_id.trim().is_empty() {
+            return Err(ProviderError::Api(
+                "post has no platform_post_id — nothing to delete on YouTube".into(),
+            ));
+        }
+        let resp = self
+            .http
+            .delete("https://youtube.googleapis.com/youtube/v3/videos")
+            .query(&[("id", platform_post_id), ("access_token", access_token)])
+            .send()
+            .await?;
+        let http_status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if http_status.is_success() {
+            return Ok(());
+        }
+        Err(self.provider_error(&body, http_status.as_u16()))
+    }
+
     async fn publish(
         &self,
         access_token: &str,
