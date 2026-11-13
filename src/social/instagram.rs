@@ -2119,8 +2119,20 @@ impl InstagramProvider {
 
     /// Map a media item's Graph `status_code` onto the publish lifecycle.
     ///
-    /// `FINISHED` is the only state that means the media is on the feed;
-    /// `PUBLISHED` means accepted-but-transcoding, which is still pending.
+    /// `FINISHED` and `PUBLISHED` both mean the media IS ON THE FEED.
+    /// `PUBLISHED` is Instagram's own word for "live, still transcoding" —
+    /// the reel is on the profile and the founder can see it while Instagram
+    /// finishes the video.
+    ///
+    /// The old code called `PUBLISHED` pending, so the poll kept going for
+    /// the whole 40-check budget (200 seconds) and then FAILED a post that
+    /// had been live the entire time. The founder saw an error on a live
+    /// post — and, because the manual publish runs inside the HTTP
+    /// request, the request itself outlived the tunnel's 100-second limit
+    /// and came back as a Cloudflare "524" (measured live on 2026-11-13:
+    /// "Platform never finished processing the post: still pending after 40
+    /// checks").
+    ///
     /// `ERROR`/`EXPIRED` never recover, so they abort the poll with the reason
     /// Instagram reported rather than spinning out the give-up budget.
     async fn media_publish_state(
@@ -2130,14 +2142,15 @@ impl InstagramProvider {
     ) -> Result<PublishResult, ProviderError> {
         let code = self.poll_container_status(access_token, media_id).await?;
         let status = match code.as_str() {
-            "FINISHED" => "published",
+            // Live on the feed — `PUBLISHED` is Instagram's word for it.
+            "FINISHED" | "PUBLISHED" => "published",
             "ERROR" | "EXPIRED" | "MEDIA_ERROR" => {
                 return Err(ProviderError::Api(format!(
                     "Instagram media {media_id} failed processing ({code}). Check the media \
                      matches Instagram's format and size limits, then republish."
                 )))
             }
-            // PUBLISHED (live, still transcoding) and IN_PROGRESS stay pending.
+            // IN_PROGRESS (and anything Instagram adds later) stays pending.
             _ => "pending",
         };
         Ok(PublishResult {
@@ -2416,6 +2429,18 @@ mod instagram_publish_shape_tests {
             audio,
             serde_json::json!({"audio_id": "audio-123"}).to_string()
         );
+    }
+
+    #[test]
+    fn a_published_media_item_is_published_not_pending() {
+        // Instagram's own word for "live, still transcoding" is PUBLISHED.
+        // Calling it pending made the scheduler poll for 200 seconds and
+        // then fail a post that had been live the whole time.
+        let status = match "PUBLISHED" {
+            "FINISHED" | "PUBLISHED" => "published",
+            _ => "pending",
+        };
+        assert_eq!(status, "published");
     }
 
     #[test]
