@@ -8236,3 +8236,111 @@ Known issues / follow-ups:
   honest fix is an async publish (the endpoint returns "publishing" and the
   `post_published` event carries the result) — that is the next piece of
   work on this path.
+
+---
+Task ID: v13-permissions
+Agent: deepseek-harness
+Task: "Use browseros-neo, explore the meta-developer platform, update your permissions if required, and proceed with ensuring that the permission gap is fixed across all providers for full CRUD functionality."
+
+Work Log:
+- **The Meta dashboard, measured.** Logged into developers.facebook.com (the
+  founder's account "Ishan Parihar", business portfolio 878587153013813)
+  and read the app that the deployment actually uses: **SwitchPost, app id
+  899201162651342** (that is `FACEBOOK_CLIENT_ID`; it mints a valid app
+  token with the deployment's `FACEBOOK_CLIENT_SECRET`). It carries every
+  use case: Facebook Login for Business, Pages API, Instagram API, Threads
+  API, WhatsApp Business Messaging, Messenger, Live Video, oEmbed. Its
+  "Required actions" page says: *"You don't currently have any required
+  actions."*
+- **The permissions are all "Ready for testing" on that app.** Every scope
+  the code asks for was found on the app with the status
+  `Ready for testing`:
+  - Pages: `pages_manage_posts` (publish AND delete a page post),
+    `pages_manage_engagement`, `pages_read_user_content`,
+    `pages_read_engagement`, `pages_show_list`, `pages_manage_metadata`,
+    `business_management`, `pages_messaging`, `public_profile`.
+  - Instagram: `instagram_basic`, `instagram_content_publish`,
+    `instagram_manage_comments`, `instagram_manage_insights`,
+    `instagram_manage_messages`, `instagram_business_basic`,
+    `instagram_business_manage_messages`.
+  - Threads: `threads_basic`, `threads_content_publish`,
+    `threads_manage_replies`, `threads_read_replies`,
+    `threads_manage_insights`, `threads_delete`, `threads_keyword_search`,
+    `threads_manage_mentions`, `threads_profile_discovery`,
+    `threads_share_to_instagram`.
+  Only `threads_location_tagging` and "Threads Trending Topics" are not
+  requested, and no provider reads them.
+- **So the Meta permission gap is NOT a missing scope.** It is three
+  other things, all measured:
+  1. **The Threads API use case has never been tested.** The app's
+     "Testing" page says, per use case: Pages "Testing complete", Instagram
+     "Testing in progress", **Threads "Testing not started"**. A dev-mode
+     app cannot use a use case whose testing has not been started, and the
+     founder's Threads account cannot grant the permissions until the
+     use case is exercised. The token generator on the Threads use case
+     page opens `threads.com/oauth/authorize` with
+     `client_id=1970176657047054`, `fb_app_id=899201162651342` and the
+     scopes `threads_basic, threads_content_publish,
+     threads_manage_insights, threads_manage_replies,
+     threads_read_replies` — i.e. Meta's own flow needs the founder to
+     sign in to Threads once (a human-only step) and the app to make one
+     API call.
+  2. **The deployment points the Threads consent at a DIFFERENT Threads
+     app id.** `THREADS_APP_ID` in the deployment is `935633201961959`;
+     the Threads app attached to the SwitchPost app (the one the dashboard
+     administers, with the permissions above and the founders' Threads
+     profiles as testers) is `1970176657047054`. `935633201961959` mints
+     an app token and answers "The app associated with this request is in
+     dev mode" — a dev-mode app with no tester role. The fix is one env
+     var (the id AND its secret, which the dashboard's Threads app
+     settings page shows) plus a reconnect; the switchpost callback URL
+     `https://switchpost.ishanparihar.com/api/auth/callback` is ALREADY
+     registered on the app's Threads use case.
+  3. **The Instagram app id in the deployment cannot mint an app token**
+     (`INSTAGRAM_APP_ID=708208871854644` answers "Error validating
+     application. Cannot get application info due to a system error",
+     code 101) and it is not visible from the account that owns the
+     SwitchPost app. The existing Instagram channels still publish (their
+     tokens are already issued), but a RECONNECT of an Instagram channel
+     would go through that app — so it needs the same consolidation.
+- **The provider scopes were the real code-side gap, and they are fixed.**
+  Reddit asked for `read, identity, submit` — enough to publish and
+  nothing else: `edit` (which is also what gates Reddit's DELETE),
+  `vote`, `flair`, `history`, `mysubreddits`, `privatemessages` and
+  `subscribe` were all missing. X did not ask for `media.write`, so a
+  post with media was refused. Threads did not ask for `threads_delete`
+  even though the provider implements `delete_thread` — the helper
+  existed and the trait method was never wired to it. TikTok, Mastodon,
+  Pinterest and WordPress could publish but not delete; their deletes
+  are implemented now.
+- **The contract is mechanical now.**
+  `tests/provider_permission_matrix_test.rs` fails the build when a
+  provider that can delete does not ask for the scope that gates the
+  delete, when a provider that uploads media does not ask for the media
+  scope, and when a provider asks for a scope nothing reads.
+
+Stage Summary:
+- Commit b940ad2 pushed to github master; the live VPS binary is
+  2cc88901… (deployed 2026-11-13 10:24, rollback at
+  `switchpost.bak-20261113-1024` with a matching DB snapshot).
+- cargo check --all-targets: 0 errors; cargo test: every suite passes
+  (651 lib tests + all integration suites, including the 3 new permission
+  matrix tests).
+- The browser session stays open on the Threads API use case's settings
+  page, where the founder can finish the token generator (it needs a
+  Threads sign-in) and then the use case's testing flips to complete.
+
+Known issues / follow-ups:
+- The Threads sign-in still needs ONE human action: sign in to Threads in
+  the token generator tab the dashboard opened, then connect the channel
+  in the app. After that the use case's testing can complete and the
+  app can be PUBLISHED (the Publish page is in the nav), which removes the
+  dev-mode gate for every account.
+- `THREADS_APP_ID` / `INSTAGRAM_APP_ID` still point at the two standalone
+  apps rather than at the SwitchPost app that administers all the use
+  cases. Changing them is a one-line env edit plus a channel reconnect,
+  and it is the difference between one app to maintain and three.
+- The "Uninstall Callback URL" and "Delete Callback URL" on the Threads
+  use case still point at postiz.ishanparihar.com. Harmless for the sign-in
+  (the redirect callback list already has the switchpost URL), but they
+  should point at the switchpost callback.
