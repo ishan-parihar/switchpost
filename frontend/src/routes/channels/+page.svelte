@@ -55,11 +55,6 @@
   // of "Instagram"). Those overrides live here so the central map stays
   // generic.
   import { providerLabel as centralProviderLabel, HIDDEN_PROVIDERS } from "$lib/providers";
-  // Google Suite grouping: Gmail and Google collapse into ONE tile (they are
-  // one credential pair and their scopes coexist in one consent), while
-  // Calendar, Drive and YouTube keep their own tiles because Google refuses
-  // their scope combinations. See the module for the measured reasoning -
-  // `tests/google_suite_group_test.rs` pins both the list and the reason.
   const PROVIDER_LABEL_OVERRIDES: Record<string, string> = {
     x: "X (Twitter)",
     "instagram-standalone": "Instagram (Standalone)",

@@ -4,34 +4,20 @@ import type { Integration } from "$lib/api/integrations";
  * Group connected channels by the heading they belong under.
  *
  * ── THE DEFECT THIS CLOSES ─────────────────────────────────────
- * The old grouping keyed on `provider_name`, and the Google-family names
- * are all DIFFERENT: `google` reports "Google Suite", `gmail` reports
- * "Gmail", `calendar` reports "Google Calendar", `drive` reports
- * "Google Drive", `youtube` reports "YouTube".
+ * The old grouping keyed on `provider_name`, and two providers with the
+ * same account behind them report DIFFERENT names, so one login produced
+ * several channel-list headings. Keying on the provider identifier keeps
+ * two integrations of the same provider under one heading without
+ * relying on the display name being identical.
  *
- * One "Connect Google" on the connect grid therefore produced six
- * channel-list headings —
- *
- *     Google Suite (1)
- *     Gmail (1)
- *     Google Calendar (1)
- *     Google Drive (1)
- *     YouTube (1)
- *
- * — for a single login, on the same account, which is the redundancy the
- * founder reported: the unified Google-Suite option is not unified once
- * the channels land in the list. Every heading read (1), so none of them
- * carried a count that described the account.
- *
- * THE RULE: the Google family is ONE credential pair (`provider_credentials`
- * resolves every one of them to the same client id/secret, and
- * `social/google_oauth.rs` is the single exchange/refresh), so the list
- * must present it as one group. Every other provider keeps its own
- * heading, unchanged.
- *
- * The key is the PROVIDER IDENTIFIER, not the display name: two
- * integrations of the same provider share a heading without relying on
- * the display name being identical.
+ * ── WHY IT IS ONE HEADING PER PROVIDER ─────────────────────────
+ * The Google family used to collapse into a single "Google Suite"
+ * heading. That was a promise the unified `google` provider kept - and
+ * it was the wrong promise: the founder's six YouTube channels showed
+ * under a heading that named none of them ("Google Suite (7)"). The
+ * unified provider is gone (it published YouTube videos and nothing
+ * else), so each Google service is its own provider with its own consent
+ * and its own heading.
  */
 export function groupIntegrations(
   integrations: Integration[]
@@ -58,8 +44,7 @@ export function groupIntegrations(
 /**
  * The heading a group's integrations should display.
  *
- * A Google-family group is shown as "Google Suite"; every other group keeps
- * the provider's own display name, so the list never renames something the
+ * The provider's own display name, so the list never renames something the
  * founder connected under a different name.
  */
 export function groupHeading(
