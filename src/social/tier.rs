@@ -291,7 +291,7 @@ pub fn provider_meta(id: &str) -> (&str, &'static str, &'static str) {
         "telegram-user" => (
             "Telegram User",
             "✈️",
-            "Requires: TELEGRAM_API_ID + TELEGRAM_API_HASH from https://my.telegram.org",
+            "No env var — phone + code at connect (a custom TELEGRAM_API_ID is optional)",
         ),
         _ => (id, "🔗", "Missing environment variables"),
     };

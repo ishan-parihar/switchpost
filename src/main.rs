@@ -218,37 +218,26 @@ async fn main() -> anyhow::Result<()> {
             .clone()
             .unwrap_or_else(|| config::DEFAULT_TELEGRAM_SESSION_DIR.into()),
     );
-    let telegram_client_manager = if let (Some(api_id_str), Some(api_hash)) =
-        (&config.telegram_api_id, &config.telegram_api_hash)
-    {
-        let api_id: i32 = api_id_str.parse().map_err(|e| {
-            anyhow::anyhow!("Invalid TELEGRAM_API_ID: expected numeric, got {api_id_str}: {e}")
-        })?;
-        if api_hash.trim().is_empty() {
+    let telegram_client_manager = {
+        // Telegram Desktop's public credentials are the default (see
+        // `Config::DEFAULT_TELEGRAM_API_ID` and tg-lyr): a phone number and a
+        // code are enough, and TELEGRAM_API_ID/HASH are optional overrides.
+        let api_id = config.telegram_api_id_resolved();
+        let api_hash = config.telegram_api_hash_resolved();
+        if config.telegram_uses_default_credentials() {
             tracing::warn!(
-                "TELEGRAM_API_HASH is set but empty — Telegram user client starts unconfigured"
+                "TELEGRAM_API_ID / TELEGRAM_API_HASH not set — using Telegram Desktop's public \
+                 credentials (api_id {api_id}). Set your own pair for a separate app identity."
             );
-            Some(Arc::new(TelegramClientManager::unconfigured(
-                telegram_session_dir,
-            )))
-        } else {
-            Some(Arc::new(TelegramClientManager::new(
-                api_id,
-                api_hash.clone(),
-                telegram_session_dir,
-            )))
         }
-    } else {
-        tracing::warn!(
-            "TELEGRAM_API_ID / TELEGRAM_API_HASH not set — Telegram user client starts \
-             unconfigured. Paste them into the Telegram User channel's setup form to enable it."
-        );
-        Some(Arc::new(TelegramClientManager::unconfigured(
+        Some(Arc::new(TelegramClientManager::new(
+            api_id,
+            api_hash,
             telegram_session_dir,
         )))
     };
 
-    // ── WhatsApp Web client (wa-rs replaces Go wacli sidecar) ──
+
     let wa_client: switchpost::wa::OptionalWhaClient = if let Some(dir) = &config.whatsapp_store_dir
     {
         let store_dir = PathBuf::from(dir);

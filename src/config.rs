@@ -417,6 +417,37 @@ impl Config {
     }
 
     /// Returns (client_id, client_secret) for a given provider
+    /// The api id the Telegram client is built with: the operator's own when
+    /// set, otherwise Telegram Desktop's public one (see
+    /// [`DEFAULT_TELEGRAM_API_ID`]). Never fails — that is the point.
+    pub fn telegram_api_id_resolved(&self) -> i32 {
+        self.telegram_api_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse::<i32>().ok())
+            .unwrap_or(DEFAULT_TELEGRAM_API_ID)
+    }
+
+    /// The api hash the Telegram client is built with, same rule as
+    /// [`Self::telegram_api_id_resolved`].
+    pub fn telegram_api_hash_resolved(&self) -> String {
+        self.telegram_api_hash
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_TELEGRAM_API_HASH)
+            .to_string()
+    }
+
+    /// True when the operator has not supplied their own Telegram app
+    /// credentials, so the client runs on Telegram Desktop's public pair.
+    /// Logged once at startup, exactly as `tg-lyr` warns.
+    pub fn telegram_uses_default_credentials(&self) -> bool {
+        self.telegram_api_id_resolved() == DEFAULT_TELEGRAM_API_ID
+            && self.telegram_api_hash_resolved() == DEFAULT_TELEGRAM_API_HASH
+    }
+
     pub fn provider_credentials(&self, provider: &str) -> Option<(String, String)> {
         match provider {
             "x" => Some((self.x_client_id.clone()?, self.x_client_secret.clone()?)),
@@ -469,12 +500,9 @@ impl Config {
             // made /setup and the REST connect handler offer a Connect button
             // that could only fail at request-code time with a raw 502, and
             // it made `integrations.providers` claim the channel was ready.
-            "telegram-user" => match (&self.telegram_api_id, &self.telegram_api_hash) {
-                (Some(id), Some(hash)) if !id.trim().is_empty() && !hash.trim().is_empty() => {
-                    Some(("user".into(), "mtproto".into()))
-                }
-                _ => None,
-            },
+            // Always configured: the manager falls back to Telegram Desktop's
+            // public credentials, so a phone number and a code are enough.
+            "telegram-user" => Some(("user".into(), "mtproto".into())),
             "whatsapp" => self
                 .whatsapp_store_dir
                 .as_ref()
@@ -529,6 +557,16 @@ impl Config {
         self.reddit_refresh_token.clone()
     }
 }
+
+/// Telegram Desktop's public API credentials.
+///
+/// `tg-lyr` (the reference implementation the founder named) ships these as
+/// the built-in default: a user who has never been to my.telegram.org can
+/// still log in with a phone number and a code, because Telegram accepts the
+/// Desktop client's well-known id/hash pair. `TG_API_ID` / `TG_API_HASH`
+/// remain optional overrides for anyone who wants their own app identity.
+pub const DEFAULT_TELEGRAM_API_ID: i32 = 2040;
+pub const DEFAULT_TELEGRAM_API_HASH: &str = "b18441a1ff607e10a989891a5462e627";
 
 fn opt(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
@@ -654,8 +692,8 @@ pub fn frontend_origins_cover_port(frontend_url: &str, bind_port: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_sqlite_url, frontend_origins_cover_port, Config, DEFAULT_TELEGRAM_SESSION_DIR,
-        DEFAULT_WHATSAPP_STORE_DIR,
+        ensure_sqlite_url, frontend_origins_cover_port, Config, DEFAULT_TELEGRAM_API_HASH,
+        DEFAULT_TELEGRAM_API_ID, DEFAULT_TELEGRAM_SESSION_DIR, DEFAULT_WHATSAPP_STORE_DIR,
     };
 
     #[test]
@@ -823,36 +861,40 @@ mod tests {
     }
 
     /// telegram-user is MTProto: without the id/hash the client manager is
-    /// never built, so the channel must report UNCONFIGURED rather than
-    /// pretending to be ready. The dummy pair this arm used to return made
-    /// /setup and the REST connect handler offer a Connect button that could
-    /// only fail at request-code time.
+    /// Telegram Desktop's public credentials are the DEFAULT (see
+    /// [`DEFAULT_TELEGRAM_API_ID`] and tg-lyr): a phone number and a code are
+    /// enough, so the channel is configured even when the operator has never
+    /// been to my.telegram.org. Their own pair, when set, wins.
     #[test]
-    fn telegram_user_credentials_reflect_the_real_requirement() {
+    fn telegram_user_credentials_need_no_env_vars() {
         let mut config = Config::from_env().expect("config");
 
-        // No id/hash: not configured, so the UI says so up front.
+        // No id/hash: still configured, on Telegram Desktop's public pair.
         config.telegram_api_id = None;
         config.telegram_api_hash = None;
-        assert!(
-            config.provider_credentials("telegram-user").is_none(),
-            "telegram-user with no api id/hash must report as not configured"
-        );
-
-        // A blank pair is the same as absent: the CLI treats empty strings as
-        // "not set" when it builds the manager, so config must agree.
-        config.telegram_api_id = Some("  ".into());
-        config.telegram_api_hash = Some("".into());
-        assert!(
-            config.provider_credentials("telegram-user").is_none(),
-            "a blank api id/hash must report as not configured"
-        );
-
-        config.telegram_api_id = Some("12345".into());
-        config.telegram_api_hash = Some("abc".into());
+        assert_eq!(config.telegram_api_id_resolved(), DEFAULT_TELEGRAM_API_ID);
+        assert_eq!(config.telegram_api_hash_resolved(), DEFAULT_TELEGRAM_API_HASH);
         assert!(
             config.provider_credentials("telegram-user").is_some(),
-            "a real id/hash pair must report as configured"
+            "telegram-user must be connectable with a phone number alone"
+        );
+        assert!(config.telegram_uses_default_credentials());
+
+        // A blank pair is "not set" - the CLI treats empty strings that way,
+        // so config must agree rather than parse "" as an id.
+        config.telegram_api_id = Some("  ".into());
+        config.telegram_api_hash = Some("".into());
+        assert_eq!(config.telegram_api_id_resolved(), DEFAULT_TELEGRAM_API_ID);
+        assert!(config.telegram_uses_default_credentials());
+
+        // The operator's own app identity wins.
+        config.telegram_api_id = Some("12345".into());
+        config.telegram_api_hash = Some("abc".into());
+        assert_eq!(config.telegram_api_id_resolved(), 12345);
+        assert_eq!(config.telegram_api_hash_resolved(), "abc");
+        assert!(
+            !config.telegram_uses_default_credentials(),
+            "a custom pair must not be reported as the default"
         );
     }
 }
