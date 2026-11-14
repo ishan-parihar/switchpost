@@ -8419,3 +8419,56 @@ Known issues / follow-ups:
 - The 12 credential-gated providers above are listed in the audit report
   with what each needs. None was deleted: they are one console app away,
   not a code cycle.
+
+---
+Task ID: v14-should-fix-plan
+Agent: deepseek-harness
+Task: "Create a plan for the execution of the SHOULD FIX pointer."
+
+Work Log:
+- SHOULD FIX (#4 in the ponytail-audit): 12 of the 28 providers cannot be
+  connected on this deployment because the env carries no credentials for
+  them. Measured by calling /api/public/connect/{provider} for every
+  catalogue entry: 16 answer with an OAuth redirect, 12 answer
+  "is not configured".
+- The 12 split into two classes, and the plan splits with them:
+
+  CLASS A — OAuth developer apps on another platform's console (7):
+  bluesky, discord, mastodon, pinterest, slack, tiktok, github(github
+  actually uses a pasted token — see class B).
+  Each needs: register an app on the platform, get the client id/secret
+  (mastodon: per-instance), set the two env vars on the VPS, restart, then
+  one connect flow click. Per provider ~15-30 minutes of console work plus
+  one restart. There is no code work. The risk is App Review: TikTok and
+  Pinterest both gate publishing on a review that can take days, so these
+  two are "build the app now, it will not publish until the review
+  clears".
+
+  CLASS B — API tokens the founder already holds, pasted at connect time
+  (5): devto (DEVTO_API_KEY), medium (MEDIUM_ACCESS_TOKEN), hashnode
+  (HASHNODE_API_KEY), github (GITHUB_TOKEN, a PAT), telegram-bot
+  (TELEGRAM_BOT_TOKENS), telegram-user (TELEGRAM_API_ID + TELEGRAM_API_HASH
+  from https://my.telegram.org).
+  These are ~5 minutes each, no platform review, no approval. telegram-user
+  additionally needs one OTP round-trip by the founder.
+
+- Execution order (highest first): B first (immediate value, Dev.to/
+  Hashnode/GitHub are dev blogging the founder already does), then the
+  OAuth apps that do not gate on review (Discord, Slack, Mastodon,
+  Bluesky), then the reviewed ones (TikTok, Pinterest) — those last two
+  are started now but are long poles.
+
+- The catalogue must say which class a provider is in BEFORE the founder
+  clicks Connect. Today the refusal is honest (the message names the env
+  vars) but arrives after the click. Smallest change: provider_meta()
+  already carries the env hint; the channels page needs a "needs
+  credentials" chip on those 12 tiles instead of a silent Connect button.
+
+- What this plan does NOT do: delete any of the 12. Each is one console
+  app away from working, not a code cycle. Deleting them would delete
+  tested, complete code to save ~30 minutes of console work per provider.
+
+Verification / next steps:
+- The console registration work cannot be automated and cannot be done
+  without the founder's accounts. The app-side work (the chip, and the
+  env-var checklist printout) is ~30 lines and one Svelte component.
