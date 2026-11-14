@@ -220,13 +220,78 @@ pub fn provider_meta(id: &str) -> (&str, &'static str, &'static str) {
         "skool" => (
             "Skool",
             "🎓",
-            "Requires Chrome extension — install, login to Skool, extract auth_token cookie",
+            "No env var — install the Chrome extension, log in to Skool, extract the auth_token cookie",
         ),
         "github" => ("GitHub", "🐙", "Requires: GITHUB_TOKEN"),
         "reddit" => (
             "reddit",
             "🔗",
             "Cookie auth available (no env vars needed) — or set REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET for OAuth",
+        ),
+        // The Google services share one credential pair with `youtube`
+        // (`Config::provider_credentials` resolves all of them to
+        // YOUTUBE_CLIENT_ID/SECRET), so the hint is the same - and without
+        // these arms they fell through to "Missing environment variables",
+        // which names nothing to set.
+        "gmail" => ("Gmail", "📧", "Requires: YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET"),
+        "calendar" => (
+            "Google Calendar",
+            "📅",
+            "Requires: YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET",
+        ),
+        "drive" => (
+            "Google Drive",
+            "📁",
+            "Requires: YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET",
+        ),
+        "google_my_business" => (
+            "Google My Business",
+            "🏢",
+            "Requires: YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET",
+        ),
+        // OAuth apps on another platform's console.
+        "discord" => (
+            "Discord",
+            "🎮",
+            "Requires: DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET (or a DISCORD_BOT_TOKEN)",
+        ),
+        "slack" => ("Slack", "💬", "Requires: SLACK_CLIENT_ID + SLACK_CLIENT_SECRET"),
+        "mastodon" => (
+            "Mastodon",
+            "🐘",
+            "Requires: MASTODON_CLIENT_ID + MASTODON_CLIENT_SECRET from your instance",
+        ),
+        "pinterest" => (
+            "Pinterest",
+            "📌",
+            "Requires: PINTEREST_CLIENT_ID + PINTEREST_CLIENT_SECRET",
+        ),
+        "tiktok" => ("TikTok", "🎵", "Requires: TIKTOK_CLIENT_ID + TIKTOK_CLIENT_SECRET"),
+        "bluesky" => (
+            "Bluesky",
+            "🦋",
+            "Requires: BLUESKY_HANDLE + BLUESKY_APP_PASSWORD",
+        ),
+        "github" => ("GitHub", "🐙", "No env var — paste a GitHub PAT at connect"),
+        // Paste-at-connect providers. They have NO env var to set - the
+        // founder pastes the token in the app - so the hint says what to
+        // paste instead. Without these arms the fallback read "Missing
+        // environment variables", which is both wrong (there is nothing to
+        // miss) and unactionable (it names nothing to paste).
+        "devto" => ("Dev.to", "🚀", "No env var — paste a DEVTO_API_KEY at connect"),
+        "medium" => ("Medium", "📝", "No env var — paste a MEDIUM_ACCESS_TOKEN at connect"),
+        "hashnode" => ("Hashnode", "📗", "No env var — paste a HASHNODE_API_KEY at connect"),
+        "wordpress" => ("WordPress", "📄", "No env var — paste an application password at connect"),
+        "whatsapp" => ("WhatsApp", "🟢", "No env var — pair the phone with WhatsApp Web at connect"),
+        "telegram-bot" => (
+            "Telegram Bot",
+            "✈️",
+            "No env var — paste TELEGRAM_BOT_TOKENS, or set them for every channel",
+        ),
+        "telegram-user" => (
+            "Telegram User",
+            "✈️",
+            "Requires: TELEGRAM_API_ID + TELEGRAM_API_HASH from https://my.telegram.org",
         ),
         _ => (id, "🔗", "Missing environment variables"),
     };

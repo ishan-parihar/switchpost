@@ -73,6 +73,7 @@ export interface ProviderStatus {
   identifier: string;
   name: string;
   configured: boolean;
+  requires: string;
   oauth: boolean;
   has_credentials: boolean;
   editor_type: string;

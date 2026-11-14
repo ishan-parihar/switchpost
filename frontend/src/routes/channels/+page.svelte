@@ -142,6 +142,18 @@
     return m;
   });
   let connectableProviders = $derived(availableProviders);
+  /**
+   * Which providers can actually be connected on THIS deployment, and what
+   * each one is missing.
+   *
+   * The grid used to offer a Connect button for a provider whose credentials
+   * were absent, and the founder learned it was impossible only after
+   * clicking - the refusal was honest, but it arrived one click too late.
+   * `configured` is the LIVE state from the server (paste a token in the app
+   * and it flips with no restart), and `requires` is the provider's own env
+   * hint, so the tile names the exact variables.
+   */
+  let requiresById = $state<Record<string, { configured: boolean; requires: string }>>({});
 
   // A provider id the grid should render as the suite tile's representative is
   // `google`; the tile needs to know it is a group so it can show the note.
@@ -150,8 +162,16 @@
     loading = true;
     error = "";
     try {
-      const r = await integrationsApi.list();
+      const [r, p] = await Promise.all([
+        integrationsApi.list(),
+        integrationsApi.listProviders(),
+      ]);
       if (r.data) integrations = r.data.integrations;
+      if (p.data) {
+        requiresById = Object.fromEntries(
+          p.data.map((s) => [s.identifier, { configured: s.configured, requires: s.requires }]),
+        );
+      }
     } catch {
       error = "Failed to load channels";
     }
@@ -436,6 +456,13 @@
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
         {#each connectableProviders as provider (provider)}
           {@const connCount = connectedCounts.get(provider) ?? 0}
+          {@const info = requiresById[provider]}
+          {@const unavailable = info !== undefined && !info.configured}
+          {@const tileLabel = unavailable
+            ? `${providerLabel(provider)} is not configured on this server. ${info?.requires}`
+            : connCount > 0
+              ? `Add another ${providerLabel(provider)} (${connCount} connected)`
+              : providerLabel(provider)}
           <!--
             A wrapper `div` for the EVERY case, not just the suite: the
             chooser below is a sibling of the tile button, never a child.
@@ -446,8 +473,9 @@
           <div class="relative">
             <button
               onclick={() => initiateConnect(provider)}
-              disabled={connecting === provider}
-              aria-label="Connect another {providerLabel(provider)}{connCount > 0 ? ` (${connCount} connected)` : ''}"
+              disabled={connecting === provider || unavailable}
+              title={unavailable ? info?.requires : undefined}
+              aria-label={tileLabel}
               class="w-full h-full relative flex flex-col items-center gap-2 p-4 bg-background-input border border-line rounded-xl hover:border-accent/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {#if connCount > 0}
@@ -459,6 +487,20 @@
               <span class="text-xs text-center">
                 {connCount > 0 ? `Add another ${providerLabel(provider)}` : providerLabel(provider)}
               </span>
+              {#if unavailable}
+                <!--
+                  The one thing the founder needs BEFORE clicking: this
+                  provider has no credentials on this server, and what to
+                  put in the env to get them. A refusal after the click is
+                  too late to plan around.
+                -->
+                <span class="text-[10px] leading-tight text-center px-1 text-amber-600 dark:text-amber-400">
+                  Needs credentials
+                </span>
+                <span class="text-[10px] leading-tight text-center px-1 text-muted">
+                  {info?.requires}
+                </span>
+              {/if}
             </button>
 
           </div>

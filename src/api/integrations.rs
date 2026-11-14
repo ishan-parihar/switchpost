@@ -443,6 +443,16 @@ pub struct ProviderStatus {
     pub identifier: String,
     pub name: String,
     pub configured: bool,
+    /// What the operator must put in the env before this provider can be
+    /// connected — `provider_meta`'s hint, e.g. "Requires:
+    /// BLUESKY_HANDLE + BLUESKY_APP_PASSWORD". Empty when the provider
+    /// needs nothing (a paste-at-connect flow).
+    ///
+    /// The channels grid used to offer a Connect button for a provider
+    /// whose credentials were absent, and the founder learned it was
+    /// impossible only after clicking. The refusal was honest, but it
+    /// arrived one click too late.
+    pub requires: String,
     pub oauth: bool,
     pub has_credentials: bool,
     pub editor_type: String,
@@ -502,6 +512,7 @@ pub async fn list_providers(
             identifier: id.to_string(),
             name: provider.name().to_string(),
             configured: has_creds,
+            requires: crate::social::tier::provider_meta(id).2.to_string(),
             oauth: provider.uses_oauth(),
             has_credentials: has_creds,
             editor_type: format!("{:?}", provider.editor_type()),
