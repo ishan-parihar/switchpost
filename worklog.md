@@ -8344,3 +8344,78 @@ Known issues / follow-ups:
   use case still point at postiz.ishanparihar.com. Harmless for the sign-in
   (the redirect callback list already has the switchpost URL), but they
   should point at the switchpost callback.
+
+---
+Task ID: v14-provider-audit
+Agent: deepseek-harness
+Task: "We have not tested the remaining provider/channels. Ensure every provider works, and if not, remove the redundant providers that are non-essential and cost more work than we can afford. Use /ponytail-audit. Also: the channels tab has an outlier at google-suite, and if youtube needs a different login that option is missing from the catalogue."
+
+Work Log:
+- **The outlier, measured live.** The channels tab read `Google Suite (7)` —
+  seven channels under a heading that named none of them. The database says
+  why: three integration rows carried provider_identifier `google` and four
+  `youtube`, and the rows under `google` were the founder's own YouTube
+  channels (114055895015686009783, UC_PGDIuZwa9gB7BgOeYHHeA,
+  103083742315451755238), one of them the same channel already connected
+  under `youtube`. The frontend collapsed the whole Google family into one
+  heading for one credential pair; the backend had a provider whose entire
+  publish path was YouTube video upload with the same
+  `provider_credentials("youtube")`, the same 5000-char limit and the same
+  `youtube/v3` calls as `youtube`.
+- **What was cut (counted).** `src/social/google.rs` 341 lines;
+  `src/social/scope_guard.rs` 187 lines (its only runtime caller was the
+  deleted provider's own generate_auth_url, so it was a control with no
+  call site left — Google's refused-pair rule now lives in
+  `tests/connect_flow_redteam_test.rs`, over the REGISTRY, which is a
+  stronger place for it); `frontend/src/lib/channels/google-suite.ts`
+  220 lines (the one-tile-for-the-whole-family button, whose promise the
+  deleted provider kept); `tests/google_suite_group_test.rs` 453 lines
+  (its subject was the deleted module). Total removed: 1,201 lines, one
+  dependency-free module, no dependency change.
+- **The catalogue gap the founder named is the same defect from the other
+  side.** `youtube` was always in the catalogue; what was missing was a
+  *reason* to pick it, because a second tile (`Google Suite`) claimed the
+  same login. With `google` gone the grid renders one tile per provider
+  again, and the connected list groups by provider identifier, so the
+  founder now reads `YouTube (6)` instead of `Google Suite (7)`.
+- **The MCP Google tools would have broken silently.** `tools_google.rs`
+  resolved its token through the unified `google` integration — the day
+  the provider was cut, every YouTube/Gmail/Calendar tool would have found
+  no token. Each now resolves its own family, which is what the file's own
+  comment demanded (a YouTube token on the Gmail API is a 403).
+- **The live data was migrated first, with a backup.** On the VPS:
+  `data/switchpost.db.pre-google-cut.db`, then the three `google` rows
+  moved to `youtube` (the byte-for-byte duplicate dropped). Live after the
+  deploy: 24 channels, `youtube: 6`, no `google` rows, "All healthy" —
+  the "1 needing attention" flag the founder saw went with the duplicate.
+- **The provider census (the audit's other half).** 28 providers are
+  registered. 16 can be connected on this deployment right now; 12 cannot,
+  because the .env has no credentials for them: bluesky, devto, discord,
+  github, hashnode, mastodon, medium, pinterest, slack, telegram-bot,
+  telegram-user, tiktok. Measured by calling
+  `/api/public/connect/{provider}` for every catalogue entry and reading
+  the status: 307 = configured, "is not configured" = no credentials.
+  Every one of those twelve is a complete provider (the code is written,
+  the scopes are right, the tests pass); what is missing is a developer
+  app on that platform, which is the founder's console work, not code.
+
+Stage Summary:
+- Commit 5abb999, pushed to github master. Live binary 4d854cd7…, rollback
+  `switchpost.bak-20261114-0538` with a matching DB snapshot.
+- cargo check --all-targets: 0 errors; cargo test --offline: 79 suites,
+  0 failures; frontend pnpm build + svelte-check: clean.
+- The live app reports 28 providers and 24 channels with no orphaned
+  `google` rows; the channels tab groups YouTube under its own heading.
+
+Known issues / follow-ups:
+- **Threads login.** Postiz's own working Threads token answers: "This
+  Threads account needs to complete a checkpoint before it can access this
+  app. To recover access, log in to www.threads.com and follow the
+  instructions." (code 190). Our app id, secret, scopes, redirect URI and
+  app roles all match Postiz's exactly (verified by hash: our
+  THREADS_APP_ID and INSTAGRAM_APP_ID are byte-identical to the running
+  Postiz container's). The remaining step is on the Threads account, not in
+  either codebase: sign in at threads.com and clear the checkpoint.
+- The 12 credential-gated providers above are listed in the audit report
+  with what each needs. None was deleted: they are one console app away,
+  not a code cycle.
