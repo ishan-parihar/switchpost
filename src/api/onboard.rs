@@ -37,7 +37,7 @@ pub struct PublicConnectQuery {
 pub struct OnboardQuery {
     pub pending: Option<String>,
     pub integration_id: Option<String>,
-    /// A session JWT from an in-flight OAuth chain (kept for compatibility).
+    /// A 30-minute `ac_…` code from /setup, never a session JWT.
     pub token: Option<String>,
     pub connected: Option<String>,
     pub error: Option<String>,
@@ -48,8 +48,9 @@ pub struct OnboardQuery {
 ///
 /// Accepts EITHER:
 ///   (a) the `sf_session` cookie (preferred — set by /api/auth/login), OR
-///   (b) a `?token=<jwt>` query parameter (used by OAuth redirect chains
-///       where the cookie may not be present, e.g. cross-origin callback).
+///   (b) a `?token=<ac_… 30-minute code>` query parameter (one-time-ish codes
+///       minted by this page). A session JWT is NOT accepted here any more —
+///       see the comment in the (b) branch.
 ///
 /// Returns `Ok(user_id)` on success, or `Err` with a redirect to /login
 /// if neither credential is present/valid. This closes the "free JWT
@@ -86,11 +87,13 @@ async fn resolve_authed_user(
                 )),
             };
         }
-        let claims = jwt::validate_token(cred, jwt_secret).map_err(|_| {
-            AppError::BadRequest("Invalid or expired token. Log in via the WebUI first.".into())
-        })?;
-        return Uuid::parse_str(&claims.sub)
-            .map_err(|_| AppError::BadRequest("Invalid user ID in token".into()));
+        // A session JWT in a URL is a 30-day credential that lands in browser
+        // history, proxy logs and the Referer header. The server no longer
+        // emits one (the OAuth callback redirects credential-free, and every
+        // /setup link carries a 30-minute `ac_…` code); accept it in NO case.
+        return Err(AppError::Unauthorized(
+            "That setup link is no longer accepted. Log in to the WebUI, or open /setup for a fresh one.".into(),
+        ));
     }
     // Neither cookie nor token — require login.
     Err(AppError::Unauthorized(
@@ -100,13 +103,13 @@ async fn resolve_authed_user(
 
 /// GET /setup — onboarding HTML dashboard
 ///
-/// AUTH: requires the `sf_session` cookie OR a `?token=<credential>` query
-/// param — a 30-minute `ac_…` code minted by this page, or, for OAuth chains
-/// already in flight, a session JWT. Anonymous visitors
+/// AUTH: requires the `sf_session` cookie OR a `?token=<ac_…>` query
+/// param — a 30-minute code minted by this page. A session JWT is refused.
+/// Anonymous visitors
 /// are rejected with 401 and the frontend redirects them to /login.
 ///
 /// Supports query params:
-///   ?pending={provider}&integration_id={id}&token={jwt} — shows page-picker for multi-step providers
+///   ?pending={provider}&integration_id={id} — shows page-picker for multi-step providers
 ///   ?connected={provider}&name={name} — shows success banner
 pub async fn onboard_page(
     State(state): State<AppState>,
