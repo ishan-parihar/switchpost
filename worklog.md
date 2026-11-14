@@ -8472,3 +8472,54 @@ Verification / next steps:
 - The console registration work cannot be automated and cannot be done
   without the founder's accounts. The app-side work (the chip, and the
   env-var checklist printout) is ~30 lines and one Svelte component.
+
+---
+Task ID: v14-remaining-items
+Agent: deepseek-harness
+Task: "Telegram like tg-lyr (no API id/hash). Re-run the live CRUD sweep;
+ reconnect LinkedIn / LinkedIn Page and re-test Reddit; fix the stale
+ service-worker cache; close the session-JWT-in-a-query-string item."
+
+Work Log:
+- **Telegram: adopted tg-lyr's model (commit 354045b).** tg-lyr ships
+  Telegram Desktop's public credentials (api_id 2040 / api_hash
+  b18441a1ff607e10a989891a5462e627) as the built-in default, with
+  TG_API_ID / TG_API_HASH as optional overrides and a warning when the
+  default is in use. switchpost required the pair, so the channel was
+  refused before it could be offered. Now: Config gains
+  DEFAULT_TELEGRAM_API_ID / _HASH plus three resolvers; the credentials
+  arm always answers; main.rs builds the manager from the resolved pair
+  and logs one warning on the default. The hint is "No env var — phone +
+  code at connect (a custom TELEGRAM_API_ID is optional)". Verified:
+  config tests rewritten to the new contract; 80 suites green.
+- **Session JWT in a query string: closed (commit c8a82ad).** The audit
+  item. `resolve_authed_user` accepted `?token=<session JWT>` (30 days)
+  on /setup and /api/public/connect/*. It could be removed outright
+  because the server no longer emits one: /setup links carry a 30-minute
+  `ac_…` code, and the OAuth callback redirects to /auth/callback
+  without a credential (its comment already refused a URL credential).
+  The branch was dead for every flow this binary produces.
+- **The "stale service-worker cache" — measured, and there is no service
+  worker.** Checked the built bundle: build/ contains only _app/
+  (content-hashed) and index.html; no sw.js, no manifest, no
+  serviceWorker registration anywhere in src/. Checked the server's
+  headers: /_app/immutable/* is `public, max-age=31536000, immutable`,
+  everything else — index.html and the SPA fallback — is `no-cache`.
+  Both are correct, and SvelteKit's hashed assets are the cache-busting
+  hash. What the founder saw was a live SPA tab that had loaded the old
+  bundle at 05:50 and never re-fetched its own HTML: an SPA does not
+  re-request index.html on its own, so a tab opened across a deploy keeps
+  serving the JS it already has. A reload fixes it.
+  NOT ADDED: a focus-time version poll that force-reloads the tab. That
+  is a new feature (it would silently discard an open composer draft),
+  not a cache fix, and there is no defect behind it. The founder can ask
+  for it explicitly.
+
+Stage Summary:
+- Commits 354045b and c8a82ad pushed; 80 suites green.
+- The two code changes (Telegram, JWT) are built-checked but NOT yet
+  deployed — the live binary is still f02ee2aa (needs-credentials).
+- The live CRUD sweep, the LinkedIn / LinkedIn-Page reconnect and the
+  Reddit re-test are NOT done in this session: they need the founder
+  (LinkedIn reauthorize, and a Telegram phone number + code for the new
+  flow), and a browser walk that is long enough to warrant its own turn.
